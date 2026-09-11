@@ -5,7 +5,8 @@ implemented, verified and approved before the next one starts.
 
 Approved decisions and interpretations live in
 [architecture-decisions.md](./architecture-decisions.md). Functionality is
-governed by `CRM_SaaS_Product_Spec_V1.md` (180 sections).
+governed by `CRM_SaaS_Product_Spec_V1.md` (180 sections plus decimal
+sub-sections).
 
 ---
 
@@ -60,6 +61,48 @@ No authentication, no database, no permissions, no business modules.
 - Tenant-isolation contract test enumerating every repository function.
 - RLS backstop test issuing raw SQL with no GUC and with a wrong GUC.
 
+### 1E — PWA Foundation
+
+Spec §179.1, plus §25, §175, §178, §179 and §180.
+
+Deliberately small, and deliberately placed here. It follows **1B**
+because the highest-risk item is session behaviour in standalone
+display, which cannot be verified without real authentication. It
+follows **1D** because the offline screen and install help are shell
+surfaces inside the permission- and module-gated layout. It precedes
+**Milestone 2** so that every feature screen built afterwards inherits
+correct safe-area behaviour, a verified standalone layout and the
+caching prohibition, instead of having them retrofitted across dozens of
+screens.
+
+- `app/manifest.ts` — name, short name, `start_url: "/"`, `scope: "/"`,
+  `display: "standalone"`, theme and background colours.
+- Application icons derived from the approved Limenzy chevron symbol —
+  normal and maskable, with safe-zone padding. The original SVG assets
+  are preserved and never edited.
+- `viewportFit: "cover"` and safe-area tokens. **This fixes a live
+  defect**: the shell already uses `env(safe-area-inset-bottom)` in
+  three places, but without `viewport-fit=cover` those insets resolve to
+  0 on iOS.
+- Correct the `themeColor` values, which no longer match the tokens
+  after the ambient-field revision, and derive the manifest colours from
+  the same source.
+- Apple web-app metadata (`capable`, `title`, `statusBarStyle`).
+- Standalone-mode detection where useful.
+- Install help for Android and iPhone, including the note that the
+  installed application may or may not inherit an existing session.
+- Branded offline fallback showing no workspace content.
+- A service worker restricted to non-sensitive static assets and the
+  offline page. It exists only for the offline fallback, not as an
+  installation requirement.
+- Update strategy for newly deployed versions.
+- HTTPS requirement documented for deployed environments.
+- Tests, and real-device installation verification on Android Chrome and
+  iPhone Safari.
+
+Not in scope: Web Push, background sync, offline mutations, offline CRM
+data, workspace-specific branding, app-store packaging.
+
 ---
 
 ## Milestone 2 — Workspace administration and access control
@@ -109,6 +152,9 @@ Reports is last because it aggregates over every other module's terminal states.
 | Document limits — max size, allowed MIME types, per-workspace quota | Documents (§77, §176)                                                             |
 | Import limits — max file size and row cap                           | Import (§117–§136)                                                                |
 | Node 22 LTS upgrade                                                 | Optional; unlocks current majors of Vitest, jsdom and jest-dom                    |
+| Production hostname                                                 | Deferred; not needed for 1E because start_url and scope are origin-relative       |
+| Web Push provider                                                   | Later milestone; explicitly outside V1 (spec §175, §179.1, §180)                  |
+| Workspace-level PWA branding                                        | Later milestone; would need per-workspace origins — a CTO hosting decision        |
 
 ## Definition of done (every milestone)
 

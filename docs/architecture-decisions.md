@@ -315,6 +315,71 @@ top bar, the earlier selected-navigation treatment, and the solid search field.
 The ambient field from §7a, all routes, navigation, typography, breakpoints,
 placeholder behaviour, package versions and architecture are untouched.
 
+## 7d. Progressive Web App delivery (approved, Milestone 1E)
+
+The CRM is additionally delivered as an installable PWA. **One** Next.js
+App Router codebase, one backend, one PostgreSQL database, one
+multi-tenant product. No Flutter application, no React Native
+application, no separate mobile repository, no A&S Fincare fork.
+
+A&S Fincare uses the same product through its own isolated workspace.
+
+| #   | Decision                                                                                                                                                                                                                                                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | V1 installs under the **Limenzy CRM** product identity. No individual business's branding appears in the manifest, icons or offline screen.                                                                                                                                                                                                       |
+| P2  | `start_url: "/"` and `scope: "/"` — origin-relative. The root route runs the normal server-side authentication, onboarding and workspace-selection flow. The production hostname is deferred and not needed for 1E.                                                                                                                               |
+| P3  | Application icons are **derived from the approved Limenzy chevron symbol**. Original SVG assets are preserved and never edited. The full wordmark is never placed inside a square icon. Separate normal and maskable icons, with maskable safe-zone padding.                                                                                      |
+| P4  | A service worker is **not** treated as a universal installation requirement. It exists only to provide the restricted offline fallback. Manifest, HTTPS, icons and actual installation are validated independently. Automated tooling is a supporting check; real-device installation on Android Chrome and iPhone Safari is the acceptance test. |
+| P5  | No Web Push, no background notifications, no offline mutations, no background sync, no conflict resolution, no offline CRM data in V1.                                                                                                                                                                                                            |
+| P6  | Milestone 1E sits after 1D and before Milestone 2.                                                                                                                                                                                                                                                                                                |
+
+### Caching rule
+
+> Authentication responses, tokens, cookies and session values must never
+> be written to Cache Storage or intentionally cached by the service
+> worker. Normal secure browser cookie storage may be used according to
+> the approved authentication and session policy.
+
+The service worker caches only non-sensitive static assets and the
+offline page, by allow-list. Customer, lead, renewal, email, document and
+report content is never cached. This matters doubly on iOS, where an
+installed application shares service-worker registration and Cache
+Storage with Safari — so anything cached in one context is reachable from
+the other. The cache must therefore be non-sensitive by construction, not
+by context.
+
+### Session behaviour in standalone display
+
+Depending on the browser, operating-system version and installation flow,
+the installed application may inherit the existing cookie session or may
+require the user to sign in. **Both paths must be tested and handled
+correctly.** Being asked to sign in once after installing is expected
+platform behaviour, not an error, and the install help says so.
+
+This reinforces the approved 1B design: session state lives in server-set
+cookies via `@supabase/ssr`, never in `localStorage`.
+
+### Two live defects 1E corrects
+
+| Defect                       | Evidence                                                                                                                           | Consequence                                                                                                                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `viewport-fit=cover` missing | `src/app/layout.tsx` exports `viewport` with `themeColor` only, while the shell uses `env(safe-area-inset-bottom)` in three places | Safe-area insets resolve to **0 on iOS**; the bottom bar sits under the home indicator once installed. `viewportFit` is supported by Next's type (`extra-types.d.ts:52`) even though the docs page omits it. |
+| `themeColor` values stale    | Meta declares `#fafbfe` / `#0b0f1a`; the tokens now compute to `#F5FAFE` / `#0F1728` after the ambient-field revision              | Installed status bar and splash do not match the application ground. Manifest colours must derive from the same source.                                                                                      |
+
+### Why per-tenant installed branding is not V1
+
+The manifest is fetched before authentication, so there is no session and
+no workspace context to vary it by. A workspace-scoped `start_url` would
+make a cached static file carry a permission decision. `manifest.ts` is a
+cached Route Handler, so reading a request-time API to vary by tenant
+makes it dynamic. And a device installs one icon per origin, so per-tenant
+icons require per-tenant origins — a hosting and certificate decision,
+deferred.
+
+Workspace branding may later drive _in-application_ presentation (top-bar
+name, in-app logo, accent colour) under Settings §157–§158 without
+touching the manifest.
+
 ## 8. Verified version constraints
 
 Determined empirically on 2026-09-11, not assumed.

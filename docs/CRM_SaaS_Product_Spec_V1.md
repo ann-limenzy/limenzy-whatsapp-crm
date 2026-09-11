@@ -1025,6 +1025,12 @@ most important fields and actions.
 Large pipeline charts and detailed reports should not occupy the primary
 mobile dashboard.
 
+The same mobile layouts and bottom navigation apply when the CRM is
+running as an installed application in standalone display mode. Because
+standalone display removes the browser's own interface, the layout must
+respect device safe areas so that navigation and content are not
+obscured by a notch, rounded corner or home indicator.
+
 **26. Global Record Ownership**
 
 **Record Owner** = the staff member primarily responsible for the
@@ -7396,6 +7402,10 @@ require attention.
 Mobile should support the same notification list, with links opening the
 relevant mobile screen where available.
 
+V1 notifications are in-app only. Installing the CRM as an application
+does not enable operating-system push notifications. Web Push and
+scheduled background notifications are outside V1.
+
 **176. Documents**
 
 Documents allow users to store files related to a Customer and, where
@@ -7542,6 +7552,10 @@ Where relevant, wireframes should account for:
 > • Archived / Inactive Record
 >
 > • Integration Not Connected
+>
+> • Offline
+>
+> • Update Available
 
 These states may appear as inline messages, banners, dialogs or disabled
 controls depending on the screen.
@@ -7577,6 +7591,157 @@ Mobile layouts should simplify desktop tables into mobile-friendly cards
 or lists rather than reproducing desktop layouts directly.
 
 Email sender configuration, Email template administration and controlled bulk Email sending remain web-first.
+
+The same web application may also be installed on a phone or tablet home
+screen as a Progressive Web App. Installation changes how the CRM is
+launched and presented. It does not change functionality, permissions,
+data access or workspace isolation. Progressive Web App behaviour is
+defined in the following section.
+
+## 179.1 Progressive Web App Behaviour
+
+The CRM is delivered as a single web application that can also be
+installed on a phone or tablet home screen as a Progressive Web App.
+
+Installation changes only how the application is launched and presented.
+It does not change functionality, permissions, data access, workspace
+isolation or the V1 scope boundary.
+
+The application must continue to work as a normal website when it has
+not been installed. Installation is optional and must never be required
+to use the CRM.
+
+**V1 supports**
+
+- installing the CRM on a supported phone or tablet home screen
+- launching the CRM from an application icon
+- standalone display without normal browser chrome
+- application name, short name and Limenzy CRM application icons
+- light and dark theme colours matching the application themes
+- correct safe-area behaviour on devices with rounded corners, notches
+  or home indicators
+- guidance explaining how to install on Android and on iPhone
+- a branded offline message when the device has no connection
+- a controlled update path when a new application version is deployed
+
+**V1 does not include**
+
+- offline creation or editing of CRM records
+- offline queuing of changes
+- background synchronization
+- conflict resolution
+- offline access to customer, lead, renewal, document, email or report
+  data
+- Web Push notifications
+- scheduled background notifications
+- distribution through an application store
+- a separate mobile application codebase
+
+**Installed presentation**
+
+An installed CRM uses the same responsive layouts, the same mobile
+bottom navigation and the same drawer navigation defined elsewhere in
+this specification. No separate installed-only screens are introduced.
+
+Where the application is running in standalone display mode, the
+interface may account for the absence of browser chrome, for example by
+respecting device safe areas. It must not present different navigation,
+different permissions or different functionality.
+
+**Start URL and scope**
+
+The application start URL and scope are origin-relative:
+
+- start_url: "/"
+- scope: "/"
+
+The root route directs the user through the normal server-side
+authentication, onboarding and workspace-selection flow. The installed
+application must not start at a workspace-specific or permission-
+specific address, because no session exists at the time of installation.
+
+**Authentication in an installed application**
+
+An installed CRM follows the same authentication and session policy as
+the browser application. Users sign in normally and remain signed in
+according to that policy.
+
+Depending on the browser, operating-system version and installation
+flow, the installed application may inherit the existing cookie session
+or may require the user to sign in. Both paths must be tested and
+handled correctly. Being asked to sign in once after installing is
+expected platform behaviour and must be explained rather than treated as
+an error.
+
+**Offline behaviour**
+
+When the device has no connection, the CRM shows a clear branded offline
+message stating that a connection is required and offering to retry.
+
+The offline experience must not display customer data, lead data,
+renewal data, email content, reports, documents or any other workspace
+content. It must not imply that work performed offline will be saved.
+
+**Data and caching restrictions**
+
+The CRM contains sensitive customer and financial information.
+
+Authentication responses, tokens, cookies and session values must never
+be written to Cache Storage or intentionally cached by the service
+worker. Normal secure browser cookie storage may be used according to
+the approved authentication and session policy.
+
+The following must never be retained for offline use:
+
+- authenticated application responses
+- customer, lead, renewal, product or service records
+- email content, templates or recipient data
+- documents and attachments
+- reports and report exports
+- any workspace-specific content
+
+Only non-sensitive static application assets may be retained, to support
+launching the application and displaying the offline message.
+
+**Installation requirements**
+
+Installation depends on the application being served over HTTPS, a valid
+application manifest and valid application icons. These must be
+validated independently of one another.
+
+A service worker is not treated as a universal installation requirement.
+In this product a service worker exists only to provide the restricted
+offline fallback described above.
+
+Automated tooling may be used as a supporting check, but the acceptance
+test is actual installation and launch on supported Android and iPhone
+devices.
+
+**Application updates**
+
+When a new application version is deployed, an installed CRM must be
+able to obtain it. A user must not be left on an outdated version
+indefinitely, and an update must never be applied in a way that loses
+work in progress.
+
+**Application icons**
+
+Application icons are derived from the approved Limenzy chevron symbol.
+
+- the original approved logo assets are preserved and must not be edited
+  or redrawn
+- the full wordmark must not be placed inside a square application icon
+- separate normal and maskable icons are provided
+- maskable icons respect the platform safe-zone padding so the symbol is
+  not cropped on rounded or circular launcher shapes
+
+**Workspace branding**
+
+V1 installs the CRM under the Limenzy CRM product identity. The
+manifest, application icons and offline message must not contain the
+name, logo or branding of any individual business using the product.
+
+Workspace-specific installed branding is not part of V1.
 
 **180. V1 Scope Boundary**
 
@@ -7622,6 +7787,24 @@ Do not introduce:
 > • Email open and click tracking
 >
 > • drag-and-drop Email template builder
+>
+> • offline creation or editing of CRM records
+>
+> • offline mutation queues
+>
+> • background synchronization
+>
+> • offline conflict resolution
+>
+> • Web Push notifications
+>
+> • scheduled background notifications
+>
+> • application-store distribution
+>
+> • a separate mobile application codebase
+>
+> • workspace-specific installed application branding
 
 If a feature is not defined in the specification, it should not be
 assumed to exist.
