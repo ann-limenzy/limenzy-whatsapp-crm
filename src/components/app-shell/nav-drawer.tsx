@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { NavList } from "@/components/app-shell/nav-list";
 import { UserMenu } from "@/components/app-shell/user-menu";
+import type { AuthenticatedUser } from "@/server/auth/require-user";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -31,9 +32,12 @@ import { cn } from "@/lib/utils";
 export function NavDrawer({
   trigger,
   triggerClassName,
+  user,
 }: {
   trigger?: React.ReactNode;
   triggerClassName?: string;
+  /** Absent in the mobile bottom bar, which renders no account control. */
+  user?: AuthenticatedUser;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -75,7 +79,7 @@ export function NavDrawer({
             this row would be a duplicate. */}
         <div className="flex shrink-0 items-center gap-2 border-t border-border/70 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:hidden">
           <ThemeToggle className="size-11" />
-          <UserMenu className="size-11" />
+          {user ? <UserMenu user={user} className="size-11" /> : null}
         </div>
       </SheetContent>
     </Sheet>

@@ -11,6 +11,7 @@ import {
 import { UserMenu } from "@/components/app-shell/user-menu";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
+import type { AuthenticatedUser } from "@/server/auth/require-user";
 
 /**
  * Global top bar (spec §4).
@@ -39,11 +40,11 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
  * active workspace) they will be passed in from the `(app)` layout as plain
  * serializable props rather than by making this a Server Component again.
  */
-export function TopBar() {
+export function TopBar({ user }: { user: AuthenticatedUser }) {
   return (
     <header className="surface-glass sticky top-0 z-20 rounded-none border-x-0 border-t-0">
       <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
-        <NavDrawer />
+        <NavDrawer user={user} />
 
         {/* The sidebar carries the brand on desktop; below `lg` the top bar
             does — compactly on phones, in full from `sm`. */}
@@ -97,7 +98,7 @@ export function TopBar() {
           {/* Moved into the drawer below `sm`, so the phone header keeps four
               comfortable targets instead of six cramped ones. */}
           <ThemeToggle className="hidden sm:inline-flex" />
-          <UserMenu className="hidden sm:inline-flex" />
+          <UserMenu user={user} className="hidden sm:inline-flex" />
         </div>
       </div>
     </header>

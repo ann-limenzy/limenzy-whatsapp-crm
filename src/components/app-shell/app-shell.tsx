@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { DesktopSidebar } from "@/components/app-shell/desktop-sidebar";
 import { MobileNav } from "@/components/app-shell/mobile-nav";
 import { TopBar } from "@/components/app-shell/top-bar";
+import type { AuthenticatedUser } from "@/server/auth/require-user";
 
 /**
  * Authenticated application shell (spec §3, §4, §25).
@@ -22,13 +23,20 @@ import { TopBar } from "@/components/app-shell/top-bar";
  * The ambient gradient is painted here, once, via `app-ambient`. No feature
  * component carries a gradient of its own.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  user,
+  children,
+}: {
+  /** Resolved on the server by the `(app)` layout. Never read from the browser. */
+  user: AuthenticatedUser;
+  children: ReactNode;
+}) {
   return (
     <div className="app-ambient min-h-dvh">
       <DesktopSidebar />
 
       <div className="transition-[padding] duration-200 ease-out lg:ps-[var(--sidebar-w)]">
-        <TopBar />
+        <TopBar user={user} />
 
         {/* Bottom padding clears the fixed mobile bar and its safe-area inset;
             removed once the bar is hidden at `md`. */}

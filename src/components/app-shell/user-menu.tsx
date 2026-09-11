@@ -1,7 +1,8 @@
 "use client";
 
-import { UserRound } from "lucide-react";
+import { LogOut, UserRound } from "lucide-react";
 
+import { signOutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,43 +11,67 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { AuthenticatedUser } from "@/server/auth/require-user";
 
 /**
- * User menu — presentation only.
+ * Account menu for the signed-in user.
  *
- * There is no authentication in this milestone, so this deliberately shows NO
- * user name, avatar, email or workspace. Inventing one would be a pretend
- * signed-in state. It reserves the top-bar slot and states what is missing.
+ * The user object is resolved on the server by the `(app)` layout and passed
+ * down as a plain prop. Nothing here reads identity from the browser, and
+ * nothing it displays is used for an authorization decision — the display name
+ * is presentation only.
  *
- * Real identity arrives in Milestone 1B (Supabase Auth), and the workspace it
- * belongs to in Milestone 1C/1D.
+ * Sign-out is a real server-side action posted from a form, not a client-side
+ * state change: it clears the Supabase session and expires the auth cookies,
+ * after which protected routes stop resolving a user.
  */
-export function UserMenu({ className }: { className?: string }) {
+export function UserMenu({
+  user,
+  className,
+}: {
+  user: AuthenticatedUser;
+  className?: string;
+}) {
+  const label = user.fullName ?? user.email ?? "Account";
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Account — not signed in"
+          aria-label={`Account — ${label}`}
           data-testid="user-menu"
           className={className}
         >
           <UserRound className="size-[18px]" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel>Not signed in</DropdownMenuLabel>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel className="font-normal">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {user.fullName ?? "Signed in"}
+          </span>
+          {user.email ? (
+            <span className="block truncate text-xs text-muted-foreground">
+              {user.email}
+            </span>
+          ) : null}
+        </DropdownMenuLabel>
+
         <DropdownMenuSeparator />
-        <div className="px-2 py-1.5">
-          <p className="text-sm leading-relaxed text-muted-foreground">
-            Authentication is not configured yet. Sign-in, sign-up and email
-            verification arrive in Milestone 1B; workspace membership follows in
-            Milestone 1C.
-          </p>
-          <p className="mt-2 font-mono text-xs text-muted-foreground/80">
-            Spec §7 · §11 · §159
-          </p>
+
+        <div className="p-1">
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              data-testid="sign-out"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <LogOut className="size-4" aria-hidden="true" />
+              Sign out
+            </button>
+          </form>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
