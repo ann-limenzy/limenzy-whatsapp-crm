@@ -26,9 +26,9 @@ export function ModulePlaceholder({
   milestone: string;
 }) {
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
+    <div className="space-y-4 sm:space-y-5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="min-w-0 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
           {title}
         </h2>
         <StatusBadge tone="neutral" label={`Not built · ${milestone}`} />

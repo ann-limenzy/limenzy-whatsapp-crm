@@ -15,6 +15,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* 360px: the width below which phone headers must shed controls rather than
+   shrink every target. Used by the shell, not by feature components. */
+@custom-variant xs (@media (width >= 22.5rem));
+
 :root {
   /* --- Ground ---------------------------------------------------------- */
   --background: oklch(0.982 0.008 250);
@@ -88,6 +92,14 @@
    * -------------------------------------------------------------------- */
   --glass-blur: 16px;
   --glass-saturate: 140%;
+
+  /* --- Shell geometry ---------------------------------------------------
+   * Not themed: identical in light and dark. `--sidebar-w` is what the
+   * content offset reads, so the two can never drift apart.
+   * -------------------------------------------------------------------- */
+  --sidebar-w: 16.5rem; /* 264px expanded */
+  --sidebar-w-collapsed: 4.75rem; /* 76px rail */
+  --mobile-nav-h: 3.5rem; /* 56px bottom bar */
   --glass-shadow:
     0 1px 2px oklch(0.23 0.042 265 / 0.04),
     0 8px 24px -12px oklch(0.23 0.042 265 / 0.14);
@@ -175,6 +187,59 @@
   --ambient-cyan: oklch(0.6 0.14 224 / 0.4);
   --ambient-cyan-low: oklch(0.58 0.13 205 / 0.26);
   --ambient-indigo-low: oklch(0.5 0.17 278 / 0.22);
+}
+
+/* -----------------------------------------------------------------------
+ * Desktop sidebar collapse.
+ *
+ * Driven entirely by the `data-sidebar` attribute that the pre-paint script
+ * puts on <html>, so the correct width is painted in the first frame and
+ * React never has to "correct" it.
+ *
+ * Deliberately UNLAYERED. `:root` above is unlayered too, and in the CSS
+ * cascade unlayered rules beat every @layer — so these overrides must sit at
+ * the same level or Tailwind's utilities (and the :root defaults) would win
+ * and the rail would never actually narrow.
+ *
+ * Scoped to `lg` and up. Below that the persistent sidebar is not rendered
+ * at all, so a stored `collapsed` cannot reach the tablet drawer or the
+ * mobile bottom bar.
+ * -------------------------------------------------------------------- */
+@media (min-width: 64rem) {
+  [data-sidebar="collapsed"] {
+    --sidebar-w: var(--sidebar-w-collapsed);
+  }
+
+  /* Presentation switches.
+   *
+   * These rules only ever HIDE. Nothing forces a display value, so each
+   * element keeps its natural box type (the brand span stays inline-flex,
+   * the toggle icons stay inline SVGs). Before the pre-paint script runs
+   * there is no attribute, so `:not([data-sidebar="collapsed"])` matches and
+   * the expanded presentation is what paints — the correct default. */
+  html:not([data-sidebar="collapsed"]) .sidebar-when-collapsed {
+    display: none;
+  }
+
+  [data-sidebar="collapsed"] .sidebar-when-expanded {
+    display: none;
+  }
+
+  /* Brand centres itself on the rail. */
+  [data-sidebar="collapsed"] .sidebar-brand {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Navigation: same links, same config — labels withheld on the rail. */
+  [data-sidebar="collapsed"] .nav-label {
+    display: none;
+  }
+
+  [data-sidebar="collapsed"] .nav-link {
+    justify-content: center;
+    padding-inline: 0;
+  }
 }
 
 /* -------------------------------------------------------------------------

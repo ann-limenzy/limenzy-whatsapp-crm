@@ -62,7 +62,9 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap",
+        // `max-w-full` + wrapping text: a long status can shrink onto two
+        // lines instead of pushing the page into horizontal overflow.
+        "inline-flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
         toneClass,
         className,
       )}

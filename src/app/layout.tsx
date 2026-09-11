@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 import { ThemeProvider } from "@/components/theme/theme-provider";
+import { SIDEBAR_INIT_SCRIPT } from "@/lib/sidebar-preference";
 
 import "./globals.css";
 
@@ -27,6 +28,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     // in a blocking script before React hydrates, so the server and client
     // markup differ on this element by design.
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          Applies the stored sidebar preference to <html> before first paint,
+          the same technique next-themes uses for the colour theme. Without it
+          the rail would paint expanded and then snap closed after hydration.
+          It only ever sets an attribute, so it cannot affect authorization.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: SIDEBAR_INIT_SCRIPT }} />
+      </head>
       <body className="antialiased">
         <ThemeProvider
           attribute="class"

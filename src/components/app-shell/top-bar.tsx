@@ -23,6 +23,14 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
  * permanently when Leads is disabled, so it depends on module state that does
  * not exist until Milestone 1D.
  *
+ * Responsive density — the phone header is deliberately not a shrunken desktop
+ * header:
+ *   < sm   drawer trigger · compact brand (symbol + CRM) · search ·
+ *          notifications. Theme and account move into the drawer, where they
+ *          get full-size rows instead of being squeezed into tiny targets.
+ *   >= sm  full `Limenzy | CRM` lockup and the complete control set.
+ *   >= lg  the sidebar carries the brand, so the top bar drops it.
+ *
  * Glass tier: the top bar is one of the approved glass surfaces.
  *
  * Client component: every control in here is interactive, and the `icon` props
@@ -34,16 +42,20 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 export function TopBar() {
   return (
     <header className="surface-glass sticky top-0 z-20 rounded-none border-x-0 border-t-0">
-      <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
+      <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
         <NavDrawer />
 
-        {/* The logo lives in the sidebar on desktop; below `lg` the sidebar is
-            hidden, so the top bar carries it instead. */}
-        <LimenzyLogo className="lg:hidden" />
+        {/* The sidebar carries the brand on desktop; below `lg` the top bar
+            does — compactly on phones, in full from `sm`. */}
+        <LimenzyLogo variant="compact" className="sm:hidden" />
+        <LimenzyLogo
+          variant="lockup"
+          className="hidden sm:inline-flex lg:hidden"
+        />
 
         <PageTitle />
 
-        <div className="ms-auto flex items-center gap-1.5 sm:gap-2">
+        <div className="ms-auto flex items-center gap-1 sm:gap-2">
           <UnavailableControl
             testId="global-search"
             icon={Search}
@@ -60,7 +72,8 @@ export function TopBar() {
             <NotAvailableChip />
           </UnavailableControl>
 
-          {/* Compact form of the same control below `lg`. */}
+          {/* Compact form of the same control below `lg`. 44px touch target
+              on phones, 36px once the full control row has room. */}
           <UnavailableControl
             testId="global-search-compact"
             icon={Search}
@@ -68,7 +81,7 @@ export function TopBar() {
             heading="Global search isn't available yet"
             body="It will search leads, customers, phone numbers, email addresses and reference fields such as policy, vehicle and certificate numbers."
             specRef="Spec §5 · later milestone"
-            className="grid size-9 place-items-center hover:bg-accent/60 lg:hidden"
+            className="grid size-11 place-items-center hover:bg-accent/60 sm:size-9 lg:hidden"
           />
 
           <UnavailableControl
@@ -78,11 +91,13 @@ export function TopBar() {
             heading="Notifications aren't available yet"
             body="The notification centre will report assignments, follow-ups and renewals that are due or overdue, WhatsApp replies and failures, and import results."
             specRef="Spec §6 · §175 · later milestone"
-            className="grid size-9 place-items-center hover:bg-accent/60"
+            className="grid size-11 place-items-center hover:bg-accent/60 sm:size-9"
           />
 
-          <ThemeToggle />
-          <UserMenu />
+          {/* Moved into the drawer below `sm`, so the phone header keeps four
+              comfortable targets instead of six cramped ones. */}
+          <ThemeToggle className="hidden sm:inline-flex" />
+          <UserMenu className="hidden sm:inline-flex" />
         </div>
       </div>
     </header>

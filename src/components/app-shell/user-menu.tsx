@@ -21,7 +21,7 @@ import {
  * Real identity arrives in Milestone 1B (Supabase Auth), and the workspace it
  * belongs to in Milestone 1C/1D.
  */
-export function UserMenu() {
+export function UserMenu({ className }: { className?: string }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -30,6 +30,7 @@ export function UserMenu() {
           size="icon"
           aria-label="Account — not signed in"
           data-testid="user-menu"
+          className={className}
         >
           <UserRound className="size-[18px]" aria-hidden="true" />
         </Button>

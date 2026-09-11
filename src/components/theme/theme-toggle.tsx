@@ -29,7 +29,7 @@ const THEME_OPTIONS = [
  * content is mounted by Radix only once the menu is opened — which cannot
  * happen before hydration — so it needs no mount gate.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
 
   return (
@@ -40,6 +40,7 @@ export function ThemeToggle() {
           size="icon"
           aria-label="Change colour theme"
           data-testid="theme-toggle"
+          className={className}
         >
           <Sun className="size-[18px] dark:hidden" aria-hidden="true" />
           <Moon className="hidden size-[18px] dark:block" aria-hidden="true" />

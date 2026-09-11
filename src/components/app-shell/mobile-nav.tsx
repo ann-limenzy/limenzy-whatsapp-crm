@@ -50,14 +50,26 @@ export function MobileNav() {
             aria-current={isActive ? "page" : undefined}
             data-testid={`mobile-nav-${item.id}`}
             className={cn(
-              "flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] font-medium transition-colors",
+              // `min-w-0` lets the grid track shrink below its content at
+              // 320px instead of forcing the bar wider than the viewport.
+              "relative flex h-[var(--mobile-nav-h)] min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium transition-colors xs:text-[11px]",
               isActive
                 ? "text-primary"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
+            {/* Active state carries a shape as well as a colour, so it does
+                not depend on colour perception alone. */}
+            {isActive ? (
+              <span
+                aria-hidden="true"
+                className="absolute top-0 h-0.5 w-8 rounded-b-full bg-primary"
+              />
+            ) : null}
             <Icon className="size-5 shrink-0" aria-hidden="true" />
-            <span className="max-w-full truncate">{item.label}</span>
+            <span className="w-full truncate text-center leading-tight">
+              {item.label}
+            </span>
           </Link>
         );
       })}
@@ -67,10 +79,12 @@ export function MobileNav() {
           <button
             type="button"
             data-testid="mobile-nav-more"
-            className="flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="flex h-[var(--mobile-nav-h)] min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground xs:text-[11px]"
           >
             <Ellipsis className="size-5 shrink-0" aria-hidden="true" />
-            <span>More</span>
+            <span className="w-full truncate text-center leading-tight">
+              More
+            </span>
           </button>
         }
       />

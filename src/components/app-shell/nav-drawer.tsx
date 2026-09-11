@@ -4,7 +4,9 @@ import { Menu } from "lucide-react";
 import { useState } from "react";
 
 import { NavList } from "@/components/app-shell/nav-list";
+import { UserMenu } from "@/components/app-shell/user-menu";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -44,22 +46,36 @@ export function NavDrawer({
             size="icon"
             aria-label="Open navigation menu"
             data-testid="nav-drawer-trigger"
-            className={cn("lg:hidden", triggerClassName)}
+            className={cn("size-11 sm:size-9 lg:hidden", triggerClassName)}
           >
             <Menu className="size-[18px]" aria-hidden="true" />
           </Button>
         )}
       </SheetTrigger>
-      <SheetContent side="left" className="w-[280px] p-0">
-        <SheetHeader className="h-16 justify-center px-5">
+      <SheetContent
+        side="left"
+        className="flex w-[min(19rem,86vw)] flex-col p-0"
+      >
+        <SheetHeader className="h-16 shrink-0 justify-center px-5">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <SheetDescription className="sr-only">
             Move between the sections of the CRM.
           </SheetDescription>
-          <LimenzyLogo />
+          {/* The drawer always shows the complete lockup — it has the room,
+              and it is where phones go to find the full brand. */}
+          <LimenzyLogo onNavigate={() => setOpen(false)} />
         </SheetHeader>
-        <div className="overflow-y-auto px-3 pb-6">
+
+        <div className="flex-1 overflow-y-auto px-3 pb-4">
           <NavList onNavigate={() => setOpen(false)} />
+        </div>
+
+        {/* Theme and account live here below `sm`, where the phone header has
+            no room for them. From `sm` the top bar carries them instead, so
+            this row would be a duplicate. */}
+        <div className="flex shrink-0 items-center gap-2 border-t border-border/70 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:hidden">
+          <ThemeToggle className="size-11" />
+          <UserMenu className="size-11" />
         </div>
       </SheetContent>
     </Sheet>
