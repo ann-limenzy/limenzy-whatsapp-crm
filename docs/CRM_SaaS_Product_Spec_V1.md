@@ -25,6 +25,8 @@ A lightweight SaaS CRM designed for small businesses to:
 > • receive and manage customer WhatsApp replies through a lightweight
 > shared inbox
 >
+> • send business emails and email reminders to leads and customers
+>
 > • view simple operational and business reports
 
 **Product principle**
@@ -83,6 +85,12 @@ Can:
 >
 > • manage WhatsApp templates
 >
+> • configure the workspace Email sender
+>
+> • manage Email templates
+>
+> • send individual and controlled bulk Emails
+>
 > • import/export data
 >
 > • access all reports
@@ -102,6 +110,10 @@ Can:
 > • assign/reassign records where permitted
 >
 > • view permitted Follow-ups
+>
+> • send individual Emails
+>
+> • send manual and controlled bulk Email reminders where permitted
 >
 > • handle WhatsApp conversations
 >
@@ -178,6 +190,10 @@ Central area for expiry dates, renewals and recurring customer actions.
 
 Communication module containing inbox, message history and templates
 where permitted.
+
+**Email**
+
+Email does not require a separate primary navigation item in V1. Email actions are available from permitted Lead, Customer and Renewal records. Email configuration and templates are available under Settings.
 
 **Reports**
 
@@ -282,6 +298,12 @@ Examples:
 > • import failed
 >
 > • WhatsApp message failed
+>
+> • Email message or scheduled Email reminder failed
+>
+> • Email bounced
+>
+> • workspace Email sender requires administrator attention
 
 Each notification should:
 
@@ -368,6 +390,8 @@ Options:
 
 ☑ **WhatsApp customer communication**
 
+☑ **Email customer communication**
+
 At minimum, Customer Management remains enabled.
 
 Module dependencies defined under Settings → Modules & Features also
@@ -403,7 +427,7 @@ Modules can later be enabled/disabled from Settings.
 
 **Skip and use recommended setup -** If selected, the default setup
 enables Leads, Customer Follow-ups, Products/Services, Renewals &
-Reminders and WhatsApp. These modules can later be changed from
+Reminders, WhatsApp and Email. These modules can later be changed from
 Settings.
 
 **9. Onboarding — Define Products / Services**
@@ -480,9 +504,19 @@ Channel:
 
 ☐ **WhatsApp**
 
+☐ **Email**
+
 If WhatsApp is not connected, choosing WhatsApp should explain:
 
 > **You can configure WhatsApp after setup.**
+
+If the workspace Email sender is not configured and verified, choosing
+Email should explain:
+
+> **You can configure Email after setup.**
+
+Selecting a channel during onboarding records a preference only. It does
+not enable sending until the relevant channel is configured.
 
 No technical API setup should happen inside this onboarding step.
 
@@ -562,6 +596,43 @@ If the connection cannot be completed:
 >
 > • no core CRM functionality should be blocked
 
+## 13.1 Onboarding — Configure Email
+
+Display only if Email is enabled.
+
+Email requires a verified sender before the workspace can send anything,
+so onboarding should introduce it clearly rather than leaving it to be
+discovered later.
+
+**Content**
+
+**Set up Email**
+
+**Send renewal reminders and business emails to your customers from the
+CRM.**
+
+**\[ Configure Email Sender \]**
+
+**Set up later**
+
+The detailed configuration and verification workflow is defined under
+Email Settings and the Email Communications module.
+
+**Important state**
+
+If the sender cannot be configured or verified during onboarding:
+
+> • onboarding must continue
+>
+> • Email features display **Not configured**
+>
+> • no core CRM functionality should be blocked
+>
+> • automated Email reminders remain inactive until a sender is verified
+
+No email provider credentials or secrets are entered into the browser
+during this step.
+
 **14. Setup Complete**
 
 The completion summary should display only the setup steps actually
@@ -578,6 +649,8 @@ Screen:
 ✓ Team invited
 
 ✓ Reminder preferences saved
+
+✓ Email sender configured
 
 **\[ Go to Dashboard \]**
 
@@ -982,6 +1055,8 @@ Activity types:
 >
 > • WhatsApp message
 >
+> • Email sent / failed
+>
 > • follow-up scheduled
 >
 > • follow-up completed
@@ -1032,7 +1107,13 @@ Not every action needs a confirmation modal.
 >
 > • bulk send WhatsApp
 >
+> • controlled bulk Email reminders
+>
 > • cancel scheduled bulk messages
+>
+> • disable Email
+>
+> • change or remove the verified Email sender
 >
 > • major data import
 >
@@ -1047,6 +1128,8 @@ Not every action needs a confirmation modal.
 > • change Record Owner / Assigned To
 >
 > • mark normal follow-up complete
+>
+> • send an individual Email from a permitted record
 >
 > • save standard field edits
 
@@ -1402,7 +1485,7 @@ Recommended structure:
 
 **Record Owner: Arun**
 
-**\[ WhatsApp \] \[ Add Follow-up \] \[ Edit \] \[ More \]**
+**\[ WhatsApp \] \[ Email \] \[ Add Follow-up \] \[ Edit \] \[ More \]**
 
 **────────────────────────────────────────**
 
@@ -1434,6 +1517,8 @@ Primary actions:
 
 **WhatsApp**
 
+**Email**
+
 **Add Follow-up**
 
 **Edit**
@@ -1450,6 +1535,21 @@ WhatsAp**p** is enabled only when:
 
 If WhatsApp is unavailable, the action should show the relevant
 disabled/not-connected state rather than failing after selection.
+
+**Email** is enabled only when:
+
+> • a valid email address exists
+>
+> • the Email module is enabled for the workspace
+>
+> • the workspace has a verified sender
+>
+> • the user has permission to send email
+>
+> • the Lead is not marked **Email Opted Out**
+
+If Email is unavailable, the action should show the relevant
+disabled/not-configured state rather than failing after selection.
 
 **37. Lead Information**
 
@@ -1603,6 +1703,8 @@ Follow-up Type options in V1:
 >
 > • WhatsApp
 >
+> • Email
+>
 > • Visit
 >
 > • Other
@@ -1610,6 +1712,10 @@ Follow-up Type options in V1:
 A **WhatsApp Follow-up** is a task reminding the assigned user to
 contact the Lead/Customer through WhatsApp. Scheduling the Follow-up
 does not automatically send a message.
+
+An **Email Follow-up** is a task reminding the assigned user to contact
+the Lead/Customer by email. Scheduling the Follow-up does not
+automatically send an email.
 
 **Actions**
 
@@ -1977,7 +2083,10 @@ Selecting the card opens Lead Detail.
 
 Keep primary actions easily accessible:
 
-**Call \| WhatsApp \| Follow-up \| More**
+**Call \| WhatsApp \| Email \| Follow-up \| More**
+
+Where the row or header cannot comfortably show every channel, Email may
+be placed under **More**. It must not be removed from mobile entirely.
 
 Information and Activity sections should stack vertically.
 
@@ -2024,7 +2133,7 @@ or
 **Add Customer Directly**
 
 A business does not need to use Leads in order to use Customers,
-Products/Services, Follow-ups, Renewals or WhatsApp.
+Products/Services, Follow-ups, Renewals, WhatsApp or Email.
 
 Basic customer lifecycle:
 
@@ -2137,6 +2246,8 @@ The ⋯ menu may contain:
 >
 > • WhatsApp
 >
+> • Email
+>
 > • Archive
 
 Actions must follow role permissions.
@@ -2224,8 +2335,8 @@ Recommended structure:
 
 **Record Owner: Arun**
 
-**\[ WhatsApp \] \[ Add Follow-up \] \[ Add Product/Service \] \[ Edit
-\] \[ More \]**
+**\[ WhatsApp \] \[ Email \] \[ Add Follow-up \] \[ Add Product/Service \]
+\[ Edit \] \[ More \]**
 
 **────────────────────────────────**
 
@@ -2263,6 +2374,8 @@ Primary actions:
 
 **WhatsApp**
 
+**Email**
+
 **Add Follow-up**
 
 **Add Product/Service**
@@ -2275,6 +2388,12 @@ The WhatsApp action follows the same availability rules defined for
 Leads.
 
 If the Customer has no valid phone number, WhatsApp should be
+unavailable.
+
+The Email action follows the same availability rules defined for Leads.
+
+If the Customer has no valid email address, is marked **Email Opted
+Out**, or the workspace has no verified sender, Email should be
 unavailable.
 
 **58. Customer Information**
@@ -2650,6 +2769,8 @@ Example:
 
 ☑ **WhatsApp**
 
+☑ **Email**
+
 Workspace default reminder settings should be preselected.
 
 Authorized users may adjust the reminder schedule for an individual
@@ -2664,6 +2785,20 @@ A WhatsApp reminder requires:
 > • an eligible/approved message template where required
 
 If WhatsApp cannot be used, the reminder should not silently fail.
+
+An Email reminder requires:
+
+> • a valid Customer email address
+>
+> • Email enabled for the workspace
+>
+> • a verified workspace sender
+>
+> • an active Email template
+>
+> • the Customer not being marked Email Opted Out
+
+If Email cannot be used, the reminder must not silently fail.
 
 **68. Reminder Status**
 
@@ -2701,10 +2836,13 @@ Actions:
 
 or
 
+**Send Email Reminder**
+
+or
+
 **Create Follow-up**
 
-Sending a manual WhatsApp reminder should use the permitted WhatsApp
-messaging flow defined later in the WhatsApp section.
+Sending a manual WhatsApp or Email reminder should use the applicable communication flow defined in the WhatsApp and Email sections.
 
 A manual reminder should be recorded in:
 
@@ -2723,14 +2861,19 @@ Available bulk action:
 
 **Send WhatsApp Reminder**
 
+or
+
+**Send Email Reminder**
+
 Before sending, show:
 
 > • number of selected Customers
 >
 > • selected template
 >
-> • Customers excluded because of missing/invalid phone numbers or
-> messaging restrictions
+> • Customers excluded because the required phone number or email address is missing or invalid
+>
+> • Customers excluded because of channel restrictions, opt-out status, missing variables or unavailable configuration
 >
 > • confirmation before sending
 
@@ -2754,6 +2897,8 @@ Example:
 
 Bulk messaging must not imply unrestricted WhatsApp broadcasting. Only
 eligible messages should be sent.
+
+Controlled bulk Email reminders follow the validation, review and result rules defined in the Email Communications section.
 
 **71. Mark Renewed / Completed**
 
@@ -2915,6 +3060,8 @@ Actions may include:
 
 **WhatsApp**
 
+**Email**
+
 depending on the item type.
 
 **76. Customer Activity & Notes**
@@ -2951,6 +3098,8 @@ The timeline should include relevant:
 > • notes
 >
 > • WhatsApp messages
+>
+> • Emails
 >
 > • Product/Service additions
 >
@@ -3042,7 +3191,10 @@ Selecting the card opens Customer Profile.
 
 Primary actions should remain easily accessible:
 
-**Call \| WhatsApp \| Follow-up \| More**
+**Call \| WhatsApp \| Email \| Follow-up \| More**
+
+Where the header cannot comfortably show every channel, Email may be
+placed under **More**. It must not be removed from mobile entirely.
 
 The profile should stack:
 
@@ -3077,7 +3229,7 @@ Example:
 
 **Assigned To: Arun**
 
-**\[ WhatsApp \] \[ View \]**
+**\[ WhatsApp \] \[ Email \] \[ View \]**
 
 Tabs such as:
 
@@ -3110,7 +3262,7 @@ and customers added directly.
 
 ↓
 
-**In-app / WhatsApp Reminder**
+**In-app / WhatsApp / Email Reminder**
 
 ↓
 
@@ -3174,9 +3326,11 @@ V1 supports:
 The WhatsApp module is **not** a full customer-support or omnichannel
 inbox.
 
-V1 does not include:
+The WhatsApp module does not include:
 
-> • email/SMS/social channels
+> • SMS channels
+>
+> • social-media channels
 >
 > • chatbot builder
 >
@@ -3189,6 +3343,10 @@ V1 does not include:
 > • advanced messaging automation
 >
 > • marketing campaign analytics
+
+Email is a separate outbound communication channel in V1 and is defined
+under Email Communications. It is not part of the WhatsApp module and
+does not share the WhatsApp conversation inbox.
 
 For V1, each workspace uses **one connected WhatsApp business messaging
 connection/number**.
@@ -4418,6 +4576,630 @@ Conversation assignment/status controls may be available through
 
 Changing Assigned To on the WhatsApp conversation does not change the
 Lead or Customer Record Owner.
+
+## 116.1 Email Communications
+
+The Email module allows authorized users to send business emails from CRM Lead, Customer and Renewal records.
+
+Email is an outbound communication channel in V1.
+
+V1 supports:
+
+- sending an individual email from a Lead
+- sending an individual email from a Customer
+- sending a renewal reminder email
+- scheduled renewal reminder emails
+- controlled bulk renewal reminder emails
+- reusable email templates
+- template variables populated from CRM data
+- file attachments
+- email activity history on the related CRM record
+- delivery and failure status where available
+- email communication preferences and opt-out handling
+
+V1 does not include:
+
+- a shared email inbox
+- Gmail or Outlook mailbox synchronization
+- reading incoming replies inside the CRM
+- automatic association of incoming emails
+- email conversation assignment
+- marketing campaign management
+- automated sales sequences
+- audience segmentation
+- A/B testing
+- email open or click tracking
+- a complex drag-and-drop email designer
+
+Replies are delivered to the configured Reply-To address outside the CRM. They are not synchronized back into the CRM in V1.
+
+Email functionality must remain optional. A workspace that does not enable or configure Email must continue to use the rest of the CRM normally.
+
+## 116.2 Email Entry Points
+
+Authorized users may initiate an individual email from:
+
+- Lead Header
+- Lead Detail
+- Customer Header
+- Customer Profile
+- Customer Activity
+- Customer Product / Service Detail
+- Renewals & Reminders
+
+Available actions may include:
+
+**Send Email**
+
+**Send Email Reminder**
+
+Email actions should appear only when:
+
+- the Email module is enabled
+- a verified sender is configured
+- the user has permission to send email
+- the related record contains a valid email address
+- the recipient is eligible to receive email
+
+Selecting an email address from a Lead or Customer record should open the CRM email composer rather than exposing configuration details.
+
+## 116.3 Workspace Email Sender
+
+V1 supports one active email sender identity per workspace.
+
+The sender configuration contains:
+
+- Sender Name
+- Sender Email Address
+- Reply-To Address
+- Verification Status
+
+Possible verification states:
+
+- Not Configured
+- Verification Required
+- Verified
+- Configuration Problem
+
+Outbound email must be sent through the server-side email service. Email provider credentials and secrets must never be exposed to the browser.
+
+If the sender is not verified, normal email actions should be disabled and the user should see a clear explanation.
+
+Owner/Admin:
+
+**Email sending is not configured. Configure and verify a sender before sending email.**
+
+Other users:
+
+**Email is not available for this workspace. Contact your administrator.**
+
+A missing or failed email configuration must not block unrelated CRM functionality.
+
+## 116.4 Email Composer
+
+Selecting **Send Email** opens the email composer.
+
+Show:
+
+- From — configured workspace sender, read-only
+- Reply-To — configured workspace address, read-only
+- To — prefilled from the Lead or Customer
+- Template — optional
+- Subject — required
+- Message — required
+- Attachments — optional
+- Related Record — read-only
+- Send
+- Cancel
+
+The recipient may be changed only to another permitted email address stored on the same CRM record. V1 does not require arbitrary recipient entry, CC or BCC.
+
+The message editor may support basic formatting:
+
+- paragraphs
+- bold
+- italic
+- lists
+- links
+
+V1 does not require arbitrary HTML editing or a visual email-page builder.
+
+Before sending, the user should be able to review the recipient, subject, message and attachments.
+
+If the composer is closed with unsent changes, warn the user before discarding the content.
+
+## 116.5 Email Templates
+
+Owner/Admin can create reusable Email templates.
+
+Template fields:
+
+- Template Name
+- Purpose
+- Subject
+- Message
+- Available Variables
+- Status
+
+Example purposes:
+
+- Lead Follow-up
+- Customer Follow-up
+- Product / Service Information
+- Document Sharing
+- Renewal Reminder
+- General Communication
+
+Template statuses:
+
+- Active
+- Inactive
+
+Actions:
+
+- Add
+- Edit
+- Preview
+- Duplicate
+- Deactivate
+- Reactivate
+
+Deactivating a template prevents future selection but does not remove it from historical email activity.
+
+Templates belong to one workspace and must never be visible to another workspace.
+
+V1 does not require template approval by the email provider.
+
+## 116.6 Email Template Variables
+
+Email templates may use approved CRM variables.
+
+Examples:
+
+- Customer First Name
+- Customer Full Name
+- Lead First Name
+- Lead Full Name
+- Business Name
+- Product / Service Name
+- Due Date
+- Renewal Date
+- Assigned User Name
+- Record Owner Name
+
+Before sending, the CRM should replace each variable with data from the related record.
+
+If a required variable cannot be populated:
+
+- do not silently send incomplete template text
+- identify the missing variable
+- allow the user to correct the record or edit the message
+- block automated sending until the required value is available
+
+The preview must show the final resolved subject and message.
+
+## 116.7 Email Attachments
+
+Authorized users may attach permitted files to an individual email.
+
+Attachments may be:
+
+- uploaded from the user's device
+- selected from Customer Documents, where applicable
+
+Validate attachments before sending.
+
+Validation should include:
+
+- permitted file type
+- configured file-size limit
+- safe file name
+- successful upload
+- file availability
+- user access to the related document
+
+Executable or otherwise prohibited file types must not be accepted.
+
+When an attachment is selected from Customer Documents, the original document remains part of the Customer record.
+
+An attachment uploaded while emailing a Lead may be retained with the email activity entry but does not create a general Lead Documents module.
+
+Email activity should retain attachment names and references where permitted.
+
+## 116.8 Recipient Validation and Email Preference
+
+Before sending, validate:
+
+- the related record exists
+- the user can access the record
+- the user has email permission
+- the Email module is enabled
+- the workspace sender is verified
+- the recipient email address is present
+- the recipient email address has a valid format
+- the recipient is not marked Email Opted Out
+- required template variables are available
+- attachments are valid and accessible
+
+Lead and Customer records should support:
+
+**Email Opted Out**
+
+When Email Opted Out is enabled:
+
+- automated email reminders must not be sent
+- bulk email must exclude the record
+- individual email actions should be disabled
+- existing email history must remain visible
+
+An authorized user may update the preference. The change should be recorded in CRM Activity with the user and date.
+
+The system must not automatically remove an opt-out without an authorized user action.
+
+## 116.9 Sending an Individual Email
+
+When the user selects **Send**:
+
+1. Revalidate authentication, workspace access and permission on the server.
+2. Revalidate the recipient, template variables and attachments.
+3. Create an Email send record linked to the Lead or Customer.
+4. Submit the email through the configured server-side provider.
+5. Record the result.
+6. Add the activity to the related CRM timeline.
+
+The Send button should prevent accidental repeated submissions while processing.
+
+A successful send should show:
+
+**Email sent successfully.**
+
+A failed send should show:
+
+**Email could not be sent. Review the error and try again.**
+
+If sending fails:
+
+- retain the composed subject and message where possible
+- do not record the email as successfully sent
+- store the available failure reason
+- allow a permitted user to retry
+- do not create duplicate successful sends during retry
+
+## 116.10 Email Status
+
+Possible Email statuses:
+
+- Queued
+- Sent
+- Delivered
+- Failed
+- Bounced
+
+Definitions:
+
+**Queued**
+
+The CRM accepted the request and is waiting to submit it to the email provider.
+
+**Sent**
+
+The email provider accepted the message for delivery.
+
+**Delivered**
+
+The provider confirmed delivery where such confirmation is available.
+
+**Failed**
+
+The CRM or provider could not send the email.
+
+**Bounced**
+
+The provider reported that the recipient address did not accept the email.
+
+The CRM must not describe an email as Delivered unless the provider has confirmed delivery.
+
+Sent or Delivered does not mean that the recipient opened or read the email.
+
+V1 does not include open tracking or click tracking.
+
+## 116.11 Email History in CRM Records
+
+Sent and attempted emails should appear in the related Lead or Customer Activity timeline.
+
+Show:
+
+- Date and Time
+- Email Status
+- Recipient
+- Subject
+- Message
+- Attachment Names
+- Sent By
+- Related Product / Service, where applicable
+- Failure Reason, where applicable
+
+Example:
+
+**Today · 11:30 AM**
+
+**Email sent by Meera**
+
+**Subject: Health Insurance Renewal**
+
+**To: anjali@example.com**
+
+Selecting the activity opens the permitted email details.
+
+Email history follows the same record visibility and workspace-isolation rules as the related Lead or Customer.
+
+Users must not access email content for CRM records they are not permitted to view.
+
+Email activity is historical data and must not be deleted when:
+
+- a template is deactivated
+- a user is deactivated
+- the Email module is disabled
+- a Lead or Customer is archived
+
+## 116.12 Scheduled Email Renewal Reminder
+
+Email may be selected as a reminder channel for a Customer Product / Service with a Due Date.
+
+When the scheduled reminder time is reached, validate:
+
+- the Customer still exists and is eligible
+- the Customer has a valid email address
+- Email Opted Out is not enabled
+- the Email module is enabled
+- the workspace sender remains verified
+- an active Email template is available
+- required variables can be populated
+- the reminder instance has not already been sent
+
+If successful:
+
+- send the email
+- mark the reminder instance Sent
+- record the email in Customer Activity
+- retain it in Product / Service reminder history
+
+If unsuccessful:
+
+- do not silently skip the reminder
+- mark the reminder instance Failed
+- store the available failure reason
+- notify the appropriate user
+- allow an authorized user to retry or use another permitted action
+
+The system must prevent the same reminder instance from being sent twice because of a retry, refresh or repeated background-job execution.
+
+## 116.13 Manual Email Renewal Reminder
+
+From Renewals & Reminders, an authorized user may select:
+
+**Send Email Reminder**
+
+This is an immediate send action and is different from scheduling a future reminder.
+
+The recipient, template, variables and attachments should be reviewed before sending.
+
+A successful manual email reminder should be recorded in:
+
+- Email History
+- Customer Activity
+- relevant Product / Service reminder history
+
+A manual email reminder follows the same eligibility, permission and validation rules as other outbound emails.
+
+## 116.14 Controlled Bulk Email Reminder
+
+Authorized users may send the same Email template to multiple selected renewal records.
+
+Bulk Email in V1 is available only from Renewals & Reminders. It is not a general marketing campaign feature.
+
+Before sending, validate each selected record separately.
+
+Possible exclusions include:
+
+- missing email address
+- invalid email address
+- Email Opted Out
+- duplicate recipient for the same renewal
+- missing template variable
+- inactive template
+- unavailable sender configuration
+- insufficient user permission
+
+Review screen:
+
+**Send Email Reminder**
+
+**Selected: 24**
+
+**Eligible: 21**
+
+**Excluded: 3**
+
+**Template:**
+
+**Renewal Reminder**
+
+**[Preview]**
+
+**[Review Excluded]**
+
+**[Send to 21 Customers]**
+
+**[Cancel]**
+
+Bulk Email requires explicit confirmation.
+
+Excluded records do not prevent eligible records from being processed.
+
+After processing, show:
+
+**Bulk Email Complete**
+
+**Selected: 24**
+
+**Sent: 19**
+
+**Failed: 2**
+
+**Excluded: 3**
+
+**[View Failed]**
+
+**[View Excluded]**
+
+**[Done]**
+
+The user should be able to identify affected records and the reason for each failure or exclusion.
+
+V1 does not include campaign analytics beyond operational send results.
+
+## 116.15 Email Permission Behaviour
+
+Email actions must follow the role and permission rules defined under Settings → Roles & Permissions.
+
+Permissions should distinguish between:
+
+- sending individual emails
+- sending manual renewal emails
+- sending controlled bulk renewal emails
+- creating and managing Email templates
+- configuring the workspace Email sender
+
+Users should not see or execute actions they do not have permission to perform.
+
+Every server-side email operation must independently enforce:
+
+- authenticated user
+- workspace isolation
+- related-record access
+- role permission
+- recipient eligibility
+
+Hiding an Email button in the user interface is not sufficient authorization.
+
+## 116.16 Email Empty, Loading and Error States
+
+**Email not configured**
+
+**Email sending is not configured for this workspace.**
+
+**Recipient missing**
+
+**This record does not have an email address.**
+
+**Invalid recipient**
+
+**Enter a valid email address before sending.**
+
+**Email opted out**
+
+**Email communication is disabled for this recipient.**
+
+**Loading**
+
+Use a clear composer or email-history loading state.
+
+**Send failure**
+
+Keep the user's subject, message and attachment selection where possible and explain that the email was not sent.
+
+**History failure**
+
+**Unable to load Email history.**
+
+**[Try Again]**
+
+Do not display an empty table without an explanation.
+
+## 116.17 Email Mobile Behaviour
+
+Mobile users may:
+
+- send an individual email from a permitted Lead or Customer
+- use an Email template
+- add permitted attachments from the phone
+- send a manual renewal reminder
+- view Email activity on a permitted CRM record
+
+The mobile composer should:
+
+- use a full-width layout
+- keep the recipient and subject easy to review
+- provide a large Send action
+- support the phone's file-selection interface
+- retain unsent content when a recoverable error occurs
+
+Workspace Email configuration, template administration and bulk Email sending remain web-first.
+
+## 116.18 Email Flow Summary
+
+**Individual Email**
+
+**Lead / Customer**
+
+↓
+
+**Select Send Email**
+
+↓
+
+**Validate User + Workspace + Permission**
+
+↓
+
+**Validate Sender + Recipient + Opt-Out**
+
+↓
+
+**Select Template / Compose Message**
+
+↓
+
+**Resolve Variables + Validate Attachments**
+
+↓
+
+**Review**
+
+↓
+
+**Send**
+
+↓
+
+**Record Status + CRM Activity**
+
+**Scheduled Renewal Email**
+
+**Reminder Send Time Reached**
+
+↓
+
+**Validate Customer + Email Eligibility**
+
+↓
+
+**Validate Sender + Template + Variables**
+
+↓
+
+**Already Sent?**
+
+- **Yes:** Stop and retain the existing result
+- **No:** Submit Email
+
+↓
+
+**Sent Successfully?**
+
+- **Yes:** Reminder = Sent, Email History and Customer Activity updated
+- **No:** Reminder = Failed, reason stored and responsible user notified
 
 **117. Data Import & Export**
 
@@ -5668,6 +6450,10 @@ Settings should include:
 >
 > • WhatsApp Settings
 >
+> • Email Settings
+>
+> • Email Templates
+>
 > • Modules & Features
 >
 > • Data Import / Export
@@ -5914,6 +6700,46 @@ No
 
 No
 
+Send individual Emails
+
+Yes
+
+Yes
+
+Yes
+
+Send manual Email reminders
+
+Yes 
+
+Yes
+
+Configurable
+
+Send controlled bulk Email reminders
+
+Yes
+
+Configurable
+
+No
+
+Manage Email templates
+
+Yes 
+
+No 
+
+No
+
+Configure Email sender
+
+Yes
+
+No
+
+No
+
 Manager record visibility can be configured as:
 
 > **• All Records**
@@ -6152,6 +6978,8 @@ For each reminder, select:
 > • In-app
 >
 > • WhatsApp
+>
+> • Email
 
 These defaults apply when new reminder schedules are created.
 
@@ -6166,6 +6994,10 @@ module is enabled. If the connection or required template is
 unavailable, the configuration should clearly show that automated
 WhatsApp sending cannot operate until the issue is resolved. Existing
 configuration should not be silently replaced or changed.
+
+Email may be selected only when the Email module is enabled and the workspace has a verified sender and an active reminder template.
+
+If the sender or required template is unavailable, the configuration should clearly show that automated Email sending cannot operate until the issue is resolved. Existing configuration must not be silently replaced or changed.
 
 **169. WhatsApp Settings**
 
@@ -6234,6 +7066,80 @@ V1 template management means **viewing/syncing available templates and
 using them inside the CRM**. It does not reproduce the complete WhatsApp
 template creation and approval system.
 
+## 170.1 Email Settings
+
+Navigation:
+
+Settings → Email
+
+Owner/Admin can configure one Email sender identity for the workspace.
+
+Show:
+
+> • Sender Name
+>
+> • Sender Email Address
+>
+> • Reply-To Address
+>
+> • Verification Status
+>
+> • Connection / Configuration Status
+
+Actions:
+
+> • Configure
+>
+> • Send Verification
+>
+> • Recheck Verification
+>
+> • Update
+>
+> • Disable
+
+Disabling Email requires confirmation and does not delete existing Email activity or template history.
+
+Email service credentials and secrets must never be exposed to client-side code.
+
+## 170.2 Email Templates
+
+Navigation:
+
+Settings → Email Templates
+
+Owner/Admin can:
+
+> • Add
+>
+> • Edit
+>
+> • Preview
+>
+> • Duplicate
+>
+> • Deactivate
+>
+> • Reactivate
+
+Templates contain:
+
+> • Template Name
+>
+> • Purpose
+>
+> • Subject
+>
+> • Message
+>
+> • Available Variables
+>
+> • Status
+
+Only active templates may be selected for new messages or reminders.
+
+Deactivating a template must not change previously sent Email history.
+
 **171. Modules & Features**
 
 Navigation:
@@ -6251,6 +7157,9 @@ Owner/Admin can enable or disable applicable modules:
 > • Renewals & Reminders
 >
 > • WhatsApp
+>
+> • Email
+
 
 Customer Management remains a core module and cannot be disabled.
 
@@ -6283,6 +7192,8 @@ Example:
 Disabling a module hides its normal navigation and entry points but does
 not delete existing data.
 
+Disabling Email prevents future Email sending and hides normal Email actions. It does not delete Email templates, configuration history or previously recorded Email activity.
+
 **172. Module Dependencies**
 
 Some features depend on other modules or configuration and cannot
@@ -6304,6 +7215,12 @@ operate independently.
 >
 > • WhatsApp sending is available only when the **WhatsApp module** is
 > enabled and the workspace has an active WhatsApp connection.
+>
+> • Email sending requires the Email module and a verified workspace sender.
+>
+> • Automated Email renewal reminders require Renewals & Reminders, Email, a verified sender and an active Email template.
+>
+> • Controlled bulk Email reminders require Renewals & Reminders and Email.
 
 **Dependency Behaviour**
 
@@ -6401,6 +7318,10 @@ Significant administrative actions require confirmation, including:
 > • disconnect WhatsApp
 >
 > • disable a module
+>
+> • disable Email
+>
+> • change or remove the verified Email sender
 
 Configuration changes should stop or affect **future use without
 deleting historical CRM data** unless explicitly stated otherwise.
@@ -6443,6 +7364,14 @@ Newest notifications appear first.
 > • WhatsApp message / scheduled reminder failed
 >
 > • bulk WhatsApp send completed / partially failed
+>
+> • Email message or scheduled Email reminder failed
+>
+> • Email bounced
+>
+> • controlled bulk Email reminder completed or partially failed
+>
+> • workspace Email sender requires administrator attention
 >
 > • import completed / failed
 
@@ -6568,6 +7497,12 @@ Examples include:
 >
 > • disconnecting WhatsApp
 >
+> • disabling Email
+>
+> • changing the verified Email sender
+>
+> • controlled bulk Email reminders
+>
 > • bulk messaging
 
 Confirmation should explain what will happen rather than displaying only
@@ -6630,6 +7565,8 @@ Mobile focuses on day-to-day operational work such as:
 >
 > • WhatsApp
 >
+> • individual Email communication
+>
 > • Notifications
 
 Configuration-heavy functions such as Users, Permissions, Pipeline
@@ -6638,6 +7575,8 @@ web-first.
 
 Mobile layouts should simplify desktop tables into mobile-friendly cards
 or lists rather than reproducing desktop layouts directly.
+
+Email sender configuration, Email template administration and controlled bulk Email sending remain web-first.
 
 **180. V1 Scope Boundary**
 
@@ -6669,6 +7608,20 @@ Do not introduce:
 > • custom role builders
 >
 > • Teams/Departments management
+>
+> • shared Email inbox
+>
+> • Gmail or Outlook mailbox synchronization
+>
+> • incoming Email synchronization
+>
+> • automated Email sales sequences
+>
+> • general Email marketing campaigns
+>
+> • Email open and click tracking
+>
+> • drag-and-drop Email template builder
 
 If a feature is not defined in the specification, it should not be
 assumed to exist.
