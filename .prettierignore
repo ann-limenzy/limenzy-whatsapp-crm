@@ -1,0 +1,11 @@
+.next
+node_modules
+coverage
+package-lock.json
+
+# Approved reference assets — preserve byte-for-byte.
+brand/
+design/
+docs/CRM_SaaS_Product_Spec_V1.md
+docs/CRM_SaaS_Product_Spec_V1.docx
+public/brand/
