@@ -20,6 +20,9 @@ A lightweight SaaS CRM designed for small businesses to:
 >
 > • track renewal, expiry or other important due dates
 >
+> • initiate customer calls from the CRM with one tap, then record the
+> outcome and next follow-up
+>
 > • send WhatsApp messages and reminders
 >
 > • receive and manage customer WhatsApp replies through a lightweight
@@ -133,6 +136,8 @@ Can:
 > • update records
 >
 > • complete and schedule follow-ups
+>
+> • call permitted Leads and Customers and record call outcomes
 >
 > • send WhatsApp messages
 >
@@ -769,9 +774,14 @@ Due
 
 Actions:
 
+**Call** — shown for Call-type follow-ups, subject to Sections 27.1–27.5
+
 **Mark Complete**
 
 **Reschedule**
+
+Selecting **Call** opens the phone's native calling interface. It does
+not mark the Follow-up complete; completion remains an explicit action.
 
 Selecting **customer/lead** opens the record.
 
@@ -1055,7 +1065,7 @@ Activity types:
 >
 > • note
 >
-> • call
+> • call — a user-confirmed call outcome, defined in Section 27.4
 >
 > • visit
 >
@@ -1096,6 +1106,215 @@ Example:
 **28 Aug · 10:14 AM**
 
 **Renewal reminder scheduled.**
+
+## 27.1 One-Tap Click-to-Call
+
+An authorized user with access to a Lead or Customer may initiate a
+telephone call from the relevant CRM screen.
+
+The V1 implementation is click-to-call. Selecting **Call** on a
+supported phone invokes the device's native calling interface using the
+valid normalized telephone number through a `tel:` link. The cellular
+conversation itself takes place in the phone's native call interface,
+which temporarily takes over from the CRM. A true in-app VoIP system is
+outside V1 and is excluded in Section 27.5.
+
+**Where Call must be available**
+
+- Lead Detail
+- Customer Detail
+- Call-type Follow-up cards and Follow-up details
+- Today's Follow-ups
+- overdue and upcoming Call follow-ups
+- other mobile quick-action areas already defined by this specification
+
+**Initiation rules**
+
+- The user must always initiate the call explicitly. The CRM must never
+  start a call automatically.
+- If only one valid callable number exists, use it.
+- If the existing data model permits multiple callable numbers, allow
+  the user to select the required number before opening the native
+  calling interface.
+- If the phone number is missing or invalid, **Call** is disabled and
+  the interface explains why.
+- On desktop or an unsupported device, the system may invoke an
+  available calling handler or provide a **Copy Number** action. It must
+  not pretend that a call was made.
+
+**Tapping Call alone must not**
+
+- mark a Follow-up complete
+- create a successful-call activity
+- change a Lead stage
+- change a Customer status
+- claim that the call connected
+
+Phone numbers used for calling should be normalized for the `tel:` link
+while retaining user-friendly formatting when displayed in the CRM.
+
+## 27.2 Mobile Call and Return Flow
+
+The flow is:
+
+> Open Lead, Customer or Call Follow-up
+>
+> → Select Call
+>
+> → Native phone calling interface opens with the number
+>
+> → User makes or cancels the call
+>
+> → User returns to the CRM
+>
+> → CRM restores the originating record or Follow-up context
+>
+> → User records the outcome or dismisses the prompt
+
+**Context and return**
+
+- The originating Lead, Customer or Follow-up context is preserved
+  before the native calling interface is invoked.
+- When the user returns, **Record Call Outcome** is readily available
+  for the originating record.
+- Where technically reliable, the interface may display the outcome
+  prompt when the PWA becomes active again.
+- The prompt must also remain accessible from the originating record or
+  Follow-up if the operating system closes or suspends the PWA.
+- The user may dismiss the prompt when the call was cancelled or did not
+  take place. Dismissing the prompt must not create a completed-call
+  activity.
+
+**What the system must not claim**
+
+- The PWA must not claim that it can automatically determine whether a
+  normal cellular call connected, was answered, failed or ended.
+- The PWA must not claim to know the call duration unless a future
+  approved telephony integration provides reliable information.
+
+## 27.3 Record Call Outcome
+
+**Record Call Outcome** is a small form used to log what actually
+happened on a call.
+
+**Field**
+
+**Requirement**
+
+Related Lead or Customer
+
+Automatically selected and read-only
+
+Related Follow-up
+
+Automatically selected when initiated from a Follow-up
+
+Outcome
+
+Required
+
+Note
+
+Optional
+
+Call date and time
+
+Defaults to the call initiation time; correction permitted only where
+appropriate
+
+Next action
+
+Optional
+
+**Outcome options in V1**
+
+- Connected
+- No Answer
+- Busy or Unreachable
+- Call Back Requested
+- Left Voicemail
+- Wrong Number
+- Other
+
+**Actions**
+
+- **Save Outcome**
+- **Complete Follow-up** — when initiated from an incomplete Follow-up
+- **Complete and Schedule Next** — when initiated from an incomplete
+  Follow-up
+- **Cancel**
+
+**Saving an outcome must**
+
+- create a Call activity in the related Lead or Customer timeline
+- record the user who submitted it
+- record the call date and time
+- record the selected outcome
+- preserve the optional note
+- reference the originating Follow-up when applicable
+- preserve tenant isolation and record-access permissions
+
+Saving a call outcome must not automatically change the Lead stage or
+the Customer status.
+
+When the user selects **Complete Follow-up** or **Complete and Schedule
+Next**, the existing Follow-up completion and scheduling rules defined
+in Section 41 are reused. A separate completion workflow must not be
+introduced.
+
+If the selected outcome is **Call Back Requested**, the interface should
+make **Schedule Next Follow-up** prominent but must not silently
+schedule one.
+
+## 27.4 Call Activity Rules
+
+A Call activity represents a user-confirmed call outcome, not merely a
+tap on the **Call** button.
+
+The activity timeline should show:
+
+- call outcome
+- related Lead or Customer
+- salesperson
+- date and time
+- note, when provided
+- originating Follow-up, when applicable
+
+Historical Call activities must remain available even if the related
+user, phone number or configuration is later changed.
+
+**Permissions**
+
+- Call activities are subject to the same workspace isolation, ownership
+  visibility and role permissions as the related Lead or Customer.
+- A Staff user may call and log outcomes only for records they are
+  permitted to access.
+- Admin and Manager visibility must follow the existing record-access
+  rules.
+- Hiding a **Call** button is not sufficient authorization. Access must
+  also be enforced server-side where call outcomes are saved.
+
+## 27.5 V1 Call Limitations
+
+V1 does not include:
+
+- in-app VoIP calling
+- WebRTC calling
+- telephone-number provisioning
+- call recording
+- call transcription
+- automatic call-duration detection
+- automatic detection of answered, missed or failed calls
+- access to the phone's operating-system call history
+- automatic synchronization with cellular call logs
+- call-centre integration
+- PBX integration
+- telephony-provider integration
+- automatic outbound calling
+- predictive or power dialling
+
+These capabilities may only be evaluated as a separately approved future
+integration.
 
 **28. Global Confirmation Rules**
 
@@ -1521,6 +1740,8 @@ Display:
 
 Primary actions:
 
+**Call**
+
 **WhatsApp**
 
 **Email**
@@ -1530,6 +1751,18 @@ Primary actions:
 **Edit**
 
 **More**
+
+**Call** is enabled only when:
+
+> • the user can access the Lead
+>
+> • a valid phone number exists
+>
+> • the device or environment can handle the telephone link
+
+Selecting **Call** follows the click-to-call behaviour defined in
+Sections 27.1–27.5. Initiating a call does not by itself create a Call
+activity or change the Lead stage.
 
 WhatsAp**p** is enabled only when:
 
@@ -1632,7 +1865,7 @@ Contacted → Interested
 
 **Today · 10:45 AM**
 
-**Call completed by Arun**
+**Call — Connected — logged by Arun**
 
 **Customer requested policy details.**
 
@@ -1715,6 +1948,12 @@ Follow-up Type options in V1:
 >
 > • Other
 
+A **Call Follow-up** is a task reminding the assigned user to telephone
+the Lead/Customer. Selecting **Call** from a Call Follow-up invokes the
+click-to-call flow defined in Sections 27.1–27.5. Scheduling the
+Follow-up does not automatically place a call, and initiating a call
+does not automatically complete the Follow-up.
+
 A **WhatsApp Follow-up** is a task reminding the assigned user to
 contact the Lead/Customer through WhatsApp. Scheduling the Follow-up
 does not automatically send a message.
@@ -1769,6 +2008,17 @@ Follow-up form.
 
 This supports repeated sales follow-ups without introducing workflow
 automation.
+
+**Call follow-ups**
+
+Completion of a Call Follow-up remains an explicit user action.
+Initiating a call from the Follow-up does not complete it.
+
+A completed Call Follow-up may store the call outcome selected in
+**Record Call Outcome** (Section 27.3). Where the user completes the
+Follow-up from that form, the actions above are the same completion and
+scheduling rules — **Complete and Schedule Next** continues to use this
+workflow. A second completion process must not be introduced.
 
 **42. Reschedule Follow-up**
 
@@ -1868,11 +2118,16 @@ broader permissions are granted.
 
 From the Follow-ups screen:
 
+> • Call — shown for Call-type follow-ups, subject to Sections 27.1–27.5
+>
 > • Mark Complete
 >
 > • Reschedule
 >
 > • Open Record
+
+Call is available from the Today, Upcoming and Overdue tabs for
+Call-type follow-ups. Initiating a call does not complete the Follow-up.
 
 Primary action:
 
@@ -1892,9 +2147,13 @@ Overdue Follow-ups should:
 > • contribute to Dashboard overdue counts
 >
 > • remain actionable using Mark Complete or Reschedule
+>
+> • for Call-type follow-ups, remain callable using Call, subject to
+> Sections 27.1–27.5
 
 The system should not automatically mark an overdue Follow-up as
-completed or cancelled.
+completed or cancelled. Initiating a call from an overdue Call
+Follow-up does not complete it.
 
 **45. Mark Lead as Won**
 
@@ -2083,6 +2342,10 @@ Each item should show:
 
 **\[ Call \] \[ WhatsApp \]**
 
+**Call** follows the click-to-call behaviour defined in Sections
+27.1–27.5. It opens the phone's native calling interface and does
+not by itself complete a Follow-up or create a Call activity.
+
 Selecting the card opens Lead Detail.
 
 **Lead Detail**
@@ -2090,6 +2353,10 @@ Selecting the card opens Lead Detail.
 Keep primary actions easily accessible:
 
 **Call \| WhatsApp \| Email \| Follow-up \| More**
+
+**Call** follows the click-to-call behaviour defined in Sections
+27.1–27.5. It opens the phone's native calling interface and does
+not by itself complete a Follow-up or create a Call activity.
 
 Where the row or header cannot comfortably show every channel, Email may
 be placed under **More**. It must not be removed from mobile entirely.
@@ -2378,6 +2645,8 @@ Display:
 
 Primary actions:
 
+**Call**
+
 **WhatsApp**
 
 **Email**
@@ -2389,6 +2658,18 @@ Primary actions:
 **Edit**
 
 **More**
+
+**Call** is enabled only when:
+
+> • the user can access the Customer
+>
+> • a valid phone number exists
+>
+> • the device or environment can handle the telephone link
+
+Selecting **Call** follows the click-to-call behaviour defined in
+Sections 27.1–27.5. Initiating a call does not by itself create a Call
+activity or change the Customer status.
 
 The WhatsApp action follows the same availability rules defined for
 Leads.
@@ -3198,6 +3479,10 @@ Selecting the card opens Customer Profile.
 Primary actions should remain easily accessible:
 
 **Call \| WhatsApp \| Email \| Follow-up \| More**
+
+**Call** follows the click-to-call behaviour defined in Sections
+27.1–27.5. It opens the phone's native calling interface and does
+not by itself complete a Follow-up or create a Call activity.
 
 Where the header cannot comfortably show every channel, Email may be
 placed under **More**. It must not be removed from mobile entirely.
@@ -4441,6 +4726,10 @@ secondary panel/action rather than permanently taking excessive space.
 Useful actions:
 
 **Call \| Open Record \| Follow-up \| More**
+
+**Call** follows the click-to-call behaviour defined in Sections
+27.1–27.5. It opens the phone's native calling interface and does
+not by itself complete a Follow-up or create a Call activity.
 
 The message composer should remain easily accessible near the bottom of
 the screen.
@@ -7575,6 +7864,14 @@ Mobile focuses on day-to-day operational work such as:
 >
 > • Follow-ups
 >
+> • initiating calls
+>
+> • recording call outcomes
+>
+> • completing Call follow-ups
+>
+> • scheduling the next follow-up
+>
 > • Renewals
 >
 > • WhatsApp
@@ -7681,6 +7978,22 @@ message stating that a connection is required and offering to retry.
 The offline experience must not display customer data, lead data,
 renewal data, email content, reports, documents or any other workspace
 content. It must not imply that work performed offline will be saved.
+
+**Calling from an installed application**
+
+An installed PWA may initiate a normal cellular call through the native
+phone interface, using the click-to-call behaviour defined in Sections
+27.1–27.5.
+
+- The PWA should preserve CRM context so the salesperson can return and
+  record the outcome.
+- Standalone PWA display does not mean that the cellular conversation
+  itself remains inside the PWA. The phone's native call interface
+  temporarily takes over.
+- Click-to-call requires network access to load or update CRM data. The
+  cellular call itself is handled by the device and the mobile carrier.
+- V1 does not include offline call-outcome synchronization unless
+  already explicitly approved elsewhere in this specification.
 
 **Data and caching restrictions**
 
@@ -7805,6 +8118,15 @@ Do not introduce:
 > • a separate mobile application codebase
 >
 > • workspace-specific installed application branding
+
+The V1 call exclusions defined in Section 27.5 also apply. In summary,
+do not introduce in-app VoIP or WebRTC calling, telephone-number
+provisioning, call recording or transcription, automatic call-duration
+detection, automatic detection of answered, missed or failed calls,
+access to the phone's operating-system call history, automatic
+synchronization with cellular call logs, call-centre, PBX or
+telephony-provider integration, automatic outbound calling, or
+predictive or power dialling. Section 27.5 is the authoritative list.
 
 If a feature is not defined in the specification, it should not be
 assumed to exist.
