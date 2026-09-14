@@ -16,13 +16,13 @@ import { publicEnv } from "@/lib/env";
  * module never requires configuration. That keeps `next build` working on a
  * machine without credentials and keeps unrelated tests importable.
  *
- * Only the publishable anon key reaches this file. The service-role key must
- * never appear in a module that can be bundled for the browser.
+ * Only the publishable key reaches this file. The secret key must never appear
+ * in a module that can be bundled for the browser.
  */
 export function createClient() {
   const env = publicEnv();
   return createBrowserClient(
     env.NEXT_PUBLIC_SUPABASE_URL,
-    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   );
 }

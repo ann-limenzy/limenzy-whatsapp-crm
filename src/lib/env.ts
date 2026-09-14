@@ -26,7 +26,26 @@ const publicSchema = z.object({
     .string()
     .min(1, "must be set")
     .url("must be a valid URL, for example https://<project-ref>.supabase.co"),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1, "must be set"),
+  /**
+   * Publishable key (`sb_publishable_…`) from Project Settings → API Keys.
+   *
+   * This is the current Supabase key model and the only one this application
+   * supports; the legacy `anon` JWT is not accepted under a second name.
+   *
+   * The refusal below is the important part. A publishable key is meant to be
+   * public, but a SECRET key pasted into this browser-exposed variable would
+   * bypass Row Level Security for every visitor — and would be inlined into
+   * the JavaScript bundle, so the mistake is unrecoverable once shipped.
+   * Failing the build is cheap; the alternative is not.
+   */
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z
+    .string()
+    .min(1, "must be set")
+    .refine((value) => !value.startsWith("sb_secret_"), {
+      message:
+        "looks like a SECRET key — that must never be exposed to the browser; " +
+        "use the publishable key (sb_publishable_...)",
+    }),
 });
 
 const serverSchema = z.object({
@@ -52,8 +71,8 @@ export class EnvConfigurationError extends Error {
       "Supabase is not configured. Missing or invalid environment " +
         `variable(s): ${missing.join(", ")}. ` +
         "Copy .env.example to .env.local and provide the values from your " +
-        "Supabase project (Project Settings → API). Restart the dev server " +
-        "afterwards; NEXT_PUBLIC_* values are inlined at build time.",
+        "Supabase project (Project Settings → API Keys). Restart the dev " +
+        "server afterwards; NEXT_PUBLIC_* values are inlined at build time.",
     );
     this.name = "EnvConfigurationError";
     this.missing = missing;
@@ -77,7 +96,8 @@ function describeIssues(error: z.ZodError): string[] {
 function readPublic(): Record<string, string | undefined> {
   return {
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   };
 }
 
@@ -119,7 +139,7 @@ export function isSupabaseConfigured(): boolean {
 /** Names of the variables this application needs, for diagnostics and docs. */
 export const REQUIRED_PUBLIC_ENV = [
   "NEXT_PUBLIC_SUPABASE_URL",
-  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
 ] as const;
 
 export const OPTIONAL_ENV = ["NEXT_PUBLIC_SITE_URL"] as const;

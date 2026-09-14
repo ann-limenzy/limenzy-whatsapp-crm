@@ -20,14 +20,14 @@ import {
  */
 
 const URL_VALUE = "https://abcdefghijklmnop.supabase.co";
-const KEY_VALUE = "sb-anon-key-value-that-must-never-be-printed";
+const KEY_VALUE = "sb_publishable_value_that_must_never_be_printed";
 
 const saved = { ...process.env };
 
 beforeEach(() => {
   resetEnvCacheForTests();
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-  delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  delete process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   delete process.env.NEXT_PUBLIC_SITE_URL;
 });
 
@@ -48,7 +48,7 @@ describe("isSupabaseConfigured", () => {
 
   it("is true once both are set", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
     expect(isSupabaseConfigured()).toBe(true);
   });
 
@@ -78,14 +78,16 @@ describe("publicEnv", () => {
       throw new Error("expected publicEnv to throw");
     } catch (error) {
       const { missing } = error as EnvConfigurationError;
-      expect(missing.join(" ")).toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+      expect(missing.join(" ")).toContain(
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      );
       expect(missing.join(" ")).not.toContain("NEXT_PUBLIC_SUPABASE_URL");
     }
   });
 
   it("never puts a value in the error", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "not-a-url";
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "";
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "";
     try {
       publicEnv();
       throw new Error("expected publicEnv to throw");
@@ -96,31 +98,60 @@ describe("publicEnv", () => {
     }
   });
 
+  it("refuses a secret key in the browser-exposed variable", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_secret_abcdef123456";
+    // This would otherwise be inlined into the JavaScript bundle and hand
+    // every visitor a key that bypasses Row Level Security.
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("names the variable, not the secret, when it refuses one", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_secret_abcdef123456";
+    try {
+      publicEnv();
+      throw new Error("expected publicEnv to throw");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+      expect(message).not.toContain("abcdef123456");
+    }
+  });
+
+  it("accepts a publishable key", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_abc123";
+    expect(publicEnv().NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY).toBe(
+      "sb_publishable_abc123",
+    );
+  });
+
   it("rejects a URL that is not a URL", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "abcdefghijklmnop.supabase.co";
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
     expect(() => publicEnv()).toThrow(EnvConfigurationError);
   });
 
   it("returns the validated pair", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
     expect(publicEnv()).toEqual({
       NEXT_PUBLIC_SUPABASE_URL: URL_VALUE,
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: KEY_VALUE,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: KEY_VALUE,
     });
   });
 
   it("memoises, so validation is not repeated per request", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
     const first = publicEnv();
     expect(publicEnv()).toBe(first);
   });
 
   it("exposes no server secret", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
     // Everything reachable from the browser bundle must carry the prefix.
     for (const key of Object.keys(publicEnv())) {
       expect(key.startsWith("NEXT_PUBLIC_")).toBe(true);
@@ -149,11 +180,23 @@ describe("serverEnv", () => {
   });
 });
 
+describe("the legacy key model is not supported", () => {
+  it("ignores NEXT_PUBLIC_SUPABASE_ANON_KEY entirely", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = KEY_VALUE;
+    // Setting only the old name must not satisfy configuration: supporting
+    // two names for one value is how a project ends up shipping the wrong key.
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  });
+});
+
 describe("documented variable names", () => {
   it("lists what an operator must provide", () => {
     expect([...REQUIRED_PUBLIC_ENV]).toEqual([
       "NEXT_PUBLIC_SUPABASE_URL",
-      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
     ]);
     expect([...OPTIONAL_ENV]).toEqual(["NEXT_PUBLIC_SITE_URL"]);
   });
@@ -164,5 +207,22 @@ describe("documented variable names", () => {
     for (const name of [...REQUIRED_PUBLIC_ENV, ...OPTIONAL_ENV]) {
       expect(example).toContain(name);
     }
+  });
+
+  it("leaves no legacy key name in .env.example", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const example = await readFile(".env.example", "utf8");
+    expect(example).not.toContain("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    expect(example).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+    expect(example).toContain("SUPABASE_SECRET_KEY");
+  });
+
+  it("documents the server-only secret without giving it a value", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const example = await readFile(".env.example", "utf8");
+    // Commented out: it is not needed until Milestone 1C, and an uncommented
+    // empty secret invites someone to fill it in on the browser-safe side.
+    expect(example).toMatch(/#\s*SUPABASE_SECRET_KEY=/);
+    expect(example).not.toMatch(/^SUPABASE_SECRET_KEY=.+$/m);
   });
 });

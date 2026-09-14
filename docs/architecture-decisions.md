@@ -411,4 +411,7 @@ required — the pinned set is fully stable and mutually compatible on Node 20.
 - No hard-coded theme colours in components. Enforced by
   `src/test/design-tokens.test.ts`.
 - No `any` to silence a type error. No weakened test to make a build pass.
-- Never expose the Supabase service-role key or a database URL to browser code.
+- Never expose the Supabase secret key or a database URL to browser code.
+  The publishable key is the only Supabase key that may carry a
+  `NEXT_PUBLIC_` prefix; `src/lib/env.ts` rejects an `sb_secret_` value in
+  that variable rather than inlining it into the browser bundle.

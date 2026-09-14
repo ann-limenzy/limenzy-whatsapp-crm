@@ -22,8 +22,11 @@ No authentication, no database, no permissions, no business modules.
 ### 1B — Supabase authentication and workspace onboarding — _next_
 
 - `@supabase/ssr` clients: browser, Server Component (read-only cookies),
-  Route Handler / Server Action (writable cookies), admin (service-role,
+  Route Handler / Server Action (writable cookies), admin (secret key,
   `server-only`).
+- Current Supabase key model: `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for
+  anything browser-reachable, `SUPABASE_SECRET_KEY` server-only. The legacy
+  `anon` / `service_role` JWTs are not supported under any name.
 - `proxy.ts` (**not** `middleware.ts` — Next 16 convention) refreshing the auth
   token, with a matcher that excludes static assets.
 - Email + password signup, email verification, sign-in, sign-out, password
