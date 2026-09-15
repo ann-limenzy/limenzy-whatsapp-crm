@@ -3,33 +3,72 @@
 import {
   ArrowLeft,
   CalendarPlus,
+  Check,
+  CircleCheck,
   ExternalLink,
   FileText,
-  MoreVertical,
+  Lock,
+  MessageSquarePlus,
+  MoreHorizontal,
   Phone,
+  PhoneOutgoing,
   RotateCcw,
   Send,
+  Smartphone,
+  UserCog,
+  X,
+  XCircle,
+  type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useState } from "react";
 
-import { PhoneFrame, PhoneScreen } from "@/components/wireframes/phone-frame";
+import {
+  PhoneFrame,
+  PhoneScreen,
+  PhoneSheet,
+} from "@/components/wireframes/phone-frame";
 import { DeliveryTag } from "@/components/wireframes/whatsapp/parts";
-import { CONVERSATIONS, THREAD } from "@/lib/wireframes/mock-data";
+import {
+  CONVERSATIONS,
+  SALES_PERSONA,
+  FOLLOW_UP_TYPES,
+  TEAM,
+  THREAD,
+} from "@/lib/wireframes/mock-data";
 import { cn } from "@/lib/utils";
 
 /**
  * B3 — Conversation on a phone.
  *
- * Built for one thumb. Everything that needs reaching while holding a phone —
- * the composer, templates, send — sits in the bottom third. Call and the
- * record link sit in the header, where they are read but rarely pressed
- * mid-sentence.
+ * A&S Fincare's salespeople work from phones, so every CRM action the desktop
+ * conversation offers has to be reachable here too. Cramming that toolbar into
+ * the header would wreck it, so the screen uses the usual phone pattern: three
+ * primary actions in the thumb zone directly above the composer, everything
+ * secondary behind More in a bottom sheet.
+ *
+ * Order follows how the work actually goes — reply, call, schedule the next
+ * step — with the record, notes and conversation admin one layer down.
+ *
+ * Every sheet here is component state. Nothing is saved, sent or dialled.
  */
+
+/** Which sheet is open, if any. */
+type SheetKind = "call" | "followup" | "note" | "more";
+
+/** Local confirmations, cleared when the sheet closes. */
+type Confirmation = "followup" | "note";
+
 export function MobileConversationScreen() {
   const conversation = CONVERSATIONS[0]!;
-  const [actionsOpen, setActionsOpen] = useState(false);
+  const [sheet, setSheet] = useState<SheetKind | null>(null);
+  const [confirmed, setConfirmed] = useState<Confirmation | null>(null);
+
+  const close = () => {
+    setSheet(null);
+    setConfirmed(null);
+  };
 
   return (
     <div className="app-ambient min-h-dvh">
@@ -37,6 +76,43 @@ export function MobileConversationScreen() {
         <PhoneFrame caption="390 × 844 · one-handed reach">
           <PhoneScreen
             activeNav="whatsapp"
+            sheet={
+              sheet ? (
+                <PhoneSheet label={SHEET_LABEL[sheet]} onClose={close}>
+                  {sheet === "more" ? (
+                    <MoreSheet
+                      person={conversation.person}
+                      recordLabel={conversation.recordLabel}
+                      onClose={close}
+                      onAddNote={() => setSheet("note")}
+                    />
+                  ) : null}
+                  {sheet === "followup" ? (
+                    <FollowUpSheet
+                      person={conversation.person}
+                      done={confirmed === "followup"}
+                      onSave={() => setConfirmed("followup")}
+                      onClose={close}
+                    />
+                  ) : null}
+                  {sheet === "note" ? (
+                    <NoteSheet
+                      person={conversation.person}
+                      done={confirmed === "note"}
+                      onSave={() => setConfirmed("note")}
+                      onClose={close}
+                    />
+                  ) : null}
+                  {sheet === "call" ? (
+                    <CallSheet
+                      person={conversation.person}
+                      phone={conversation.phone}
+                      onClose={close}
+                    />
+                  ) : null}
+                </PhoneSheet>
+              ) : null
+            }
             header={
               <header className="surface-glass sticky top-0 z-10 rounded-none border-x-0 border-t-0 px-2 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-1 py-2">
@@ -57,34 +133,10 @@ export function MobileConversationScreen() {
                     </p>
                   </div>
 
-                  <a
-                    href={`tel:+917000012345`}
-                    aria-label={`Call ${conversation.person}`}
-                    onClick={(e) => e.preventDefault()}
-                    className="grid size-11 shrink-0 place-items-center rounded-lg text-primary"
-                  >
-                    <Phone className="size-5" aria-hidden="true" />
-                  </a>
-                  <button
-                    type="button"
-                    aria-label="More actions"
-                    aria-expanded={actionsOpen}
-                    onClick={() => setActionsOpen((v) => !v)}
-                    className="grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
-                  >
-                    <MoreVertical className="size-5" aria-hidden="true" />
-                  </button>
+                  <span className="shrink-0 rounded-full border border-success/30 bg-success-subtle px-2.5 py-0.5 text-[11px] font-medium text-success-on-subtle">
+                    {conversation.status}
+                  </span>
                 </div>
-
-                {actionsOpen ? (
-                  <div className="flex flex-col gap-1 border-t border-border/70 py-2">
-                    <SheetAction
-                      icon={ExternalLink}
-                      label="Open customer record"
-                    />
-                    <SheetAction icon={CalendarPlus} label="Create follow-up" />
-                  </div>
-                ) : null}
               </header>
             }
           >
@@ -148,9 +200,28 @@ export function MobileConversationScreen() {
               })}
             </div>
 
-            {/* Composer sits directly above the navigation — thumb territory. */}
-            <div className="surface-solid sticky bottom-0 border-t border-border p-2.5">
-              <div className="flex items-end gap-2">
+            {/* Actions and composer share one sticky block, so the thumb zone
+                is a single surface rather than two stacked bars. */}
+            <div className="surface-solid sticky bottom-0 border-t border-border">
+              <div className="grid grid-cols-3 gap-1 border-b border-border/70 p-1.5">
+                <PrimaryAction
+                  icon={Phone}
+                  label="Call"
+                  onClick={() => setSheet("call")}
+                />
+                <PrimaryAction
+                  icon={CalendarPlus}
+                  label="Follow-up"
+                  onClick={() => setSheet("followup")}
+                />
+                <PrimaryAction
+                  icon={MoreHorizontal}
+                  label="More"
+                  onClick={() => setSheet("more")}
+                />
+              </div>
+
+              <div className="flex items-end gap-2 p-2.5">
                 <Link
                   href={"/wireframes/whatsapp/templates" as Route}
                   aria-label="Choose a message template"
@@ -177,23 +248,501 @@ export function MobileConversationScreen() {
   );
 }
 
-function SheetAction({
+const SHEET_LABEL: Record<SheetKind, string> = {
+  call: "Call hand-off",
+  followup: "Create follow-up",
+  note: "Add note",
+  more: "Conversation actions",
+};
+
+/** One of the three thumb-zone actions. Always at least 44px tall. */
+function PrimaryAction({
   icon: Icon,
   label,
+  onClick,
 }: {
-  icon: typeof ExternalLink;
+  icon: LucideIcon;
   label: string;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-foreground"
+      onClick={onClick}
+      aria-haspopup="dialog"
+      className="flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
+    >
+      <Icon className="size-[18px] shrink-0 text-primary" aria-hidden="true" />
+      <span className="w-full truncate text-center leading-tight">{label}</span>
+    </button>
+  );
+}
+
+/* ----------------------------------------------------------- sheet parts */
+
+function SheetHeader({
+  title,
+  subtitle,
+  onClose,
+}: {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 pb-3">
+      <div className="min-w-0 flex-1">
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+        {subtitle ? (
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {subtitle}
+          </p>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={`Close ${title.toLowerCase()}`}
+        className="-mt-1 grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
+      >
+        <X className="size-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** Row in the More sheet that actually does something. */
+function SheetAction({
+  icon: Icon,
+  label,
+  detail,
+  tone = "default",
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail?: string;
+  tone?: "default" | "danger";
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
     >
       <Icon
-        className="size-4 shrink-0 text-muted-foreground"
+        className={cn(
+          "size-[18px] shrink-0",
+          tone === "danger" ? "text-danger-on-subtle" : "text-muted-foreground",
+        )}
         aria-hidden="true"
       />
-      {label}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-foreground">
+          {label}
+        </span>
+        {detail ? (
+          // Two lines rather than an ellipsis: at 326px a truncated
+          // explanation stops mid-sentence and explains nothing.
+          <span className="line-clamp-2 block text-[11px] leading-snug text-muted-foreground">
+            {detail}
+          </span>
+        ) : null}
+      </span>
     </button>
+  );
+}
+
+/**
+ * Row that exists to show the capability but cannot be used here.
+ *
+ * Rendered as a plain element rather than a disabled button: it is not a
+ * control at all, so it stays out of the tab order instead of offering focus
+ * to something that can never act.
+ */
+function SheetInactive({
+  icon: Icon,
+  label,
+  reason,
+}: {
+  icon: LucideIcon;
+  label: string;
+  reason: string;
+}) {
+  return (
+    <span className="flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2 opacity-70">
+      <Icon
+        className="size-[18px] shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-muted-foreground">
+          {label}
+        </span>
+        <span className="line-clamp-2 block text-[11px] leading-snug text-muted-foreground/80">
+          {reason}
+        </span>
+      </span>
+      <Lock
+        className="size-3.5 shrink-0 text-muted-foreground"
+        aria-hidden="true"
+      />
+    </span>
+  );
+}
+
+function SheetField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const FIELD_CLASS =
+  "h-11 w-full min-w-0 rounded-lg border border-input bg-surface px-2.5 text-[13px] text-foreground";
+
+/** Local confirmation panel shared by the follow-up and note sheets. */
+function Confirmed({
+  title,
+  detail,
+  onClose,
+}: {
+  title: string;
+  detail: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="pt-1">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-10 shrink-0 place-items-center rounded-full bg-success-subtle text-success-on-subtle"
+        >
+          <CircleCheck className="size-5" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+            {detail}
+          </p>
+        </div>
+      </div>
+      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
+        Concept wireframe — nothing was saved.
+      </p>
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground"
+      >
+        Back to conversation
+      </button>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- sheets */
+
+function MoreSheet({
+  person,
+  recordLabel,
+  onClose,
+  onAddNote,
+}: {
+  person: string;
+  recordLabel: string;
+  onClose: () => void;
+  onAddNote: () => void;
+}) {
+  return (
+    <>
+      <SheetHeader
+        title="Conversation actions"
+        subtitle={`${person} · ${recordLabel}`}
+        onClose={onClose}
+      />
+      <div className="flex flex-col gap-0.5 border-t border-border pt-2">
+        {/*
+         * This customer's record is not one of the screens in the walkthrough,
+         * and the lead-detail wireframe belongs to a different person —
+         * linking there would tell the client the CRM had opened the wrong
+         * customer. So the capability is shown and labelled instead.
+         */}
+        <SheetInactive
+          icon={ExternalLink}
+          label="Open customer record"
+          reason="Screen not included in this walkthrough"
+        />
+        <SheetAction
+          icon={MessageSquarePlus}
+          label="Add note"
+          detail="Records a note on the customer timeline"
+          onClick={onAddNote}
+        />
+        {/*
+         * Spec §162 permission matrix: "Assign WhatsApp conversations" is
+         * Yes for Owner/Admin, Configurable for Manager, No for Staff/Sales.
+         * This is the salesperson's phone, so it is not theirs to do.
+         */}
+        <SheetInactive
+          icon={UserCog}
+          label="Assign conversation"
+          reason="Managers and admins only"
+        />
+        {/*
+         * Spec §112 names closing/reopening as its own permission, but the
+         * §162 matrix gives it no row — so whether a Sales Executive may do it
+         * is genuinely undecided. Showing it as available would put a product
+         * decision into the client's head as though it were settled, so the
+         * capability is shown and the permission question left open.
+         */}
+        <SheetInactive
+          icon={XCircle}
+          label="Close conversation"
+          reason="Available based on role permission"
+        />
+      </div>
+
+      <p className="mt-2 border-t border-border pt-2.5 text-[11px] leading-snug text-muted-foreground">
+        Signed in as {SALES_PERSONA.name} · {SALES_PERSONA.role}. What appears
+        here depends on the role.
+      </p>
+    </>
+  );
+}
+
+function FollowUpSheet({
+  person,
+  done,
+  onSave,
+  onClose,
+}: {
+  person: string;
+  done: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  if (done) {
+    return (
+      <Confirmed
+        title="Follow-up scheduled"
+        detail={`Call · 14 Sep 2026, 10:00 AM · ${SALES_PERSONA.name}`}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <>
+      <SheetHeader
+        title="Create follow-up"
+        subtitle={`${person} · Health Insurance renewal`}
+        onClose={onClose}
+      />
+      <div className="flex flex-col gap-3 border-t border-border pt-3">
+        <SheetField label="Contact">
+          <p className="flex h-11 items-center rounded-lg border border-border bg-muted px-2.5 text-[13px] font-medium text-foreground">
+            {person}
+          </p>
+        </SheetField>
+
+        <div className="grid grid-cols-2 gap-2">
+          <SheetField label="Follow-up type">
+            <select defaultValue="Call" className={FIELD_CLASS}>
+              {FOLLOW_UP_TYPES.map((t) => (
+                <option key={t}>{t}</option>
+              ))}
+            </select>
+          </SheetField>
+          <SheetField label="Assigned to">
+            <select defaultValue={SALES_PERSONA.name} className={FIELD_CLASS}>
+              {TEAM.map((m) => (
+                <option key={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </SheetField>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <SheetField label="Due date">
+            <input
+              type="date"
+              defaultValue="2026-09-14"
+              className={FIELD_CLASS}
+            />
+          </SheetField>
+          <SheetField label="Time">
+            <input type="time" defaultValue="10:00" className={FIELD_CLASS} />
+          </SheetField>
+        </div>
+
+        <SheetField label="Note">
+          <textarea
+            rows={2}
+            defaultValue="Confirm renewal premium and send the payment link."
+            className="w-full min-w-0 rounded-lg border border-input bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-foreground"
+          />
+        </SheetField>
+      </div>
+
+      <div className="mt-3.5 flex gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="min-h-11 flex-1 rounded-lg border border-border text-sm font-medium text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-2 text-sm font-semibold text-primary-foreground"
+        >
+          <Check className="size-4 shrink-0" aria-hidden="true" />
+          Save follow-up
+        </button>
+      </div>
+    </>
+  );
+}
+
+function NoteSheet({
+  person,
+  done,
+  onSave,
+  onClose,
+}: {
+  person: string;
+  done: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  if (done) {
+    return (
+      <Confirmed
+        title="Note added"
+        detail={`It would appear on ${person}'s activity timeline, with your name and the time.`}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <>
+      <SheetHeader
+        title="Add note"
+        subtitle={`On ${person}'s timeline`}
+        onClose={onClose}
+      />
+      <div className="border-t border-border pt-3">
+        <SheetField label="Note">
+          <textarea
+            rows={4}
+            defaultValue="Customer confirmed the renewal on WhatsApp and asked for the payment link before 4 PM."
+            className="w-full min-w-0 rounded-lg border border-input bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-foreground"
+          />
+        </SheetField>
+      </div>
+
+      <div className="mt-3.5 flex gap-2">
+        <button
+          type="button"
+          onClick={onClose}
+          className="min-h-11 flex-1 rounded-lg border border-border text-sm font-medium text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-2 text-sm font-semibold text-primary-foreground"
+        >
+          <Check className="size-4 shrink-0" aria-hidden="true" />
+          Add note
+        </button>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Call hand-off (spec §27.1–27.2).
+ *
+ * Click-to-call, not in-app calling: the CRM passes the number to the phone
+ * and steps aside. Nothing dials here — there is no `tel:` navigation — and
+ * the copy is careful not to claim the CRM can tell what happened on the call.
+ */
+function CallSheet({
+  person,
+  phone,
+  onClose,
+}: {
+  person: string;
+  phone: string;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-primary"
+        >
+          <PhoneOutgoing className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-foreground">
+            Your phone&apos;s dialler opens
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            The CRM hands {phone} to the phone and steps aside. The call itself
+            happens in your normal calling screen, over your mobile network.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close call hand-off"
+          className="-mt-1 grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="mt-3.5 rounded-lg border border-border bg-muted px-3 py-2.5">
+        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <Smartphone className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            When you come back, the CRM reopens {person}&apos;s conversation and
+            offers to record what happened. It cannot tell on its own whether
+            the call connected — you say.
+          </span>
+        </p>
+      </div>
+
+      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
+        Concept wireframe — nothing dials. On a real phone this opens the native
+        calling screen.
+      </p>
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
+      >
+        Close
+      </button>
+    </>
   );
 }

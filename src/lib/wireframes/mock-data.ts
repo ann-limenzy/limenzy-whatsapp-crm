@@ -17,11 +17,32 @@ export const WORKSPACE = {
   todayShort: "Fri, 11 Sep 2026",
 } as const;
 
+/**
+ * Who the DESKTOP wireframes are presented as.
+ *
+ * The admin dashboard and the settings screens are an administrator's view,
+ * so this persona keeps the administrator role.
+ */
 export const CURRENT_USER = {
   name: "Arun Menon",
   firstName: "Arun",
   role: "Admin",
   initials: "AM",
+} as const;
+
+/**
+ * Who the MOBILE wireframes are presented as.
+ *
+ * The phone screens demonstrate a salesperson's day, and the actions they are
+ * allowed to take differ from an administrator's — assignment in particular
+ * (spec §162). Keeping this separate from `CURRENT_USER` means the mobile
+ * screens can show the sales role without the admin wireframes inheriting it.
+ */
+export const SALES_PERSONA = {
+  name: "Sneha Thomas",
+  firstName: "Sneha",
+  role: "Sales Executive",
+  initials: "ST",
 } as const;
 
 /* ------------------------------------------------------------------ people */
@@ -344,7 +365,7 @@ export const CONVERSATIONS: readonly Conversation[] = [
     product: "Health Insurance",
     lastMessage: "Yes, please renew it",
     time: "10:32 AM",
-    assignedTo: "Arun Menon",
+    assignedTo: "Sneha Thomas",
     status: "Open",
     unread: 2,
     delivery: "read",
@@ -620,7 +641,7 @@ export const LEAD_RECORD = {
   stage: "Interested",
   recordType: "Lead" as const,
   reference: "Lead · #2088",
-  owner: "Arun Menon",
+  owner: "Sneha Thomas",
   nextFollowUp: "Today, 10:00 AM · Call",
   since: "29 Aug 2026",
 };
@@ -636,7 +657,7 @@ export type Activity = {
 export const RECORD_ACTIVITY: readonly Activity[] = [
   {
     id: "a1",
-    title: "Call — Connected — logged by Arun",
+    title: "Call — Connected — logged by Sneha",
     detail: "Asked for the premium breakdown before deciding.",
     time: "Yesterday, 4:15 PM",
     kind: "call",
@@ -657,7 +678,7 @@ export const RECORD_ACTIVITY: readonly Activity[] = [
   },
   {
     id: "a4",
-    title: "Follow-up scheduled by Arun",
+    title: "Follow-up scheduled by Sneha",
     detail: "Call · 11 Sep, 10:00 AM",
     time: "08 Sep, 3:38 PM",
     kind: "followup",

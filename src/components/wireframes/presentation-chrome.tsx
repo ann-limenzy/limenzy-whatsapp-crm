@@ -12,6 +12,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { ConceptBadge } from "@/components/wireframes/concept-badge";
+import { WireframeBrand } from "@/components/wireframes/wireframe-brand";
 import { usePresentation } from "@/components/wireframes/presentation-mode";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,13 @@ export function PresentationChrome() {
               <span className="sr-only sm:hidden">Back to wireframes</span>
             </Link>
           </Button>
+
+          {/* Withheld below `sm`, where the step title needs the width. */}
+          <WireframeBrand variant="compact" className="hidden sm:inline-flex" />
+          <span
+            aria-hidden="true"
+            className="hidden h-6 w-px shrink-0 bg-border-strong/50 sm:block"
+          />
 
           <div className="min-w-0 flex-1">
             <p className="truncate text-[11px] font-medium tracking-wide text-muted-foreground">

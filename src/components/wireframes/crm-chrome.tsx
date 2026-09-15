@@ -15,7 +15,10 @@ import type { Route } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { LimenzyLogo } from "@/components/brand/limenzy-logo";
+import {
+  PoweredByLimenzy,
+  WireframeBrand,
+} from "@/components/wireframes/wireframe-brand";
 import { Avatar } from "@/components/wireframes/wf-ui";
 import { CURRENT_USER, WORKSPACE } from "@/lib/wireframes/mock-data";
 import { cn } from "@/lib/utils";
@@ -106,9 +109,18 @@ export function CrmChrome({
 
 function Sidebar({ active }: { active: string }) {
   return (
-    <aside className="surface-glass sticky top-0 hidden h-dvh w-[16.5rem] shrink-0 flex-col rounded-none border-y-0 border-s-0 px-3 py-4 lg:flex">
+    <aside
+      /**
+       * Width comes from `--sidebar-w` rather than a fixed value. The pre-paint
+       * script sets `data-sidebar` on <html> for every route, so a visitor who
+       * collapsed the sidebar in the product arrives here with that preference
+       * already applied — this makes the wireframe rail follow it instead of
+       * silently ignoring it.
+       */
+      className="surface-glass sticky top-0 hidden h-dvh w-[var(--sidebar-w)] shrink-0 flex-col rounded-none border-y-0 border-s-0 px-3 py-4 transition-[width] duration-200 ease-out lg:flex"
+    >
       <div className="px-2 pb-5">
-        <LimenzyLogo />
+        <WireframeBrand variant="sidebar" />
       </div>
 
       <nav aria-label="CRM sections" className="flex flex-col gap-1">
@@ -121,12 +133,16 @@ function Sidebar({ active }: { active: string }) {
         ))}
       </nav>
 
-      <div className="mt-auto px-2 pt-4">
+      <div className="sidebar-when-expanded mt-auto flex flex-col gap-2.5 px-2 pt-4">
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           {WORKSPACE.name}
           <br />
           <span className="text-muted-foreground/70">Workspace</span>
         </p>
+        {/* The wireframes wear the client's name; the CRM underneath is
+            Limenzy, credited quietly at the foot of the rail. A fixed overlay
+            was tried first and sat on top of the workspace name. */}
+        <PoweredByLimenzy className="border-t border-border/60 pt-2.5" />
       </div>
     </aside>
   );
@@ -135,7 +151,7 @@ function Sidebar({ active }: { active: string }) {
 function NavRow({ item, active }: { item: NavEntry; active: boolean }) {
   const Icon = item.icon;
   const className = cn(
-    "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+    "nav-link relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
     active ? "surface-glass-strong text-foreground" : "text-muted-foreground",
     item.href && !active && "hover:bg-accent/60 hover:text-foreground",
   );
@@ -152,7 +168,7 @@ function NavRow({ item, active }: { item: NavEntry; active: boolean }) {
         className={cn("size-[18px] shrink-0", active && "text-primary")}
         aria-hidden="true"
       />
-      <span className="truncate">{item.label}</span>
+      <span className="nav-label truncate">{item.label}</span>
     </>
   );
 

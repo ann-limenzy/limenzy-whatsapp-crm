@@ -18,7 +18,7 @@ import { ThemeFromQuery } from "@/components/wireframes/theme-from-query";
 export const metadata: Metadata = {
   title: {
     default: "Wireframes",
-    template: "%s · Limenzy CRM wireframes",
+    template: "%s · A & S Fincare CRM wireframes",
   },
   description:
     "Concept wireframes for the A&S Fincare CRM workflows. Not production functionality.",

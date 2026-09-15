@@ -283,7 +283,8 @@ export function PhoneSheet({
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
-        className="surface-solid relative w-full rounded-t-2xl border-x-0 border-b-0 p-4 shadow-2xl outline-none"
+        // Bottom padding clears the home indicator on devices that have one.
+        className="surface-solid relative w-full rounded-t-2xl border-x-0 border-b-0 p-4 pb-[max(env(safe-area-inset-bottom),1rem)] shadow-2xl outline-none"
       >
         {children}
       </div>

@@ -15,8 +15,9 @@ import type { Route } from "next";
 import Link from "next/link";
 
 import { PhoneFrame, PhoneScreen } from "@/components/wireframes/phone-frame";
+import { WireframeBrand } from "@/components/wireframes/wireframe-brand";
 import {
-  CURRENT_USER,
+  SALES_PERSONA,
   DUE_TODAY,
   NEW_LEADS,
   OVERDUE,
@@ -95,13 +96,27 @@ export function TodayScreen() {
             activeNav="home"
             header={
               <header className="surface-glass rounded-none border-x-0 border-t-0 px-4 pt-[max(env(safe-area-inset-top),0.75rem)] pb-3">
+                {/* The brand sits on the app's home screen only. The detail
+                    screens carry a back arrow and the record's name instead —
+                    at 326px there is no room for both, and a contextual header
+                    is more useful there than a repeated mark. */}
+                <div className="flex items-center justify-between gap-2 pb-2.5">
+                  <WireframeBrand variant="compact" />
+                  {/* These are the salesperson's screens, and which actions
+                      they may take depends on that role — so the role is
+                      stated rather than left to be inferred. */}
+                  <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {SALES_PERSONA.role}
+                  </span>
+                </div>
+
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[11px] text-muted-foreground">
                       {WORKSPACE.today}
                     </p>
                     <h1 className="mt-0.5 truncate text-lg font-semibold tracking-tight text-foreground">
-                      Good morning, {CURRENT_USER.firstName}
+                      Good morning, {SALES_PERSONA.firstName}
                     </h1>
                   </div>
                   <span className="relative grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground">

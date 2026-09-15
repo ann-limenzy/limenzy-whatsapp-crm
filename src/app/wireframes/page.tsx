@@ -11,7 +11,10 @@ import {
 import type { Route } from "next";
 import Link from "next/link";
 
-import { LimenzyLogo } from "@/components/brand/limenzy-logo";
+import {
+  PoweredByLimenzy,
+  WireframeBrand,
+} from "@/components/wireframes/wireframe-brand";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { ConceptBadge } from "@/components/wireframes/concept-badge";
 import { FLOWS, SEQUENCE, type Flow } from "@/lib/wireframes/flows";
@@ -33,7 +36,7 @@ export default function WireframesIndexPage() {
       <div className="mx-auto w-full max-w-[1200px] px-4 py-10 sm:px-6 sm:py-14">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <LimenzyLogo />
+            <WireframeBrand />
             <h1 className="mt-6 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
               {WORKSPACE.name} — workflow wireframes
             </h1>
@@ -60,6 +63,13 @@ export default function WireframesIndexPage() {
             <FlowCard key={flow.id} flow={flow} />
           ))}
         </div>
+
+        <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-5">
+          <PoweredByLimenzy />
+          <p className="text-[11px] leading-none text-muted-foreground">
+            Concept wireframes · sample data · nothing is saved or sent
+          </p>
+        </footer>
       </div>
     </div>
   );

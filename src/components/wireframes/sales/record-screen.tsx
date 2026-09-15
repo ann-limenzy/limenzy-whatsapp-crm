@@ -24,6 +24,7 @@ import {
 import {
   LEAD_RECORD,
   RECORD_ACTIVITY,
+  SALES_PERSONA,
   type Activity,
 } from "@/lib/wireframes/mock-data";
 import { cn } from "@/lib/utils";
@@ -35,8 +36,8 @@ import { cn } from "@/lib/utils";
  * do. Contact details sit at the top where they are read aloud, the four
  * actions sit beneath them, and the history is below the fold.
  *
- * The Call demonstration is deliberately inert: the `tel:` link has its
- * default prevented and a sheet explains what would happen on a real handset.
+ * The Call demonstration is deliberately inert: it is a button, not a `tel:`
+ * link, and it opens a sheet explaining what would happen on a real handset.
  * Nothing dials.
  */
 export function RecordScreen() {
@@ -142,7 +143,16 @@ export function RecordScreen() {
               <section className="surface-solid rounded-xl p-4">
                 <dl className="flex flex-col gap-3 text-sm">
                   <FactRow label="Stage" value={LEAD_RECORD.stage} />
-                  <FactRow label="Assigned to" value={LEAD_RECORD.owner} />
+                  {/* "You" rather than her own name: on the salesperson's own screen,
+                      repeating it says less than confirming the lead is hers. */}
+                  <FactRow
+                    label="Assigned to"
+                    value={
+                      LEAD_RECORD.owner === SALES_PERSONA.name
+                        ? "You"
+                        : LEAD_RECORD.owner
+                    }
+                  />
                   <FactRow
                     label="Next follow-up"
                     value={LEAD_RECORD.nextFollowUp}
