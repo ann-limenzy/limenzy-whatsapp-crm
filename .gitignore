@@ -66,3 +66,8 @@ service-account*.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# Wireframe capture output. Regenerable from the running app, and large
+# enough (35 MB+ of PNGs) that committing it would weigh down every clone
+# permanently. The files stay on disk for the client presentation deck.
+design/wireframe-screenshots/
+design/wireframe-review/

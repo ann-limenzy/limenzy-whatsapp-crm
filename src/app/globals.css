@@ -82,6 +82,17 @@
   --neutral-subtle: oklch(0.955 0.008 256);
   --neutral-on-subtle: oklch(0.44 0.026 259);
 
+  /* --- Channel: WhatsApp -------------------------------------------------
+   * WhatsApp is a channel, not a status, so it gets its own token rather
+   * than borrowing `--success`. Used sparingly: the channel icon, the
+   * message-direction accent and the "send via WhatsApp" affordance. Never
+   * as a page background.
+   * -------------------------------------------------------------------- */
+  --channel-whatsapp: oklch(0.68 0.17 152);
+  --channel-whatsapp-foreground: oklch(0.99 0.002 250);
+  --channel-whatsapp-subtle: oklch(0.95 0.05 155);
+  --channel-whatsapp-on-subtle: oklch(0.4 0.11 155);
+
   /* --- Destructive: shadcn alias onto the danger scale ------------------ */
   --destructive: var(--danger);
   --destructive-foreground: var(--danger-foreground);
@@ -174,6 +185,11 @@
 
   --neutral-subtle: oklch(0.32 0.026 260 / 0.7);
   --neutral-on-subtle: oklch(0.8 0.022 258);
+
+  --channel-whatsapp: oklch(0.72 0.16 153);
+  --channel-whatsapp-foreground: oklch(0.16 0.03 155);
+  --channel-whatsapp-subtle: oklch(0.36 0.08 155 / 0.55);
+  --channel-whatsapp-on-subtle: oklch(0.86 0.13 158);
 
   --destructive: var(--danger);
   --destructive-foreground: var(--danger-foreground);
@@ -295,6 +311,11 @@
 
   --color-neutral-subtle: var(--neutral-subtle);
   --color-neutral-on-subtle: var(--neutral-on-subtle);
+
+  --color-channel-whatsapp: var(--channel-whatsapp);
+  --color-channel-whatsapp-foreground: var(--channel-whatsapp-foreground);
+  --color-channel-whatsapp-subtle: var(--channel-whatsapp-subtle);
+  --color-channel-whatsapp-on-subtle: var(--channel-whatsapp-on-subtle);
 
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
