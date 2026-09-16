@@ -787,15 +787,45 @@ export const RECORD_ACTIVITY: readonly Activity[] = [
 ];
 
 /** Spec §27.3 — the V1 outcome list, in order. */
-export const CALL_OUTCOMES: readonly string[] = [
-  "Connected",
-  "No answer",
-  "Busy",
-  "Callback requested",
-  "Incorrect number",
-  "Not interested",
-  "Converted",
+/**
+ * Call outcomes, exactly as spec §27.3 defines them for V1.
+ *
+ * Stable values, separate display labels: every screen that cares about an
+ * outcome ("did they ask to be called back?") compares an identifier rather
+ * than a piece of prose, so rewording a label can never quietly break the
+ * behaviour attached to it.
+ *
+ * Two outcomes this list used to carry — "Not interested" and "Converted" —
+ * are gone on purpose. They are lead-stage changes, not call results, and
+ * §27.3 is explicit that saving an outcome "must not automatically change the
+ * Lead stage or the Customer status". They remain valid elsewhere as pipeline
+ * stages and conversion events.
+ */
+export type CallOutcomeValue =
+  | "connected"
+  | "no_answer"
+  | "busy_or_unreachable"
+  | "callback_requested"
+  | "left_voicemail"
+  | "wrong_number"
+  | "other";
+
+export const CALL_OUTCOMES: readonly {
+  value: CallOutcomeValue;
+  label: string;
+}[] = [
+  { value: "connected", label: "Connected" },
+  { value: "no_answer", label: "No Answer" },
+  { value: "busy_or_unreachable", label: "Busy or Unreachable" },
+  { value: "callback_requested", label: "Call Back Requested" },
+  { value: "left_voicemail", label: "Left Voicemail" },
+  { value: "wrong_number", label: "Wrong Number" },
+  { value: "other", label: "Other" },
 ];
+
+export function callOutcomeLabel(value: CallOutcomeValue): string {
+  return CALL_OUTCOMES.find((o) => o.value === value)?.label ?? value;
+}
 
 export const FOLLOW_UP_TYPES: readonly string[] = [
   "Call",
@@ -1005,6 +1035,14 @@ export const CUSTOMER_ACTIVITY: readonly CustomerActivity[] = [
  */
 export const PRESENTATION_TODAY = "11 Sep 2026";
 
+/**
+ * The same day in the format a native date input needs.
+ *
+ * Kept beside PRESENTATION_TODAY rather than parsed at runtime so the two can
+ * never disagree, and so no screen has to invent a second "today".
+ */
+export const PRESENTATION_TODAY_ISO = "2026-09-11";
+
 export type DirectoryCustomer = {
   id: string;
   name: string;
@@ -1209,6 +1247,299 @@ export const DIRECTORY_CUSTOMERS: readonly DirectoryCustomer[] = [
 
 /** Spec §64 uses "Next 30 Days" as the near-term renewal window. */
 export const RENEWAL_WINDOW_DAYS = 30;
+
+/* ------------------------------------------ Flow: follow-ups (mobile) */
+
+/** Spec §40 lists exactly these Follow-up Types for V1. */
+export type FollowUpType = "Call" | "WhatsApp" | "Email" | "Visit" | "Other";
+
+export type MobileFollowUp = {
+  id: string;
+  person: string;
+  /** Spec §43 "Record Type" — which module the follow-up belongs to. */
+  recordType: "Lead" | "Customer";
+  reference: string;
+  /** Spec §43 "Related To". */
+  product: string;
+  type: FollowUpType;
+  date: string;
+  time: string;
+  /**
+   * Offset in days from PRESENTATION_TODAY. Negative is in the past.
+   *
+   * Every bucket, count and "3 days overdue" phrase is computed from this, so
+   * there is no hard-coded total anywhere that can go stale.
+   */
+  dueInDays: number;
+  assignedTo: string;
+  note: string;
+  phone: string;
+  /** Set only where a record wireframe actually exists for this person. */
+  record?: "lead" | "customer";
+  /** Set only where a mobile conversation wireframe exists. */
+  hasConversation?: boolean;
+  /**
+   * Present on already-completed items (spec §41 outcome/note). Holds the
+   * stable §27.3 value, never the display label.
+   */
+  outcome?: CallOutcomeValue;
+  completedOn?: string;
+};
+
+/**
+ * Sneha Thomas's follow-up workload.
+ *
+ * VISIBILITY: spec §43 says "Staff users should primarily see follow-ups
+ * assigned to them unless broader permissions are granted", and §162 gives
+ * Staff/Sales no right to view all Leads/Customers. So every item here is
+ * assigned to Sneha — the list is not filtered down from a wider set, because
+ * a wider set is not hers to hold.
+ *
+ * Note that assignment of a follow-up is its own fact. Anitha Desai's WhatsApp
+ * conversation belongs to Arun Menon and she is absent here; Ramesh's record is
+ * owned by Arun yet his follow-up is Sneha's. Neither implies the other.
+ *
+ * Identities agree with the rest of the presentation: references, phones and
+ * products match CONVERSATIONS, LEAD_RECORD and DIRECTORY_CUSTOMERS, and the
+ * dates match the follow-ups those screens already show.
+ */
+export const MOBILE_FOLLOW_UPS: readonly MobileFollowUp[] = [
+  {
+    id: "mf1",
+    person: "Joseph Thomas",
+    recordType: "Customer",
+    reference: "Customer · #859",
+    product: "Motor Insurance",
+    type: "Call",
+    date: "08 Sep 2026",
+    time: "11:00 AM",
+    dueInDays: -3,
+    assignedTo: SALES_PERSONA.name,
+    note: "Renewal lapsed — confirm whether he wants to continue the cover.",
+    phone: "70000 51904",
+  },
+  {
+    id: "mf2",
+    person: "Vikram Reddy",
+    recordType: "Customer",
+    reference: "Customer · #904",
+    product: "Motor Insurance",
+    type: "WhatsApp",
+    date: "09 Sep 2026",
+    time: "2:30 PM",
+    dueInDays: -2,
+    assignedTo: SALES_PERSONA.name,
+    note: "Send the renewal quote he asked for on the call.",
+    phone: "70000 77410",
+  },
+  {
+    id: "mf3",
+    person: "Priya Iyer",
+    recordType: "Lead",
+    reference: "Lead · #2088",
+    product: "Health Insurance",
+    type: "Call",
+    date: PRESENTATION_TODAY,
+    time: "10:00 AM",
+    dueInDays: 0,
+    assignedTo: SALES_PERSONA.name,
+    note: "Renewal decision expected — she was comparing two quotes.",
+    phone: "70000 41288",
+    record: "lead",
+  },
+  {
+    id: "mf4",
+    person: "Sneha Nair",
+    recordType: "Customer",
+    reference: "Customer · #712",
+    product: "PUC Certificate",
+    type: "WhatsApp",
+    date: PRESENTATION_TODAY,
+    time: "3:00 PM",
+    dueInDays: 0,
+    assignedTo: SALES_PERSONA.name,
+    note: "Check she has the documents from the checklist.",
+    phone: "70000 88132",
+  },
+  {
+    id: "mf5",
+    person: "Meera Krishnan",
+    recordType: "Lead",
+    reference: "Lead · #2041",
+    product: "Health Insurance",
+    type: "Call",
+    date: PRESENTATION_TODAY,
+    time: "4:30 PM",
+    dueInDays: 0,
+    assignedTo: SALES_PERSONA.name,
+    note: "First call after she asked for a family floater quote.",
+    phone: "70000 33115",
+  },
+  {
+    id: "mf6",
+    person: "Lakshmi Nair",
+    recordType: "Customer",
+    reference: "Customer · #921",
+    product: "Health Insurance",
+    type: "Email",
+    date: "12 Sep 2026",
+    time: "11:30 AM",
+    dueInDays: 1,
+    assignedTo: SALES_PERSONA.name,
+    note: "Email the revised cover summary she asked for in writing.",
+    phone: "70000 30276",
+  },
+  {
+    id: "mf7",
+    person: CUSTOMER_RECORD.name,
+    recordType: "Customer",
+    reference: CUSTOMER_RECORD.reference,
+    product: CUSTOMER_POLICIES[0]!.product,
+    type: "Call",
+    date: "14 Sep 2026",
+    time: "10:00 AM",
+    dueInDays: 3,
+    assignedTo: SALES_PERSONA.name,
+    note: "Confirm the renewal premium before the 26 Sep due date.",
+    phone: CUSTOMER_RECORD.phone,
+    record: "customer",
+    hasConversation: true,
+  },
+  {
+    id: "mf8",
+    person: "Arjun Pillai",
+    recordType: "Lead",
+    reference: "Lead · #2119",
+    product: "Motor Insurance",
+    type: "Visit",
+    date: "17 Sep 2026",
+    time: "11:00 AM",
+    dueInDays: 6,
+    assignedTo: SALES_PERSONA.name,
+    note: "Visit the showroom to collect the vehicle papers.",
+    phone: "70000 58203",
+  },
+  {
+    id: "mf9",
+    person: "Rajesh Menon",
+    recordType: "Lead",
+    reference: "Lead · #2107",
+    product: "Health Insurance",
+    type: "Call",
+    date: "10 Sep 2026",
+    time: "3:30 PM",
+    dueInDays: -1,
+    assignedTo: SALES_PERSONA.name,
+    note: "Second attempt after no answer.",
+    phone: "70000 61204",
+    outcome: "connected",
+    completedOn: "10 Sep 2026, 3:42 PM",
+  },
+  {
+    id: "mf10",
+    person: "Fathima Rasheed",
+    recordType: "Customer",
+    reference: "Customer · #688",
+    product: "Motor Insurance",
+    type: "WhatsApp",
+    date: "09 Sep 2026",
+    time: "12:00 PM",
+    dueInDays: -2,
+    assignedTo: SALES_PERSONA.name,
+    note: "Confirm the renewal went through.",
+    phone: "70000 24507",
+    outcome: "connected",
+    completedOn: "09 Sep 2026, 12:18 PM",
+  },
+];
+
+/* ------------------------------------- Records a salesperson may work with */
+
+export type PermittedRecord = {
+  id: string;
+  name: string;
+  recordType: "Lead" | "Customer";
+  reference: string;
+  product: string;
+  /** Who owns the record. Shown where it is not the signed-in user. */
+  owner: string;
+  /** How this user reaches it: they own it, or it is explicitly shared. */
+  access: "owner" | "shared";
+};
+
+/**
+ * Leads owned by the signed-in salesperson.
+ *
+ * Priya is spread from LEAD_RECORD so her reference and product cannot drift
+ * from her own detail screen. The others are hers by ownership, stated here
+ * rather than inferred from anything else.
+ *
+ * Anitha Desai (Lead · #2044) is deliberately absent. Her WhatsApp
+ * conversation is assigned to Arun Menon, and a conversation assignment is
+ * not record access — the same rule the customer directory follows.
+ */
+export const SALES_LEADS: readonly PermittedRecord[] = [
+  {
+    id: "l2088",
+    name: LEAD_RECORD.name,
+    recordType: "Lead",
+    reference: LEAD_RECORD.reference,
+    product: LEAD_RECORD.product,
+    owner: LEAD_RECORD.owner,
+    access: "owner",
+  },
+  {
+    id: "l2041",
+    name: "Meera Krishnan",
+    recordType: "Lead",
+    reference: "Lead · #2041",
+    product: "Health Insurance",
+    owner: SALES_PERSONA.name,
+    access: "owner",
+  },
+  {
+    id: "l2107",
+    name: "Rajesh Menon",
+    recordType: "Lead",
+    reference: "Lead · #2107",
+    product: "Health Insurance",
+    owner: SALES_PERSONA.name,
+    access: "owner",
+  },
+  {
+    id: "l2119",
+    name: "Arjun Pillai",
+    recordType: "Lead",
+    reference: "Lead · #2119",
+    product: "Motor Insurance",
+    owner: SALES_PERSONA.name,
+    access: "owner",
+  },
+];
+
+/**
+ * Every Lead and Customer the signed-in salesperson may work with.
+ *
+ * Customers come from DIRECTORY_CUSTOMERS through the SAME rule the directory
+ * itself applies — owned, or explicitly shared via `permittedUsers`. Nothing
+ * is added because a WhatsApp conversation happens to be assigned to her, so
+ * this list and the directory can never disagree about who she may reach.
+ */
+export function permittedRecordsFor(user: string): readonly PermittedRecord[] {
+  const customers = DIRECTORY_CUSTOMERS.filter(
+    (c) => c.owner === user || c.permittedUsers.includes(user),
+  ).map<PermittedRecord>((c) => ({
+    id: c.id,
+    name: c.name,
+    recordType: "Customer",
+    reference: c.reference,
+    product: c.product,
+    owner: c.owner,
+    access: c.owner === user ? "owner" : "shared",
+  }));
+
+  return [...SALES_LEADS.filter((l) => l.owner === user), ...customers];
+}
 
 /* ------------------------------------------------- Flow D: admin dashboard */
 

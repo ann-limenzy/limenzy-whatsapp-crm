@@ -104,6 +104,11 @@ const BACK_TARGETS = {
     label: "Back to conversation",
     short: "Conversation",
   },
+  followups: {
+    href: "/wireframes/follow-ups/mobile",
+    label: "Back to follow-ups",
+    short: "Follow-ups",
+  },
 } as const;
 
 type BackKey = keyof typeof BACK_TARGETS;

@@ -188,6 +188,31 @@ export function TodayScreen() {
                       </li>
                     ))}
                   </ul>
+
+                  {/* Spec §18's "View All", on the follow-up section it
+                      belongs to rather than at the foot of the screen where it
+                      would look like it covered renewals and new leads too.
+                      One link, not one per section. */}
+                  {section.id === "today" ? (
+                    <Link
+                      href={"/wireframes/follow-ups/mobile" as Route}
+                      className="surface-solid mt-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/60"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <CalendarCheck
+                          className="size-4 shrink-0 text-primary"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">View all follow-ups</span>
+                      </span>
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
+                          {totalDue} due
+                        </span>
+                        <ChevronRight className="size-4" aria-hidden="true" />
+                      </span>
+                    </Link>
+                  ) : null}
                 </section>
               ))}
 

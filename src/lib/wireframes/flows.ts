@@ -32,6 +32,7 @@ export type Flow = {
     | "MessageCircle"
     | "Smartphone"
     | "UserRound"
+    | "CalendarCheck"
     | "LayoutDashboard"
     | "Settings";
   readonly description: string;
@@ -211,6 +212,24 @@ export const FLOWS: readonly Flow[] = [
         title: "Record the result",
         summary:
           "Back from the call: log what happened and schedule the next step in one pass.",
+        device: "mobile",
+      },
+    ],
+  },
+  {
+    id: "follow-ups",
+    name: "Follow-ups",
+    icon: "CalendarCheck",
+    description:
+      "The salesperson's task list on a phone: what is late, what is due today, what is coming — and completing, rescheduling or acting on any of it without leaving the list.",
+    device: "mobile",
+    steps: [
+      {
+        href: "/wireframes/follow-ups/mobile",
+        label: "Workspace",
+        title: "Follow-ups on a phone",
+        summary:
+          "Overdue, today, upcoming and completed work in one place, with completion and rescheduling as local sheets.",
         device: "mobile",
       },
     ],

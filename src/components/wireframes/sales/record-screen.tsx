@@ -40,8 +40,37 @@ import { cn } from "@/lib/utils";
  * link, and it opens a sheet explaining what would happen on a real handset.
  * Nothing dials.
  */
-export function RecordScreen() {
+/**
+ * Where the back control returns to, keyed by the `from` query parameter.
+ *
+ * An ALLOW-LIST, not a redirect target: the parameter picks a key in this
+ * table and its own text is never used as a URL. Anything unknown falls back
+ * to Today's work, which is how this screen has always been reached.
+ */
+const BACK_TARGETS = {
+  today: {
+    href: "/wireframes/sales/today",
+    label: "Back to today's work",
+    short: "Today",
+  },
+  followups: {
+    href: "/wireframes/follow-ups/mobile",
+    label: "Back to follow-ups",
+    short: "Follow-ups",
+  },
+} as const;
+
+type BackKey = keyof typeof BACK_TARGETS;
+
+function backTarget(from: string | null) {
+  return from !== null && from in BACK_TARGETS
+    ? BACK_TARGETS[from as BackKey]
+    : BACK_TARGETS.today;
+}
+
+export function RecordScreen({ from }: { from: string | null }) {
   const [handover, setHandover] = useState(false);
+  const back = backTarget(from);
 
   return (
     <div className="app-ambient min-h-dvh">
@@ -61,12 +90,16 @@ export function RecordScreen() {
             }
             header={
               <header className="surface-glass sticky top-0 z-10 flex items-center gap-1 rounded-none border-x-0 border-t-0 px-2 py-2 pt-[max(env(safe-area-inset-top),0.5rem)]">
+                {/* Named, not just an arrow: this record is reachable from
+                    two places and the salesperson should not have to guess
+                    which one they are about to return to. */}
                 <Link
-                  href={"/wireframes/sales/today" as Route}
-                  aria-label="Back to today's work"
-                  className="grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
+                  href={back.href as Route}
+                  aria-label={back.label}
+                  className="-ms-1 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg ps-1 pe-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
-                  <ArrowLeft className="size-5" aria-hidden="true" />
+                  <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
+                  {back.short}
                 </Link>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-foreground">

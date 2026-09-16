@@ -1,5 +1,6 @@
 import {
   ArrowRight,
+  CalendarCheck,
   LayoutDashboard,
   MessageCircle,
   Monitor,
@@ -28,6 +29,7 @@ const ICONS: Record<Flow["icon"], LucideIcon> = {
   MessageCircle,
   Smartphone,
   UserRound,
+  CalendarCheck,
   LayoutDashboard,
   Settings,
 };

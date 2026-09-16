@@ -15,6 +15,7 @@ import { useState } from "react";
 import { PhoneFrame, PhoneScreen } from "@/components/wireframes/phone-frame";
 import {
   CALL_OUTCOMES,
+  type CallOutcomeValue,
   FOLLOW_UP_TYPES,
   LEAD_RECORD,
 } from "@/lib/wireframes/mock-data";
@@ -28,8 +29,13 @@ import { cn } from "@/lib/utils";
  * follow-up is pre-filled with a sensible date, and Save is always reachable
  * at the bottom.
  *
- * Choosing "Callback requested" turns the next follow-up on automatically —
- * prominent, but still the salesperson's decision to keep or remove.
+ * The outcomes are spec §27.3's V1 list, held as stable values with separate
+ * labels so the behaviour attached to "call back requested" survives any
+ * rewording. Choosing it turns the next follow-up on — prominent, per §27.3,
+ * but still the salesperson's decision to keep or remove.
+ *
+ * Saving an outcome changes nothing else: §27.3 is explicit that it must not
+ * move the Lead stage or the Customer status, so nothing here does.
  */
 
 const INTERACTION_TYPES = [
@@ -40,13 +46,14 @@ const INTERACTION_TYPES = [
 
 export function OutcomeScreen() {
   const [interaction, setInteraction] = useState<string>("call");
-  const [outcome, setOutcome] = useState<string>("Callback requested");
+  const [outcome, setOutcome] =
+    useState<CallOutcomeValue>("callback_requested");
   const [complete, setComplete] = useState(true);
   const [scheduleNext, setScheduleNext] = useState(true);
   const [followUpType, setFollowUpType] = useState("Call");
 
-  // Callback requested is the one outcome that all but implies another call.
-  const suggestsNext = outcome === "Callback requested";
+  // The one outcome that all but implies another call (§27.3).
+  const suggestsNext = outcome === "callback_requested";
 
   return (
     <div className="app-ambient min-h-dvh">
@@ -104,15 +111,16 @@ export function OutcomeScreen() {
               <Field label="How did it go?" required>
                 <div className="flex flex-wrap gap-2">
                   {CALL_OUTCOMES.map((o) => {
-                    const active = outcome === o;
+                    const active = outcome === o.value;
                     return (
                       <button
-                        key={o}
+                        key={o.value}
                         type="button"
                         aria-pressed={active}
                         onClick={() => {
-                          setOutcome(o);
-                          if (o === "Callback requested") setScheduleNext(true);
+                          setOutcome(o.value);
+                          if (o.value === "callback_requested")
+                            setScheduleNext(true);
                         }}
                         className={cn(
                           "inline-flex min-h-11 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-medium",
@@ -124,7 +132,7 @@ export function OutcomeScreen() {
                         {active ? (
                           <Check className="size-3.5" aria-hidden="true" />
                         ) : null}
-                        {o}
+                        {o.label}
                       </button>
                     );
                   })}
