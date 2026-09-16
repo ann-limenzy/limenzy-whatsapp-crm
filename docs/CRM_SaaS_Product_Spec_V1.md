@@ -149,6 +149,15 @@ Can:
 
 Should not have access to organization-wide configuration by default.
 
+**Team Lead responsibility**
+
+**Team Lead** is not a separate role. It is a responsibility held by one
+active member of a Sales Team (Section 163.3). A Team Lead keeps their
+Owner/Admin, Manager or Staff/Sales role and gains only team-scoped
+responsibilities for their own team: the My Team eligibility controls
+(Section 163.6) and inclusion in that team's Lead rotation while eligible
+(Section 163.3).
+
 **3. Overall Application Navigation**
 
 **Desktop sidebar**
@@ -701,6 +710,33 @@ It should **not** attempt to display every possible CRM metric.
 
 **Recent Activity**
 
+**Sales Team views**
+
+Where Sales Teams are used and the user is permitted, the dashboard may
+be filtered by **Sales Team** and may show, for the selected team:
+
+> • Team Lead
+>
+> • active members
+>
+> • members Eligible for Lead assignment
+>
+> • members Paused from Lead assignment
+>
+> • Leads in Assignment Required
+>
+> • an assignment-failure alert
+>
+> • team workload
+>
+> • workload per member within the team
+>
+> • the last and next round-robin assignee, where appropriate
+
+Users see only the Sales Teams they are permitted to see (Section 162).
+These views show operational counts only, not revenue or performance
+scoring.
+
 **17. Dashboard Summary Cards**
 
 **Card 1 — New Leads**
@@ -911,6 +947,12 @@ A normal Staff/Sales user should see a more personal dashboard.
 No organization-wide revenue/team-performance data unless permissions
 allow it.
 
+A Team Lead's dashboard may additionally show their own team's
+Lead-assignment eligibility and any Assignment Required alert for that
+team (Section 163.6). Which other team-level information a Team Lead may
+see is a pending decision (Section 163.18). Being Team Lead does not
+reveal other teams or organization-wide data.
+
 **23. Dashboard Empty States**
 
 **Brand-new workspace**
@@ -1054,6 +1096,12 @@ To**.
 
 By default, operational actions may inherit the related Lead/Customer's
 Record Owner, but they can be reassigned by authorized users.
+
+Sales Teams and Lead round robin affect only the Record Owner of new
+Leads (Section 163). They never assign or reassign Customers,
+Follow-ups, Renewal actions or WhatsApp conversations, and changing a
+user's Sales Team does not change any existing Record Owner or Assigned
+To value.
 
 **27. Global Activity Timeline**
 
@@ -1476,6 +1524,8 @@ Available filters:
 > • Follow-up Status
 >
 > • Created Date
+>
+> • Sales Team — where permitted
 
 Quick filters:
 
@@ -1483,6 +1533,9 @@ Quick filters:
 
 For Staff users, **My Leads** should be the default view unless their
 permissions allow broader access.
+
+Users permitted to resolve Lead assignment may also filter by
+**Unassigned** and **Assignment Required** (Section 163.9).
 
 **Search**
 
@@ -1547,11 +1600,23 @@ provided.
 > • Stage defaults to the first active pipeline stage. In the default
 > configuration this is **New.**
 >
-> • Record Owner defaults according to the workspace's lead assignment
-> rules.
+> • Record Owner defaults according to the workspace's Lead assignment
+> rules. Automatic assignment is team-scoped round robin (Section 163).
+> How the target Sales Team is chosen is a pending decision (Section
+> 163.18).
 >
-> • If no automatic assignment rule is configured, the creator may
-> assign a user manually where permitted
+> • If no Lead assignment rule applies, the creator may assign a user
+> manually where permitted (Section 163.10).
+>
+> • If a rule applies but no eligible member of its target Sales Team is
+> available, the Lead is saved in **Assignment Required** rather than
+> rejected (Section 163.9).
+>
+> • The server validates the Sales Team and assignee. Neither is
+> accepted from the browser without authorization checks.
+>
+> • Every assignment is recorded in the Lead's assignment history
+> (Section 163.13).
 
 Custom Lead fields configured by the workspace should appear below the
 standard fields.
@@ -1962,6 +2027,10 @@ An **Email Follow-up** is a task reminding the assigned user to contact
 the Lead/Customer by email. Scheduling the Follow-up does not
 automatically send an email.
 
+Follow-ups are never assigned by Lead round robin. A user's Sales Team
+or Lead-assignment eligibility does not change who a Follow-up is
+assigned to (Section 163.11).
+
 **Actions**
 
 **Schedule**
@@ -2218,6 +2287,10 @@ The system should:
 >
 > • Retain the Record Owner unless deliberately changed.
 >
+> • Do not run round robin or select a different salesperson
+> automatically. Conversion never invokes Lead assignment (Section
+> 163.11).
+>
 > • Mark the Lead as **Converted**.
 >
 > • Converted Leads are removed from active Pipeline/List views and
@@ -2283,19 +2356,28 @@ user.
 
 **49. Lead Assignment**
 
-A Lead should receive a Record Owner according to the workspace's
+A Lead should receive a Record Owner according to the workspace's Lead
 assignment rules. If assignment cannot be completed, the Lead may remain
 **Unassigned** until an authorized user assigns it.
 
-V1 supports manual assignment and round-robin assignment of the Record
-Owner.
+V1 supports manual assignment and **team-scoped** round-robin
+assignment of the Record Owner. Round robin rotates only among the
+eligible members of one Sales Team. It never rotates across every
+salesperson in the workspace and never falls back to another team
+(Section 163).
 
-Owner/Admin can configure the default assignment method in Settings.
+When a Lead assignment rule applies but its target Sales Team has no
+eligible member, the Lead remains Unassigned in the **Assignment
+Required** state (Section 163.9).
+
+Owner/Admin can configure Sales Teams and Lead assignment rules in
+Settings.
 
 Managers may reassign Leads where permitted.
 
 Staff users should not normally reassign Leads to other users unless
-specifically permitted.
+specifically permitted. Being a Team Lead does not, by itself, grant
+this permission (Section 163.18).
 
 Every reassignment should appear in Activity History.
 
@@ -2996,6 +3078,9 @@ Example:
 
 Changing the Renewal action's Assigned To does not change the Customer's
 Record Owner.
+
+Renewal actions are never assigned by Lead round robin, and a change to
+a user's Sales Team does not reassign them (Section 163.11).
 
 **66. Renewal Status**
 
@@ -3864,6 +3949,10 @@ This does **not** change:
 
 Every conversation reassignment should be recorded in activity/history.
 
+WhatsApp conversations are never assigned by Lead round robin. Changing
+a user's Sales Team or Lead-assignment eligibility does not reassign
+their conversations (Section 163.11).
+
 **88. Conversation Status**
 
 V1 uses:
@@ -4154,7 +4243,12 @@ After creation:
 >
 > • retain the existing conversation history
 >
-> • assign the conversation according to the normal assignment rule
+> • assign the conversation according to the normal conversation
+> assignment rule (Section 87)
+>
+> • if a Lead is created, assign its Record Owner according to the Lead
+> assignment rules (Section 163). Lead round robin assigns only the
+> Lead; it does not itself assign the conversation.
 
 Creating a Lead/Customer should **not start a new conversation thread**.
 
@@ -5720,6 +5814,35 @@ The user should be able to choose:
 The import process must not automatically create new users from
 spreadsheet values.
 
+**Sales Teams and imported Leads**
+
+> • An explicitly mapped, valid, active owner remains the Record Owner,
+> subject to validation. It must not be silently overwritten by round
+> robin.
+>
+> • An owner value that does not match an active user produces a
+> validation issue.
+>
+> • A Sales Team value that does not match an active Sales Team in the
+> workspace produces a validation issue.
+>
+> • Import must never create a Sales Team, a team membership or a Team
+> Lead, and must never transfer a salesperson between teams.
+>
+> • Round robin applies only to imported Leads, never to imported
+> Customers or other record types.
+>
+> • Where imported Leads are approved to use a Lead assignment rule, they
+> are assigned fairly and in order through the same team-scoped
+> assignment process as any other Lead (Section 163.8), never across all
+> workspace salespeople.
+>
+> • An imported Lead that cannot be assigned is still imported, in
+> **Assignment Required** (Section 163.9).
+
+Whether imported Leads without a valid mapped owner automatically use a
+Lead assignment rule is a pending decision (Section 163.18).
+
 **125. Lead Stage Mapping**
 
 For Lead imports, an uploaded Stage column may be mapped to the CRM Lead
@@ -5974,6 +6097,12 @@ The system should not create duplicate records if the user refreshes or
 accidentally revisits the import result while the same import job is
 already processing.
 
+Where imported Leads are assigned by a Lead assignment rule, background
+processing uses the same atomic, team-scoped assignment process as
+interactive Lead creation (Section 163.8). Retrying or resuming an
+import job must not assign a Lead twice or duplicate its assignment
+history.
+
 **135. Import Result**
 
 On completion:
@@ -5987,6 +6116,17 @@ Example:
 **18 Skipped as Duplicates**
 
 **12 Failed**
+
+Where Leads were imported with assignment, the result also reports how
+the imported Leads were assigned:
+
+**352 Assigned**
+
+**38 Assignment Required**
+
+Assigned, Assignment Required, skipped and failed counts must be
+accurate. A Lead that could not be assigned is still counted as
+imported.
 
 Actions:
 
@@ -6554,6 +6694,10 @@ Definitions:
 This distinction is important because **Record Owner** and **Assigned
 To** are different concepts.
 
+Where permitted, this report may be filtered by **Sales Team** and
+**Team Lead**. Filtering by team groups users by their current team; it
+does not change which records are counted against each user.
+
 **151. Report Filters**
 
 Reports should support only the filters relevant to that report.
@@ -6569,6 +6713,19 @@ Common filters may include:
 > • Lead Stage
 >
 > • Lead Source
+>
+> • Sales Team — where permitted
+>
+> • Team Lead — where permitted
+>
+> • Lead assignment method — Manual or Round Robin
+>
+> • Lead assignment rule
+>
+> • Lead assignment outcome — Assigned or Assignment Required
+
+Staff/Sales report restrictions in Section 162 are unchanged. Being a
+Team Lead does not grant access to Reports.
 
 Do not show every filter on every report.
 
@@ -6731,6 +6888,8 @@ Settings should include:
 >
 > • Roles & Permissions
 >
+> • Sales Teams
+>
 > • Lead Assignment
 >
 > • Lead Source
@@ -6754,6 +6913,11 @@ Settings should include:
 > • Data Import / Export
 
 Settings are primarily a web/desktop administrative experience.
+
+**Settings → Sales Teams** is an administrative surface for Owner/Admin
+and any user separately authorized for Sales Team administration. A Team
+Lead manages their own team's Lead-assignment eligibility from **My
+Team** (Section 163.6) and does not need access to Settings to do so.
 
 **158. Business Settings**
 
@@ -6804,6 +6968,8 @@ Show:
 >
 > • Role
 >
+> • Sales Team
+>
 > • Status
 >
 > • Actions
@@ -6839,6 +7005,11 @@ deleted.
 
 At least one active Owner/Admin must remain in the workspace.
 
+**Team Lead** is not a role and does not appear in the Roles list. A
+user's Sales Team and any Team Lead responsibility are shown alongside
+their role and are managed through Sales Team settings (Section
+163.12).
+
 **160. User Deactivation**
 
 Before deactivating a user, check whether they currently own or are
@@ -6857,9 +7028,12 @@ This includes:
 > • open WhatsApp conversations
 
 If active responsibilities exist, they must be reassigned to an active
-user before deactivation is completed. Users deactivated while
-participating in Round Robin are automatically removed from future Lead
-assignment. The last active Owner/Admin cannot be deactivated.
+user before deactivation is completed. Deactivating a
+user immediately makes them ineligible for new automatic Leads and ends
+their active Sales Team membership, which is retained as history. If
+the user is a Team Lead, a replacement Team Lead must be designated, or
+the team explicitly deactivated, before deactivation is completed
+(Section 163.3). The last active Owner/Admin cannot be deactivated.
 
 Historical activity should continue to show the original user's name.
 
@@ -6888,6 +7062,9 @@ Operational access primarily to owned or assigned records.
 
 V1 does not include custom role creation or field-level permission
 configuration.
+
+**Team Lead** is a responsibility within a Sales Team, not a fourth role
+(Section 163.3).
 
 **162. Permission Matrix**
 
@@ -7035,13 +7212,197 @@ No
 
 No
 
+View own Sales Team and Team Lead
+
+Yes
+
+Yes
+
+Yes
+
+View other Sales Teams
+
+Yes
+
+Decision required
+
+No
+
+Create, edit or deactivate Sales Teams
+
+Yes
+
+Decision required
+
+No
+
+Add, remove or transfer team members
+
+Yes
+
+Decision required
+
+No
+
+Designate or replace a Team Lead
+
+Yes
+
+Decision required
+
+No
+
+Access Settings → Sales Teams
+
+Yes
+
+Decision required
+
+No
+
+View Lead-assignment eligibility
+
+Yes
+
+Team Lead of that team; otherwise Decision required
+
+Team Lead of that team only
+
+View own team's minimum roster (My Team)
+
+Yes
+
+Team Lead of that team; otherwise Decision required
+
+Team Lead of that team only
+
+Receive Leads from own team's rotation while eligible
+
+Team Lead of that team; otherwise as permitted
+
+Team Lead of that team; otherwise as permitted
+
+Yes
+
+Change own Lead-assignment eligibility
+
+Yes
+
+Team Lead only; otherwise No
+
+Team Lead only; otherwise No
+
+Change own-team members' Lead-assignment eligibility
+
+Yes
+
+Team Lead of that team only
+
+Team Lead of that team only
+
+Override Lead-assignment eligibility (audited)
+
+Yes
+
+No
+
+No
+
+Configure Lead assignment rules
+
+Yes
+
+Decision required
+
+No
+
+Preview rotation pool
+
+Yes
+
+Decision required
+
+No
+
+View assignment failures
+
+Yes
+
+Team Lead of that team; otherwise Decision required
+
+Team Lead of that team only
+
+Manually assign Leads within a team
+
+Yes
+
+Configurable
+
+No; Team Lead: Decision required
+
+Manually assign Leads across teams
+
+Yes
+
+Decision required
+
+No
+
+View assignment audit history
+
+Yes
+
+Decision required
+
+No; Team Lead: Decision required
+
+View own team's workload
+
+Yes
+
+Decision required
+
+No; Team Lead: Decision required
+
+View other teams' workload
+
+Yes
+
+Decision required
+
+No
+
 Manager record visibility can be configured as:
 
 > **• All Records**
 >
 > **• Own Records**
 
-V1 does not include a separate Teams/Departments structure.
+In the Sales Team rows above:
+
+> • **Team Lead of that team only** means the permission is available to
+> a user in that column only while they hold the Team Lead
+> responsibility for the team concerned. It is not granted to the role
+> in general.
+>
+> • **Decision required** means the permission is not yet approved and
+> must not be assumed (Section 163.18).
+>
+> • The Manager role by itself grants no authority to change
+> Lead-assignment eligibility. A Manager may change it only while acting
+> as the Team Lead of that team (Section 163.5).
+>
+> • A Team Lead uses **My Team** (Section 163.6) for their team's
+> eligibility controls. Access to Settings → Sales Teams does not extend
+> anyone's eligibility authority beyond a team they lead; eligibility
+> changes made there are Owner/Admin overrides.
+>
+> • **Otherwise as permitted** means the user receives Leads only if their
+> role is explicitly permitted to (Section 163.8).
+
+Sales Teams, used to scope Lead assignment, are the only team structure
+in V1 (Section 163). Team membership does not grant record access;
+record visibility continues to follow the rows above.
 
 **163. Lead Assignment**
 
@@ -7051,21 +7412,47 @@ Settings → Lead Assignment
 
 Controls how new Leads receive a Record Owner.
 
-Supported V1 modes:
+Lead assignment applies to **Leads only**. It never assigns or
+reassigns Customers, Follow-ups, Renewal actions, WhatsApp
+conversations, activities, notes, documents or existing records. See
+Section 163.11.
+
+Supported V1 methods:
 
 **Manual**
 
-Authorized user selects the Record Owner.
+An authorized user selects the Record Owner. See Section 163.10.
 
 **Round Robin**
 
-New Leads are assigned to selected active users in a repeating sequence.
+New Leads are assigned in a repeating sequence to the eligible members
+of **one Sales Team**. Round robin is always team-scoped: it never
+rotates across every salesperson in the workspace, and it never falls
+back to members of another Sales Team.
 
-Owner/Admin can configure a **Batch Size**, which defines how many
-consecutive Leads are assigned to one user before the system moves to
-the next user.
+Round robin is configured through **Lead assignment rules**. Every Lead
+assignment rule targets exactly one Sales Team. See Sections 163.1 to
+163.9.
 
-Example with **Batch Size = 10**:
+Owner/Admin can configure a **Batch Size** on each Lead assignment
+rule. Batch Size defines how many consecutive Leads are assigned to one
+eligible team member before the rotation moves to the next eligible
+member of the same team.
+
+**Batch Size rules**
+
+- Batch Size must be a positive whole number.
+- The V1 default Batch Size is **1**.
+- A Batch Size of 1 produces normal one-by-one round robin.
+- Changing Batch Size affects future assignments only. It does not
+  rewrite existing Lead ownership or assignment history.
+- If a member is paused during their current batch, that batch ends
+  immediately (Section 163.5).
+- Whether Batch Size has a maximum value is a pending decision (Section
+  163.18).
+
+Example — Sales Team **Health Insurance Team**, members Arun, Sneha and
+Joseph, **Batch Size = 10**:
 
 Leads 1–10 → Arun
 
@@ -7085,23 +7472,725 @@ Lead 3 → Joseph
 
 Lead 4 → Arun
 
-Configuration:
+Configuration of each Lead assignment rule:
 
-> • Eligible Users
+> • Target Sales Team
 >
 > • Batch Size
 
-Only active eligible users participate in the rotation.
+The rotation pool is derived from the target team's membership and each
+member's Lead-assignment eligibility. It is not a separately maintained
+list of workspace users. See Section 163.8.
 
-Changes to eligible users or Batch Size apply only to future Lead
-assignments and do not alter existing Lead ownership. Inactive or
-ineligible users do not participate in future assignments.
+Changes to team membership, eligibility, a rule or its Batch Size apply
+only to future Lead assignments and do not alter existing Lead ownership
+or assignment history. Inactive, paused or transferred members do not participate
+in future assignments.
 
-If no eligible active user is available, the Lead remains
-**Unassigned**.
+If no eligible member of the target team is available, the Lead is not
+assigned elsewhere. It remains **Unassigned** in the explicit
+**Assignment Required** state described in Section 163.9.
 
-Unassigned Leads are visible to Owner/Admin and Managers with
-appropriate visibility.
+Unassigned Leads, including Leads in Assignment Required, are visible
+to Owner/Admin and to Managers with appropriate visibility. A Team Lead
+is alerted to Assignment Required Leads for their own team.
+
+## 163.1 Sales Teams
+
+A **Sales Team** is a named group of salespeople within one workspace.
+In V1, Sales Teams exist to scope automatic Lead assignment and to give
+authorized users a team view of that work.
+
+**Sales Team fields**
+
+- Team ID
+- Workspace ID
+- Team name
+- Description — optional
+- Status — Active or Inactive
+- Active Team Lead
+- Created by
+- Created date
+- Updated by
+- Updated date
+
+**Rules**
+
+- A Sales Team belongs to exactly one workspace. Teams, memberships,
+  rules and rotation state must never cross workspace boundaries.
+- Team names must be unique within a workspace.
+- A team is **deactivated**, not destructively deleted, once it has
+  membership or assignment history.
+- An inactive team cannot receive new automatic Lead assignments. A
+  Lead assignment rule that targets an inactive team cannot assign
+  Leads.
+- Deactivating a team preserves its memberships, Team Lead history,
+  Lead ownership and assignment history.
+- Deactivating a team must not silently reassign any existing record.
+- Every active Sales Team must have exactly one active Team Lead. See
+  Section 163.3.
+
+## 163.2 Sales Team Membership
+
+Sales Team membership is separate from workspace membership. Being a
+workspace user does not place someone in a team, and being in a team
+does not change their workspace role.
+
+**Membership fields**
+
+- Membership ID
+- Workspace membership / user
+- Sales Team
+- Membership status — Active or Ended
+- Joined date
+- Ended / transferred date
+- Team Lead responsibility
+- Eligible for Lead assignment
+- Eligibility last changed by
+- Eligibility last changed at
+- Eligibility reason, where appropriate
+
+**Rules**
+
+- Only an active workspace member may hold an active Sales Team
+  membership.
+- **One active Sales Team membership per workspace membership.** A
+  salesperson may belong to only one active Sales Team at a time within
+  a workspace.
+- A salesperson may have any number of ended, historical memberships
+  from previous teams.
+- The system must never silently create a second active membership. An
+  attempt to add a user who already has an active membership must be
+  refused, or handled as an explicit transfer (Section 163.4).
+- Historical memberships must be retained.
+- A deactivated workspace user is automatically ineligible for new
+  Leads.
+- Team membership does not grant access to records owned by other team
+  members. Record permissions are still enforced explicitly according to
+  the user's role and the Permission Matrix.
+
+This integrity rule must be enforced by the system, not only by the
+interface. It applies regardless of how the change is made, including
+settings screens, imports and retries.
+
+## 163.3 Team Lead
+
+**Team Lead** is a responsibility within one Sales Team. It is **not** a
+workspace role.
+
+- Every active Sales Team has exactly one active Team Lead.
+- The Team Lead must be an active member of that same team. Selecting a
+  user who is not an active member of the team is invalid.
+- A user keeps their workspace role while acting as Team Lead. A Staff /
+  Sales user may be Team Lead and remains a Staff / Sales user. A Manager
+  may also be Team Lead and remains a Manager. An Owner/Admin who is an
+  active member of the team may also be Team Lead; the same team-scoped
+  rules apply.
+- An active Team Lead is explicitly permitted to receive Leads for their
+  own team while eligible. Their Team Lead responsibility satisfies the
+  receive-Leads permission for that team, regardless of whether their
+  workspace role is Staff/Sales, Manager or Owner/Admin. It gives them no
+  Leads from, and no authority over, any other team.
+- Authority over a team's Lead-assignment eligibility comes from the
+  Team Lead responsibility for that team, not from the user's role. A
+  Manager who is not that team's Team Lead has no such authority.
+- Becoming Team Lead does not grant Owner/Admin, Manager or any
+  workspace-wide permission.
+- A Team Lead manages only their own team's Lead-assignment eligibility,
+  from My Team (Section 163.6). They cannot manage another team unless
+  separately authorized, and any such authorization does not come from
+  the Team Lead responsibility.
+- Removing, transferring or deactivating the current Team Lead requires
+  either a replacement Team Lead from the same team or explicit
+  deactivation of the team. A team must not be left active without a
+  Team Lead.
+- Former Team Lead responsibility is retained in history and remains
+  visible historically.
+
+## 163.4 Team Transfer
+
+Moving a salesperson to another Sales Team is an explicit **transfer**.
+
+When a transfer is confirmed, the system must:
+
+1. Verify that the destination team belongs to the same workspace.
+2. Verify that the acting user is permitted to transfer members.
+3. End the salesperson's existing active membership.
+4. Create or reactivate the destination membership.
+5. Record the transfer as a single atomic change, so the salesperson is
+   never left with two active memberships or none because of a partial
+   failure.
+6. Preserve the former membership as history.
+7. Stop future round-robin assignment to the salesperson from the
+   former team.
+8. Leave existing Leads with their current Record Owner. A transfer
+   does not reassign Leads automatically.
+9. Leave Customers, Follow-ups, Renewal actions and WhatsApp
+   conversations unchanged.
+10. Record an audit entry containing the former team, destination team,
+    salesperson, acting user and timestamp.
+
+If the salesperson is the Team Lead of the former team, the transfer
+cannot complete until a replacement Team Lead is designated or the
+former team is explicitly deactivated.
+
+On joining the destination team, the salesperson's Lead-assignment
+eligibility follows the default in Section 163.5.
+
+## 163.5 Lead-Assignment Eligibility
+
+Each active team member is either:
+
+- **Eligible for Lead assignment** — included in the team's automatic
+  Lead rotation, or
+- **Paused from Lead assignment** — excluded from future automatic Lead
+  assignment.
+
+Do not use vague labels such as "Available" for this setting.
+
+Eligibility controls only whether a member receives future
+**automatic** Leads. It is separate from the member's workspace role,
+team membership, Team Lead responsibility, Record Ownership, Follow-up
+assignment, Renewal assignment and WhatsApp conversation assignment.
+
+**Default**
+
+- Every active team member is **Eligible for Lead assignment** by
+  default.
+- The Team Lead is **Eligible for Lead assignment** by default and
+  participates in their own team's rotation like any other eligible
+  member. An active Team Lead is explicitly permitted to receive Leads
+  for their own team while eligible. Their Team Lead responsibility
+  satisfies the receive-Leads permission for that team, regardless of
+  whether their workspace role is Staff/Sales, Manager or Owner/Admin.
+- The Team Lead may pause themselves, and an Owner/Admin may override
+  their eligibility, exactly as for any other member.
+
+**Who may change eligibility**
+
+- The **Team Lead** may mark any member of their own team — including
+  themselves — as Eligible or Paused, from My Team (Section 163.6).
+- An authorized **Owner/Admin** may override the eligibility of any
+  member of any team in the workspace, from Settings → Sales Teams
+  (Section 163.12). Every override is audited.
+- An **ordinary team member** cannot change their own eligibility or
+  anyone else's.
+- A **Manager** may change Lead-assignment eligibility only while acting
+  as the Team Lead of that team. The Manager role by itself grants no
+  eligibility-changing authority.
+- Access to Settings → Sales Teams does not, by itself, grant any
+  eligibility-changing authority.
+
+**Effect of pausing**
+
+Pausing takes effect immediately for future automatic Lead assignments.
+
+Pausing does not change:
+
+- existing Lead ownership
+- existing Customers
+- existing Follow-ups
+- existing Renewal actions
+- existing WhatsApp conversations
+- historical assignment activity
+
+A paused Team Lead remains the Team Lead, remains an active team member
+and remains the Record Owner of their existing records. Only their
+future Lead eligibility changes.
+
+If a member is paused part-way through a batch, that batch ends
+immediately. The next automatic Lead goes to the next eligible member in
+the rotation, who starts a new batch.
+
+**Effect of making a member eligible again**
+
+- The member becomes eligible immediately.
+- They do not receive a backlog of Leads they would otherwise have
+  received.
+- They do not automatically receive the next Lead as compensation.
+- The unfinished portion of any batch that ended when they were paused
+  is not restored.
+- They receive no backlog, compensation or special priority.
+- The rotation proceeds normally from its stored state, and the
+  returning member starts a new batch only when the rotation next reaches
+  them.
+
+**Last eligible member**
+
+If a change would leave the team with no eligible members:
+
+- warn the Team Lead or Owner/Admin before the change is saved
+- allow the change if it is operationally necessary
+- mark the team and each Lead assignment rule targeting it with an
+  **assignment warning**
+- place new Leads routed to that team in **Assignment Required**
+  (Section 163.9)
+
+**Security**
+
+Eligibility changes must be authorized on the server. The server
+determines the acting user's authority from their authenticated session
+and their current role and Team Lead responsibility. The team, member
+or authority submitted by the browser must never be trusted on its own.
+
+Every eligibility change is audited (Section 163.13).
+
+## 163.6 My Team — Team Lead Controls
+
+**My Team** is the team-scoped control surface for the current Team
+Lead. It is separate from Settings → Sales Teams (Section 163.12): a Team
+Lead does not need access to Settings to manage eligibility. These
+controls come from the Team Lead responsibility, whatever the user's
+workspace role, and apply to their own active team only — a Manager has
+them only for a team they lead.
+
+**Minimum roster**
+
+For their own active team, a Team Lead can always see:
+
+- member name
+- membership status
+- current Lead-assignment eligibility
+- whether the member is the Team Lead
+
+This roster exists only so the Team Lead can operate the eligibility
+controls. It does not, by itself, give access to other members':
+
+- Leads or Customers
+- Follow-ups
+- Renewal actions
+- WhatsApp conversations
+- performance reports
+- detailed workload
+- assignment audit history
+
+Any wider Team Lead visibility is a pending decision (Section 163.18).
+
+**Controls**
+
+- mark a member **Eligible for Lead assignment**
+- mark a member **Paused from Lead assignment**
+- change their own eligibility
+- see a warning when no eligible members remain
+- see Assignment Required alerts for their team
+
+My Team follows the desktop and mobile principle in Section 179. If a
+Team Lead is separately authorized to use Settings → Sales Teams, that
+access does not extend their eligibility authority beyond their own team.
+
+Being Team Lead does **not**, by itself, allow a user to:
+
+- create workspace users
+- change workspace roles
+- add, remove or transfer team members
+- designate or replace a Team Lead
+- configure another team
+- create or change Lead assignment rules or global assignment settings
+- configure global integrations
+- view global reports
+- access every workspace record
+- change the Record Owner of existing records without a separate
+  permission
+
+## 163.7 Lead Assignment Rules
+
+A **Lead assignment rule** tells the system which Sales Team should
+receive automatic Leads.
+
+**Every Lead assignment rule defines**
+
+- Workspace
+- Rule name
+- Lead trigger or routing condition
+- Target Sales Team — exactly one
+- Assignment method — Round Robin
+- Batch Size — a positive whole number; default 1
+- Status — Active or Inactive
+- Rule priority, where more than one rule could apply
+- Created by, created date, updated by and updated date
+
+**Rules**
+
+- A Lead assignment rule targets exactly one Sales Team.
+- The target team must belong to the same workspace and be active.
+- Deactivating a rule stops future automatic assignment through it and
+  preserves its audit history.
+- A rule targeting an inactive team, or a team with no eligible members,
+  displays an assignment warning.
+
+The following must **not** be offered:
+
+- All salespeople
+- All Staff
+- workspace-wide round robin
+- Customer round robin
+- Follow-up round robin
+- Renewal round robin
+- WhatsApp conversation round robin
+
+How the target team is selected for a new Lead — for example by
+Product/Service, Lead Source, geography, manual team selection or
+ordered routing rules — is a pending decision (Section 163.18).
+
+## 163.8 Rotation Pool and Assignment Algorithm
+
+**Rotation pool**
+
+A user is in the rotation pool for a rule only when all of the following
+are true:
+
+- they are an active workspace member
+- they hold an active membership of the rule's target team
+- they are permitted to receive Leads for that team: either their
+  workspace role is Staff / Sales or another role explicitly permitted to
+  receive Leads, or they are the team's active Team Lead
+- they are **Eligible for Lead assignment**
+- they are not deactivated
+- they have not been transferred out of the team
+- they are not paused by the Team Lead or Owner/Admin
+- they are otherwise permitted by the rule
+
+An active Team Lead is explicitly permitted to receive Leads for their own
+team while eligible. Their Team Lead responsibility satisfies the
+receive-Leads permission for that team, regardless of whether their
+workspace role is Staff/Sales, Manager or Owner/Admin. An eligible Team
+Lead is therefore always in their own team's pool. The Team Lead
+responsibility never places anyone in another team's pool.
+
+The pool is evaluated at the moment each Lead is assigned. Members are
+taken in the team's stable rotation order. How a newly added member is
+placed in that order is a pending decision (Section 163.18).
+
+**Assignment steps**
+
+Automatic Lead assignment is performed on the server:
+
+1. Receive or create the Lead.
+2. Determine the applicable Lead assignment rule.
+3. Resolve exactly one target Sales Team.
+4. Load the active, eligible members of that team only.
+5. Exclude paused, inactive, deactivated and transferred members.
+6. Lock or atomically update the rotation state for that workspace,
+   team and rule.
+7. Select the assignee: the member holding the current batch if that
+   batch has not ended, is not complete and the member is still
+   eligible; otherwise the next eligible member after the stored
+   position, who starts a new batch.
+8. Assign the Lead to that member as Record Owner.
+9. Create the assignment history entry.
+10. Advance the rotation state only when the assignment succeeds.
+11. Return the assignment result.
+
+If step 4 finds no eligible member, follow Section 163.9 instead of
+steps 6 to 10.
+
+**Concurrency and reliability**
+
+- Simultaneous assignments for the same rule must not corrupt the
+  rotation order.
+- Two concurrent requests must never select the same rotation position
+  because of a race.
+- A failed assignment must not advance the rotation position.
+- Retrying the same assignment must not create duplicate assignment
+  history or assign the Lead twice.
+- Rotation state is scoped by workspace, team and rule.
+- Pausing a member must not reset the rotation position.
+- Making a member eligible again must not give them priority or a
+  backlog.
+- When Batch Size is greater than 1, the batch holder and the number of
+  Leads already assigned in the current batch are read and updated in the
+  same atomic operation as the assignment. Concurrent requests must never
+  overfill a batch, skip part of one, or start two batches at once.
+- Pausing the member who holds the current batch ends that batch in the
+  stored rotation state using the same lock or atomic update. The stored
+  position is kept, so the next assignment moves on to the next eligible
+  member.
+- These guarantees apply equally to Leads created interactively, by
+  import (Section 134) and from WhatsApp (Section 95).
+
+These requirements are technology-neutral. The implementation may use
+any mechanism that provides the same guarantees.
+
+## 163.9 Assignment Required
+
+A Lead is in **Assignment Required** when a Lead assignment rule applied
+but no eligible member of the target team could be selected — for
+example because every member is paused or inactive, or the team is
+inactive.
+
+When this happens the system must:
+
+- keep the Lead, with no Record Owner, in the explicit **Assignment
+  Required** state
+- record the rule, the target team and the failure reason
+- surface an alert to the target team's Team Lead and to authorized
+  Owner/Admin users
+- allow an authorized user to assign the Lead manually
+- not assign the Lead to a member of another Sales Team
+- not assign the Lead from a workspace-wide pool
+- not reject, discard or lose the Lead because assignment failed
+
+**Unassigned** continues to mean any Lead without a Record Owner.
+Assignment Required is the subset of Unassigned Leads for which an
+automatic assignment was attempted and could not be completed.
+
+Once an Assignment Required Lead is assigned manually, the alert is
+resolved and the resolution is recorded in its assignment history.
+
+## 163.10 Manual Lead Assignment
+
+Manual Lead assignment is separate from round robin.
+
+- Only authorized users may assign or reassign a Lead manually, and only
+  to users they are permitted to assign to.
+- Manual assignment does not change anyone's team membership.
+- Manual assignment does not change the Lead's Follow-ups, Renewal
+  actions, Customers or conversations.
+- Every manual assignment records the acting user, previous Record
+  Owner, new Record Owner, Sales Team and timestamp.
+- Manual assignment should not silently advance the round-robin
+  rotation.
+
+Whether manual assignment advances the rotation, whether a Team Lead may
+reassign Leads within their own team, and who may assign Leads across
+teams are pending decisions (Section 163.18).
+
+## 163.11 Assignments Outside Round Robin
+
+Round robin and Sales Teams affect **only** the Record Owner of new
+Leads.
+
+- Converting a Lead to a Customer does not run round robin again and
+  does not select a different salesperson automatically (Section 46).
+- A Customer's Record Owner remains governed by conversion and
+  ownership rules.
+- Follow-up **Assigned To** remains independent (Section 40).
+- Renewal action **Assigned To** remains independent (Section 65).
+- WhatsApp conversation **Assigned To** remains independent (Section
+  87).
+- V1 has no Email conversation assignment (Section 116.1). Round robin
+  does not introduce one.
+- Activities, notes and documents are never assigned by round robin.
+- Changing a user's team membership, eligibility or Team Lead
+  responsibility does not rewrite any of these assignments.
+
+## 163.12 Sales Team Settings
+
+Navigation:
+
+Settings → Sales Teams
+
+This is the administrative control surface. It is for Owner/Admin and
+any user separately authorized for Sales Team administration (Section
+162). It is not the Team Lead's control surface; Team Leads use My Team
+(Section 163.6).
+
+Authorized users can:
+
+- create a team
+- rename a team
+- activate or deactivate a team
+- add an existing active workspace user to a team
+- transfer a salesperson between teams (Section 163.4)
+- designate or replace the Team Lead
+- view each member's Lead-assignment eligibility
+- override Lead-assignment eligibility, as Owner/Admin (Section 163.5)
+- create, edit and deactivate Lead assignment rules (Section 163.7)
+- preview the eligible rotation pool for a rule
+- view assignment failures and Assignment Required Leads
+- view administrative audit information, including assignment audit
+  history
+
+Show for each team:
+
+- Team name
+- Team Lead
+- Status
+- Active members
+- Eligible members
+- Paused members
+- Lead assignment rules targeting the team
+- Assignment warning, where present
+
+Eligibility changes made on this screen are Owner/Admin overrides
+(Section 163.5), and each one is audited. Access to this screen does not
+by itself grant any eligibility-changing authority. If a Team Lead or
+Manager is separately authorized to use it, that access does not extend
+their eligibility authority beyond a team they lead.
+
+Sales Teams cannot be deleted in a way that breaks history. Adding a
+user to a team never creates a workspace user; the user must already
+exist and be active.
+
+## 163.13 Assignment Audit History
+
+The system records:
+
+- team creation, change and deactivation
+- membership creation, end and transfer
+- Team Lead designation and replacement
+- a member being made Eligible for Lead assignment
+- a member being Paused from Lead assignment
+- every Owner/Admin eligibility override
+- automatic Lead assignment
+- manual Lead assignment and reassignment
+- assignment failure
+- Lead assignment rule creation, change and deactivation, including
+  Batch Size changes
+
+**Each Lead assignment history entry includes**
+
+- Workspace
+- Lead
+- Previous Record Owner, where applicable
+- New Record Owner
+- Sales Team
+- Lead assignment rule, where applicable
+- Method — Round Robin or Manual
+- Trigger source — for example Add Lead, import or WhatsApp
+- Sequence identifier, where useful
+- Acting user, or System
+- Timestamp
+- Failure reason, where applicable
+
+Eligibility and membership audit entries record the acting user, the
+affected member, the team, the old and new value, the timestamp and any
+reason provided.
+
+## 163.14 Sales Team Entities and Relationships
+
+The following conceptual entities support this section. They describe
+required information, not a database design.
+
+- **SalesTeam** — a workspace's named team (Section 163.1)
+- **SalesTeamMembership** — one user's current or historical membership
+  of one team (Section 163.2)
+- **LeadAssignmentRule** — routes automatic Leads to one team (Section
+  163.7)
+- **TeamRoundRobinState** — the stored rotation position for one
+  workspace, team and rule (Section 163.8)
+- **LeadAssignmentHistory** — the assignment record kept for each Lead
+  (Section 163.13)
+
+**Relationships**
+
+- A workspace has many Sales Teams.
+- A Sales Team has many memberships over time.
+- A workspace membership has at most one active Sales Team membership.
+- An active Sales Team has exactly one active Team Lead.
+- A Lead assignment rule targets exactly one Sales Team.
+- Round-robin state belongs to one workspace, team and rule.
+- A Lead keeps its assignment history.
+- Customer ownership and Follow-up, Renewal and conversation assignment
+  remain separate from Sales Teams.
+
+## 163.15 Historical Integrity
+
+- No history is silently rewritten.
+- Deactivating a team preserves its history.
+- Transferring a member preserves their former membership.
+- Former Team Lead responsibility remains visible historically.
+- Pausing eligibility does not alter existing ownership.
+- Retiring a Lead assignment rule preserves its audit records.
+- Moving a salesperson between teams does not mass-reassign Leads.
+- Existing activity continues to show the original user and team.
+- Deactivated users' and teams' names remain visible in historical
+  activity.
+
+## 163.16 Sales Team Mobile Behaviour
+
+**My Team** — the Team Lead's minimum roster, eligibility controls and
+Assignment Required alerts — follows the desktop and mobile principle in
+Section 179.
+
+**Settings → Sales Teams** — creating teams, changing membership,
+designating Team Leads, configuring Lead assignment rules and
+Owner/Admin overrides — remains a web-first administrative task,
+consistent with other Settings (Section 157).
+
+Installing the CRM as an application does not change any assignment
+rule, and the device never performs Lead assignment itself.
+
+## 163.17 Verification Requirements
+
+Before this capability is accepted, the following must be demonstrated:
+
+- A salesperson cannot hold two active Sales Team memberships, including
+  under concurrent requests.
+- An active team cannot be left without an active Team Lead who is a
+  member of that team.
+- Round robin assigns only to eligible members of the rule's target
+  team and never to another team or a workspace-wide pool.
+- Pausing and resuming take effect for the next assignment, and
+  resuming gives no backlog or priority.
+- An ordinary member cannot change eligibility, including by submitting
+  a crafted request.
+- A Team Lead cannot change eligibility for another team.
+- A Manager who is not the Team Lead of a team cannot change that team's
+  eligibility, including through Sales Team settings.
+- An eligible Team Lead is in their own team's rotation by default,
+  including when their workspace role is Manager.
+- A Team Lead can see the minimum roster and change eligibility from My
+  Team without access to Settings → Sales Teams.
+- The minimum roster does not expose other members' Leads, Customers,
+  Follow-ups, Renewal actions or conversations.
+- Every Owner/Admin override is audited.
+- Concurrent assignments preserve rotation order and never pick the same
+  position twice.
+- A failed assignment does not advance the rotation, and a retry does not
+  duplicate assignment history.
+- Batch Size accepts only positive whole numbers and defaults to 1.
+- With Batch Size greater than 1, concurrent assignments never overfill
+  or split a batch, and pausing the batch holder ends the batch at once.
+- A member made eligible again does not resume an unfinished batch.
+- A team with no eligible members produces Assignment Required Leads and
+  an alert, and no Lead is lost.
+- Lead conversion, Follow-ups, Renewal actions and WhatsApp
+  conversations are never assigned by round robin.
+- A team transfer changes no existing record.
+- Imported Leads follow Section 124 and Section 134.
+- Teams, memberships, rules and rotation state are isolated between
+  workspaces.
+
+## 163.18 Decisions Required
+
+The following are not yet approved. Until they are, the product must
+not assume an answer.
+
+1. How is the target Sales Team selected for a new Lead — by
+   Product/Service, Lead Source, geography, manual team selection or
+   ordered routing rules?
+2. Should imported Leads without a valid mapped Record Owner
+   automatically enter team round robin?
+3. Does manual Lead assignment advance the rotation position?
+4. Beyond the minimum roster in Section 163.6, which team-level records,
+   workload and audit history may a Team Lead view?
+5. May a Team Lead manually reassign Leads within their own team?
+6. Which team-management permissions do Managers receive for team
+   configuration, membership changes and cross-team visibility?
+   (Eligibility changes are settled in Section 163.5.)
+7. Must an Owner/Admin give a reason when overriding eligibility?
+8. Is strict rotation always used, or will workload- or capacity-based
+   routing be supported later?
+9. Where is a new member placed in an existing rotation order?
+10. Should a paused member support a scheduled date for becoming
+    eligible again?
+11. Which users receive assignment-failure notifications, beyond the
+    in-app alert to the team's Team Lead and authorized Owner/Admin?
+12. When a deactivated team is reactivated, does its rotation resume
+    from its former position or start again?
+13. Is there a maximum Batch Size for validation, and if so, what is it?
+
+**Recommended V1 defaults — not approved**
+
+These are suggestions for discussion only:
+
+- Manual assignment does not advance the automatic rotation.
+- New members join at the end of the current rotation order.
+- Ownerless imported Leads remain Unassigned unless the import is
+  explicitly confirmed to use a Lead assignment rule.
+- Owner/Admin overrides record an optional reason.
+- A reactivated team starts its rotation from the beginning.
 
 **164. Lead Sources**
 
@@ -7648,6 +8737,10 @@ Newest notifications appear first.
 
 > • Lead / Customer assigned to you
 >
+> • automatic Lead assignment could not be completed (Assignment
+> Required) — shown to the target team's Team Lead and to authorized
+> Owner/Admin users
+>
 > • Follow-up due / overdue
 >
 > • Renewal due / overdue
@@ -7763,11 +8856,15 @@ consistently in all modules.
 >
 > • Changing **Assigned To** does not change the Lead/Customer's
 > **Record Owner**.
+>
+> • Sales Teams and Lead round robin set only the Record Owner of new
+> Leads. They never assign Customers, Follow-ups, Renewal actions or
+> WhatsApp conversations.
 
 **Deactivation / Disabling**
 
-When a User, Pipeline Stage, Product/Service, Custom Field or Module is
-deactivated or disabled:
+When a User, Sales Team, Lead assignment rule, Pipeline Stage,
+Product/Service, Custom Field or Module is deactivated or disabled:
 
 > • future use is restricted as defined in the relevant section
 >
@@ -7821,6 +8918,10 @@ For example:
 >
 > • deactivating Products/Services should not remove previous Customer
 > records
+>
+> • transferring a user between Sales Teams, pausing their
+> Lead-assignment eligibility or deactivating a team should not rewrite
+> past ownership or assignment history
 
 **178. Common UI States**
 
@@ -8085,7 +9186,11 @@ Do not introduce:
 >
 > • custom role builders
 >
-> • Teams/Departments management
+> • departments, organizational hierarchies or team structures beyond
+> the Sales Teams used for Lead assignment in Section 163
+>
+> • automatic Lead routing other than the team-scoped round robin in
+> Section 163
 >
 > • shared Email inbox
 >
