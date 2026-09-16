@@ -44,6 +44,7 @@ import {
   MOBILE_FOLLOW_UPS,
   permittedRecordsFor,
   type PermittedRecord,
+  recordKeyOf,
   PRESENTATION_TODAY,
   PRESENTATION_TODAY_ISO,
   SALES_PERSONA,
@@ -181,7 +182,45 @@ type SheetKind = "complete" | "reschedule" | "call";
 type OpenSheet = { kind: SheetKind; id: string };
 type Done = "completed" | "rescheduled" | "created";
 
-export function MobileFollowUpsScreen() {
+/**
+ * Resolve an incoming `createFor` key to a record this user may actually use.
+ *
+ * The key is looked up in the permitted list rather than trusted: an unknown,
+ * malformed or unauthorised value simply matches nothing, and the picker opens
+ * as though no preselection had been asked for. Nothing is ever created from
+ * the URL alone — the user still reviews and confirms every field.
+ */
+function preselectedRecord(key: string | null): PermittedRecord | null {
+  if (!key) return null;
+  return (
+    permittedRecordsFor(SALES_PERSONA.name).find(
+      (r) => recordKeyOf(r) === key,
+    ) ?? null
+  );
+}
+
+/** Where Cancel and the success state return to, when asked. */
+const CREATE_RETURN = {
+  renewals: {
+    href: "/wireframes/renewals/mobile",
+    label: "Back to renewals",
+  },
+} as const;
+
+export function MobileFollowUpsScreen({
+  createFor = null,
+  from = null,
+}: {
+  /** Allow-listed record key to preselect in the + Follow-up flow. */
+  createFor?: string | null;
+  /** Allow-listed origin, used only to name a return destination. */
+  from?: string | null;
+} = {}) {
+  const preselect = preselectedRecord(createFor);
+  const returnTo =
+    from !== null && from in CREATE_RETURN
+      ? CREATE_RETURN[from as keyof typeof CREATE_RETURN]
+      : null;
   // A local working copy: completing and rescheduling change this and nothing
   // else, which is what makes the counts move without any storage behind them.
   const [items, setItems] = useState<MobileFollowUp[]>(() => [
@@ -190,7 +229,8 @@ export function MobileFollowUpsScreen() {
   const [filter, setFilter] = useState<FilterId>("today");
   const [query, setQuery] = useState("");
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
-  const [creating, setCreating] = useState(false);
+  // A valid key opens the creation flow straight away, already on step 2.
+  const [creating, setCreating] = useState(preselect !== null);
   const [done, setDone] = useState<Done | null>(null);
 
   const close = () => {
@@ -306,16 +346,16 @@ export function MobileFollowUpsScreen() {
       <div className="mx-auto w-full max-w-[1100px] px-0 py-0 md:px-6 md:py-8">
         <PhoneFrame caption="390 × 844 · the salesperson's task list">
           <PhoneScreen
-            // Follow-ups is not one of the five bottom-nav destinations
-            // (Home | Leads | Customers | WhatsApp | More), and it belongs
-            // under More once More exists. Marking Home current would be
-            // false — tapping Home leaves this screen — so no item is
-            // highlighted rather than the wrong one.
-            activeNav="follow-ups"
+            // Follow-ups lives under More (§25), and More is now a real
+            // destination — so More is the current section rather than
+            // nothing being highlighted at all.
+            activeNav="more"
             sheet={
               creating ? (
                 <PhoneSheet label="New follow-up" onClose={close}>
                   <CreateSheet
+                    preselected={preselect}
+                    returnTo={returnTo}
                     done={done === "created"}
                     onCreate={createItem}
                     onClose={close}
@@ -1020,10 +1060,15 @@ function CompleteSheet({
  * themselves, which §40 and §43 both assume they can.
  */
 function CreateSheet({
+  preselected,
+  returnTo,
   done,
   onCreate,
   onClose,
 }: {
+  /** Already-resolved permitted record, or null to start at step 1. */
+  preselected: PermittedRecord | null;
+  returnTo: { href: string; label: string } | null;
   done: boolean;
   onCreate: (
     record: PermittedRecord,
@@ -1034,7 +1079,7 @@ function CreateSheet({
   ) => void;
   onClose: () => void;
 }) {
-  const [record, setRecord] = useState<PermittedRecord | null>(null);
+  const [record, setRecord] = useState<PermittedRecord | null>(preselected);
   const [query, setQuery] = useState("");
   const [type, setType] = useState<MobileFollowUp["type"]>("Call");
   const [date, setDate] = useState("");
@@ -1055,12 +1100,22 @@ function CreateSheet({
 
   if (done) {
     return (
-      <Confirmed
-        title="Follow-up created"
-        detail={`${type} follow-up for ${record?.name ?? "the record"}, assigned to ${SALES_PERSONA.name}. It is already in your list.`}
-        closeLabel="Back to follow-ups"
-        onClose={onClose}
-      />
+      <>
+        <Confirmed
+          title="Follow-up created"
+          detail={`${type} follow-up for ${record?.name ?? "the record"}, assigned to ${SALES_PERSONA.name}. It is already in your list.`}
+          closeLabel="Back to follow-ups"
+          onClose={onClose}
+        />
+        {returnTo ? (
+          <Link
+            href={returnTo.href as Route}
+            className="mt-2 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
+          >
+            {returnTo.label}
+          </Link>
+        ) : null}
+      </>
     );
   }
 

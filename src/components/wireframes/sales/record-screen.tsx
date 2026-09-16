@@ -8,14 +8,12 @@ import {
   MessageCircle,
   MessageSquarePlus,
   Phone,
-  PhoneOutgoing,
-  Smartphone,
-  X,
 } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useState } from "react";
 
+import { CallHandoffSheet } from "@/components/wireframes/mobile-sheet-parts";
 import {
   PhoneFrame,
   PhoneScreen,
@@ -84,7 +82,16 @@ export function RecordScreen({ from }: { from: string | null }) {
                   label="Call hand-off"
                   onClose={() => setHandover(false)}
                 >
-                  <CallHandover onClose={() => setHandover(false)} />
+                  <CallHandoffSheet
+                    person={LEAD_RECORD.name}
+                    phone={LEAD_RECORD.phone}
+                    returnsTo="this lead"
+                    nextAction={{
+                      href: "/wireframes/sales/outcome",
+                      label: "Record the result",
+                    }}
+                    onClose={() => setHandover(false)}
+                  />
                 </PhoneSheet>
               ) : null
             }
@@ -233,73 +240,6 @@ export function RecordScreen({ from }: { from: string | null }) {
  * opens the phone's own calling interface and steps aside. It is not in-app
  * VoIP, and the CRM cannot tell whether the call connected.
  */
-function CallHandover({ onClose }: { onClose: () => void }) {
-  return (
-    <>
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-primary"
-        >
-          <PhoneOutgoing className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">
-            Your phone&apos;s dialler opens
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            The CRM hands {LEAD_RECORD.phone} to the phone and steps aside. The
-            call itself happens in your normal calling screen, over your mobile
-            network.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="mt-3.5 rounded-lg border border-border bg-muted px-3 py-2.5">
-        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-          <Smartphone className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            When you come back, the CRM reopens this lead and offers to record
-            what happened. It cannot tell on its own whether the call connected
-            — you say.
-          </span>
-        </p>
-      </div>
-
-      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
-        Concept wireframe — nothing dials. On a real phone this opens the native
-        calling screen.
-      </p>
-
-      <div className="mt-3.5 flex gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="min-h-11 flex-1 rounded-lg border border-border text-sm font-medium text-foreground"
-        >
-          Cancel
-        </button>
-        {/* Shortened from "Next: record the result": it now stays on one
-              line at 390px and wraps cleanly rather than awkwardly at 326px. */}
-        <Link
-          href={"/wireframes/sales/outcome" as Route}
-          className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-2 text-sm font-semibold text-primary-foreground"
-        >
-          <CircleCheck className="size-4 shrink-0" aria-hidden="true" />
-          Record the result
-        </Link>
-      </div>
-    </>
-  );
-}
 
 function ContactRow({
   icon: Icon,

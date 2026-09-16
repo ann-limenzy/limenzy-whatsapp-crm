@@ -4,6 +4,7 @@ import {
   AlarmClock,
   BellRing,
   CalendarCheck,
+  RefreshCw,
   ChevronRight,
   MessageCircle,
   Phone,
@@ -21,7 +22,9 @@ import {
   DUE_TODAY,
   NEW_LEADS,
   OVERDUE,
-  RENEWALS_SOON,
+  RENEWAL_DUE_SOON_DAYS,
+  renewalsDueSoon,
+  renewalsOverdue,
   WORKSPACE,
   type WorkItem,
 } from "@/lib/wireframes/mock-data";
@@ -47,6 +50,22 @@ type Section = {
   emptyNote?: string;
 };
 
+/**
+ * The near-term renewals, shaped for this screen's cards.
+ *
+ * Derived from MOBILE_RENEWALS rather than kept as a separate list: the
+ * previous hand-written version had drifted, and carried a renewal for Anitha
+ * Desai, who is a Lead — leads do not hold policies.
+ */
+const RENEWALS_DUE_SOON: readonly WorkItem[] = renewalsDueSoon().map((r) => ({
+  id: r.id,
+  person: r.customer,
+  product: r.product,
+  due: `${r.due} · ${r.dueInDays === 0 ? "today" : `${r.dueInDays} days`}`,
+  status: r.dueInDays === 0 ? "Due" : "Scheduled",
+  type: "Renewal",
+}));
+
 const SECTIONS: readonly Section[] = [
   {
     id: "overdue",
@@ -64,8 +83,11 @@ const SECTIONS: readonly Section[] = [
   },
   {
     id: "renewals",
-    title: "Renewals coming up",
-    items: RENEWALS_SOON,
+    // The window is named rather than left to "coming up", and both the list
+    // and its count come from the same renewal data the Renewals workspace
+    // and the More badge read — so the three can never disagree.
+    title: `Renewals due in ${RENEWAL_DUE_SOON_DAYS} days`,
+    items: RENEWALS_DUE_SOON,
     icon: BellRing,
     tone: "warning",
   },
@@ -193,6 +215,28 @@ export function TodayScreen() {
                       belongs to rather than at the foot of the screen where it
                       would look like it covered renewals and new leads too.
                       One link, not one per section. */}
+                  {section.id === "renewals" ? (
+                    <Link
+                      href={"/wireframes/renewals/mobile" as Route}
+                      className="surface-solid mt-2 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 text-[12px] font-medium text-foreground transition-colors hover:bg-accent/60"
+                    >
+                      <span className="inline-flex min-w-0 items-center gap-2">
+                        <RefreshCw
+                          className="size-4 shrink-0 text-primary"
+                          aria-hidden="true"
+                        />
+                        <span className="truncate">View renewals</span>
+                      </span>
+                      <span className="inline-flex shrink-0 items-center gap-1.5 text-muted-foreground">
+                        {/* The other window, named — overdue renewals are not
+                            part of the "due in 30 days" list above. */}
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
+                          {renewalsOverdue().length} overdue
+                        </span>
+                        <ChevronRight className="size-4" aria-hidden="true" />
+                      </span>
+                    </Link>
+                  ) : null}
                   {section.id === "today" ? (
                     <Link
                       href={"/wireframes/follow-ups/mobile" as Route}

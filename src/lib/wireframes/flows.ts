@@ -33,6 +33,8 @@ export type Flow = {
     | "Smartphone"
     | "UserRound"
     | "CalendarCheck"
+    | "RefreshCw"
+    | "Ellipsis"
     | "LayoutDashboard"
     | "Settings";
   readonly description: string;
@@ -230,6 +232,42 @@ export const FLOWS: readonly Flow[] = [
         title: "Follow-ups on a phone",
         summary:
           "Overdue, today, upcoming and completed work in one place, with completion and rescheduling as local sheets.",
+        device: "mobile",
+      },
+    ],
+  },
+  {
+    id: "renewals",
+    name: "Renewals & Reminders",
+    icon: "RefreshCw",
+    description:
+      "Policies and services approaching or past their due date, with the reminder schedule that was supposed to prevent that — and what it actually did.",
+    device: "mobile",
+    steps: [
+      {
+        href: "/wireframes/renewals/mobile",
+        label: "Renewals",
+        title: "Renewals & reminders on a phone",
+        summary:
+          "Overdue, due soon, upcoming and renewed work, keeping the due date, the reminder, the last contact and the outcome as four separate facts.",
+        device: "mobile",
+      },
+    ],
+  },
+  {
+    id: "more",
+    name: "More",
+    icon: "Ellipsis",
+    description:
+      "The rest of the CRM on a phone — the modules this role may open, and the ones it may not.",
+    device: "mobile",
+    steps: [
+      {
+        href: "/wireframes/more/mobile",
+        label: "More menu",
+        title: "More, on a phone",
+        summary:
+          "The fifth bottom-navigation destination. Permission decides what appears, so Reports is visible and closed rather than quietly absent.",
         device: "mobile",
       },
     ],

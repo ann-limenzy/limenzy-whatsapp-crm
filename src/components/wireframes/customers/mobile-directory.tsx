@@ -72,7 +72,11 @@ const FILTERS: readonly { id: FilterId; label: string; hint: string }[] = [
   },
   {
     id: "due-soon",
-    label: "Due soon",
+    // Not "Due soon": this includes renewals already overdue, and it counts
+    // customers rather than renewals. The Renewals workspace uses "Due soon"
+    // for the narrower thing, and two different numbers under one label would
+    // read as a contradiction.
+    label: "Renewal due",
     hint: `Renewal falls within the next ${RENEWAL_WINDOW_DAYS} days, or is already overdue.`,
   },
   {
@@ -247,7 +251,7 @@ export function MobileCustomerDirectoryScreen() {
                   tone="primary"
                 />
                 <Summary
-                  label="Due soon"
+                  label="Renewal due"
                   value={counts.dueSoon}
                   tone="warning"
                 />
@@ -608,7 +612,7 @@ function EmptyState({
         {searching
           ? "Search looks at the name, phone number, email, product and policy reference."
           : filter === "due-soon"
-            ? `No renewal falls within the next ${RENEWAL_WINDOW_DAYS} days.`
+            ? `No renewal falls within the next ${RENEWAL_WINDOW_DAYS} days or is overdue.`
             : filter === "follow-up"
               ? "No follow-up is overdue or due today."
               : "No customers to show."}

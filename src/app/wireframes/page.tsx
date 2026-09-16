@@ -1,10 +1,12 @@
 import {
   ArrowRight,
   CalendarCheck,
+  Ellipsis,
   LayoutDashboard,
   MessageCircle,
   Monitor,
   Settings,
+  RefreshCw,
   Smartphone,
   Upload,
   UserRound,
@@ -30,6 +32,8 @@ const ICONS: Record<Flow["icon"], LucideIcon> = {
   Smartphone,
   UserRound,
   CalendarCheck,
+  RefreshCw,
+  Ellipsis,
   LayoutDashboard,
   Settings,
 };

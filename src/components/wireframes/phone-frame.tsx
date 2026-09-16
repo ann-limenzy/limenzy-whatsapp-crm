@@ -97,6 +97,15 @@ const MOBILE_NAV: readonly {
     icon: MessageCircle,
     href: "/wireframes/whatsapp/mobile-inbox",
   },
+  {
+    id: "more",
+    label: "More",
+    icon: Ellipsis,
+    // §25: "More provides access to Renewals & Reminders and other permitted
+    // modules." It joins the loop as a real destination instead of being a
+    // decoration appended after it.
+    href: "/wireframes/more/mobile",
+  },
 ];
 
 export function MobileBottomNav({ active }: { active: string }) {
@@ -154,10 +163,6 @@ export function MobileBottomNav({ active }: { active: string }) {
           </Link>
         );
       })}
-      <span className="flex h-14 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium text-muted-foreground xs:text-[11px]">
-        <Ellipsis className="size-5 shrink-0" aria-hidden="true" />
-        <span className="w-full truncate text-center leading-tight">More</span>
-      </span>
     </nav>
   );
 }

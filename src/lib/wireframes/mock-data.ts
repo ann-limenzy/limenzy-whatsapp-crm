@@ -687,25 +687,6 @@ export const OVERDUE: readonly WorkItem[] = [
   },
 ];
 
-export const RENEWALS_SOON: readonly WorkItem[] = [
-  {
-    id: "r1",
-    person: "Vikram Reddy",
-    product: "Motor Insurance",
-    due: "20 Sep · 9 days",
-    status: "Due",
-    type: "Renewal",
-  },
-  {
-    id: "r2",
-    person: "Anitha Desai",
-    product: "Health Insurance",
-    due: "25 Sep · 14 days",
-    status: "Scheduled",
-    type: "Renewal",
-  },
-];
-
 export const NEW_LEADS: readonly WorkItem[] = [
   {
     id: "n1",
@@ -1540,6 +1521,471 @@ export function permittedRecordsFor(user: string): readonly PermittedRecord[] {
 
   return [...SALES_LEADS.filter((l) => l.owner === user), ...customers];
 }
+
+/**
+ * Stable key for a record, used when one screen asks another to preselect it.
+ *
+ * A key, never a name and never a URL: the receiving screen looks it up among
+ * the records the user may actually reach, so an unknown or tampered value
+ * simply matches nothing and preselects nothing.
+ */
+export function recordKeyOf(r: PermittedRecord): string {
+  const digits = r.reference.replace(/\D/g, "");
+  return `${r.recordType.toLowerCase()}-${digits}`;
+}
+
+/* ------------------------------------ Flow: renewals & reminders (mobile) */
+
+/** Spec §68's reminder statuses, verbatim. */
+export type ReminderStatus =
+  "Not Scheduled" | "Scheduled" | "Sent" | "Failed" | "Cancelled";
+
+/** Spec §67 configures reminders at 30, 7 and 1 days before the due date. */
+export type ReminderStage = {
+  /** "30 days before", "7 days before", "1 day before" (§67). */
+  offsetDays: 30 | 7 | 1;
+  /** §67 channels: In-app, WhatsApp, Email. */
+  channel: "In-app" | "WhatsApp" | "Email";
+  status: ReminderStatus;
+  /** When it went, or is due to go. */
+  date: string;
+  /** §67: a channel that cannot be used must not fail silently. */
+  failureReason?: string;
+};
+
+/** Spec §66 statuses. "Not Renewing" (§73) leaves the active work views. */
+export type RenewalStatus =
+  "Upcoming" | "Due Today" | "Overdue" | "Renewed / Completed";
+
+export type MobileRenewal = {
+  id: string;
+  customer: string;
+  /** "Customer · #881" — the same shape every other screen uses. */
+  reference: string;
+  product: string;
+  provider: string;
+  /** Obviously fictional test reference. */
+  policyRef: string;
+  /** Due/Renewal date and its offset from PRESENTATION_TODAY. */
+  due: string;
+  dueInDays: number;
+  status: RenewalStatus;
+  /**
+   * Record owner of the CUSTOMER — not the renewal's assignee (§65).
+   */
+  recordOwner: string;
+  /**
+   * Who the RENEWAL ACTION is assigned to. §65: "A Renewal action uses
+   * Assigned To, not Record Owner", defaulting to the Record Owner and
+   * reassignable by authorised users. Changing it does not change ownership.
+   */
+  assignedTo: string;
+  reminders: readonly ReminderStage[];
+  /** Last recorded contact about this renewal, where there has been one. */
+  lastContact?: string;
+  /** Set only where that customer's record wireframe exists. */
+  hasRecord?: boolean;
+  /** Set only where that customer's conversation wireframe exists. */
+  hasConversation?: boolean;
+  /** Allow-listed key for preselecting this customer elsewhere. */
+  recordKey: string;
+  /** Present once renewed (§71): the cycle that closed, kept in history. */
+  renewedOn?: string;
+  previousDue?: string;
+};
+
+/**
+ * Renewals Sneha Thomas is permitted to work on.
+ *
+ * Visibility is the customer rule already in force — owned by her, or
+ * explicitly shared with her — combined with §65's separate question of who
+ * the renewal ACTION is assigned to. A WhatsApp conversation assignment gives
+ * neither.
+ *
+ * Ramesh's health renewal is spread from CUSTOMER_RECORD and
+ * CUSTOMER_POLICIES, and its reminder schedule is §68's own worked example
+ * (30 days before Sent 27 Aug · 7 days before Scheduled 19 Sep · 1 day before
+ * Scheduled 25 Sep) — which is that renewal, because §68 was written around
+ * a 26 Sep due date.
+ *
+ * Every other row reuses a customer and policy reference that already exists
+ * in DIRECTORY_CUSTOMERS. Deepa Menon and Fathima Rasheed each hold three
+ * services there, so their extra policies are already implied rather than
+ * invented.
+ */
+export const MOBILE_RENEWALS: readonly MobileRenewal[] = [
+  {
+    id: "r859a",
+    customer: "Joseph Thomas",
+    reference: "Customer · #859",
+    product: "Motor Insurance",
+    provider: "Shield General (sample provider)",
+    policyRef: "POL-TEST-859-A",
+    due: "03 Sep 2026",
+    dueInDays: -8,
+    status: "Overdue",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "04 Aug 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "27 Aug 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "WhatsApp",
+        status: "Failed",
+        date: "02 Sep 2026",
+        failureReason: "Outside the 24-hour window and no approved template",
+      },
+    ],
+    lastContact: "Call · 08 Sep",
+    recordKey: "customer-859",
+  },
+  {
+    id: "r877b",
+    customer: "Deepa Menon",
+    reference: "Customer · #877",
+    product: "Motor Insurance",
+    provider: "Shield General (sample provider)",
+    policyRef: "POL-TEST-877-B",
+    due: "05 Sep 2026",
+    dueInDays: -6,
+    status: "Overdue",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      { offsetDays: 30, channel: "Email", status: "Sent", date: "06 Aug 2026" },
+      { offsetDays: 7, channel: "Email", status: "Sent", date: "29 Aug 2026" },
+      { offsetDays: 1, channel: "In-app", status: "Sent", date: "04 Sep 2026" },
+    ],
+    lastContact: "Email · 21 Aug",
+    recordKey: "customer-877",
+  },
+  {
+    id: "r712",
+    customer: "Sneha Nair",
+    reference: "Customer · #712",
+    product: "PUC Certificate",
+    provider: "Regional testing centre",
+    policyRef: "PUC-TEST-712",
+    due: PRESENTATION_TODAY,
+    dueInDays: 0,
+    status: "Due Today",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "12 Aug 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "04 Sep 2026",
+      },
+      { offsetDays: 1, channel: "In-app", status: "Sent", date: "10 Sep 2026" },
+    ],
+    lastContact: "WhatsApp · Yesterday",
+    recordKey: "customer-712",
+  },
+  {
+    id: "r904",
+    customer: "Vikram Reddy",
+    reference: "Customer · #904",
+    product: "Motor Insurance",
+    provider: "Shield General (sample provider)",
+    policyRef: "POL-TEST-904-A",
+    due: "20 Sep 2026",
+    dueInDays: 9,
+    status: "Upcoming",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "21 Aug 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Scheduled",
+        date: "13 Sep 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Scheduled",
+        date: "19 Sep 2026",
+      },
+    ],
+    lastContact: "WhatsApp · Yesterday",
+    recordKey: "customer-904",
+  },
+  {
+    id: "r893",
+    customer: "Anil Varghese",
+    reference: "Customer · #893",
+    product: "Travel Insurance",
+    provider: "Shield General (sample provider)",
+    policyRef: "POL-TEST-893-A",
+    due: "24 Sep 2026",
+    dueInDays: 13,
+    status: "Upcoming",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      { offsetDays: 30, channel: "Email", status: "Sent", date: "25 Aug 2026" },
+      {
+        offsetDays: 7,
+        channel: "Email",
+        status: "Scheduled",
+        date: "17 Sep 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Scheduled",
+        date: "23 Sep 2026",
+      },
+    ],
+    lastContact: "Call · 05 Sep",
+    recordKey: "customer-893",
+  },
+  {
+    // Spread from the shared record: reference, product, provider, policy
+    // reference and due date all come from Ramesh's own policy.
+    id: "r881a",
+    customer: CUSTOMER_RECORD.name,
+    reference: CUSTOMER_RECORD.reference,
+    product: CUSTOMER_POLICIES[0]!.product,
+    provider: CUSTOMER_POLICIES[0]!.provider,
+    policyRef: CUSTOMER_POLICIES[0]!.reference,
+    due: CUSTOMER_POLICIES[0]!.renewal,
+    dueInDays: CUSTOMER_POLICIES[0]!.daysLeft ?? 0,
+    status: "Upcoming",
+    // §65's own example: Record Owner Arun, renewal Assigned To Sneha.
+    recordOwner: CUSTOMER_RECORD.owner,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "27 Aug 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Scheduled",
+        date: "19 Sep 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Scheduled",
+        date: "25 Sep 2026",
+      },
+    ],
+    lastContact: "WhatsApp · Today, 10:41 AM",
+    hasRecord: true,
+    hasConversation: true,
+    recordKey: "customer-881",
+  },
+  {
+    id: "r921",
+    customer: "Lakshmi Nair",
+    reference: "Customer · #921",
+    product: "Health Insurance",
+    provider: "Star Health",
+    policyRef: "POL-TEST-921-A",
+    due: "05 Nov 2026",
+    dueInDays: 55,
+    status: "Upcoming",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "Email",
+        status: "Scheduled",
+        date: "06 Oct 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "Email",
+        status: "Scheduled",
+        date: "29 Oct 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Scheduled",
+        date: "04 Nov 2026",
+      },
+    ],
+    lastContact: "Note · 02 Sep",
+    recordKey: "customer-921",
+  },
+  {
+    id: "r881b",
+    customer: CUSTOMER_RECORD.name,
+    reference: CUSTOMER_RECORD.reference,
+    product: CUSTOMER_POLICIES[1]!.product,
+    provider: CUSTOMER_POLICIES[1]!.provider,
+    policyRef: CUSTOMER_POLICIES[1]!.reference,
+    due: CUSTOMER_POLICIES[1]!.renewal,
+    dueInDays: 122,
+    status: "Upcoming",
+    recordOwner: CUSTOMER_RECORD.owner,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Not Scheduled",
+        date: "12 Dec 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Not Scheduled",
+        date: "04 Jan 2027",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Not Scheduled",
+        date: "10 Jan 2027",
+      },
+    ],
+    hasRecord: true,
+    hasConversation: true,
+    recordKey: "customer-881",
+  },
+  {
+    id: "r877a",
+    customer: "Deepa Menon",
+    reference: "Customer · #877",
+    product: "Health Insurance",
+    provider: "Star Health",
+    policyRef: "POL-TEST-877-A",
+    due: "22 Jan 2027",
+    dueInDays: 133,
+    status: "Upcoming",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "Email",
+        status: "Not Scheduled",
+        date: "23 Dec 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "Email",
+        status: "Not Scheduled",
+        date: "15 Jan 2027",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Not Scheduled",
+        date: "21 Jan 2027",
+      },
+    ],
+    lastContact: "Email · 21 Aug",
+    recordKey: "customer-877",
+  },
+  {
+    id: "r688",
+    customer: "Fathima Rasheed",
+    reference: "Customer · #688",
+    product: "Motor Insurance",
+    provider: "Shield General (sample provider)",
+    policyRef: "POL-TEST-688-A",
+    // §71: the new cycle's date. The closed cycle stays in history below.
+    due: "20 Aug 2027",
+    dueInDays: 343,
+    status: "Renewed / Completed",
+    recordOwner: SALES_PERSONA.name,
+    assignedTo: SALES_PERSONA.name,
+    reminders: [
+      {
+        offsetDays: 30,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "21 Jul 2026",
+      },
+      {
+        offsetDays: 7,
+        channel: "WhatsApp",
+        status: "Sent",
+        date: "13 Aug 2026",
+      },
+      {
+        offsetDays: 1,
+        channel: "In-app",
+        status: "Cancelled",
+        date: "19 Aug 2026",
+      },
+    ],
+    lastContact: "WhatsApp · 09 Sep",
+    renewedOn: "09 Sep 2026",
+    previousDue: "20 Aug 2026",
+    recordKey: "customer-688",
+  },
+];
+
+/**
+ * That customer's phone number, from the directory that already holds it.
+ *
+ * Returns null rather than a placeholder when the customer is not in the
+ * directory: a screen that cannot find a number must say so, because a
+ * plausible-looking invented number is the one failure mode worth designing
+ * against here.
+ */
+export function customerPhoneByReference(reference: string): string | null {
+  return (
+    DIRECTORY_CUSTOMERS.find((c) => c.reference === reference)?.phone ?? null
+  );
+}
+
+/**
+ * Renewals due within the near-term window (§64's "Next 30 Days"), excluding
+ * anything already overdue or completed. Shared so the Today screen, the More
+ * badge and the Renewals workspace cannot disagree about what "due soon" is.
+ */
+export function renewalsDueSoon(): readonly MobileRenewal[] {
+  return MOBILE_RENEWALS.filter(
+    (r) =>
+      r.status !== "Overdue" &&
+      r.status !== "Renewed / Completed" &&
+      r.dueInDays <= RENEWAL_DUE_SOON_DAYS,
+  );
+}
+
+/** Renewals whose due date has passed without completion (§74). */
+export function renewalsOverdue(): readonly MobileRenewal[] {
+  return MOBILE_RENEWALS.filter((r) => r.status === "Overdue");
+}
+
+/** §64 uses "Next 30 Days" as the near-term renewal window. */
+export const RENEWAL_DUE_SOON_DAYS = 30;
 
 /* ------------------------------------------------- Flow D: admin dashboard */
 

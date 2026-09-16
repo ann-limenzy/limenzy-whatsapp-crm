@@ -9,6 +9,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import type { Route } from "next";
+import Link from "next/link";
+
 import { cn } from "@/lib/utils";
 
 /**
@@ -237,12 +240,19 @@ export function CallHandoffSheet({
   person,
   phone,
   returnsTo,
+  nextAction,
   onClose,
 }: {
   person: string;
   phone: string;
   /** Where the salesperson lands afterwards, named so it is not a guess. */
   returnsTo: string;
+  /**
+   * Optional follow-on route, for the screens that have somewhere specific to
+   * go after the call — the lead record's "record the result", for instance.
+   * Omitted, the sheet just closes.
+   */
+  nextAction?: { href: string; label: string };
   onClose: () => void;
 }) {
   return (
@@ -290,13 +300,31 @@ export function CallHandoffSheet({
         calling screen.
       </p>
 
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
-      >
-        Close
-      </button>
+      {nextAction ? (
+        <div className="mt-3.5 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-11 flex-1 rounded-lg border border-border text-sm font-medium text-foreground"
+          >
+            Cancel
+          </button>
+          <Link
+            href={nextAction.href as Route}
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-primary px-2 text-center text-sm font-semibold text-primary-foreground"
+          >
+            {nextAction.label}
+          </Link>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
+        >
+          Close
+        </button>
+      )}
     </>
   );
 }
