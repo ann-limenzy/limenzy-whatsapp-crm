@@ -54,12 +54,21 @@ export type Owner = {
   role: "Owner" | "Admin" | "Manager" | "Staff";
 };
 
+/** Active workspace users who can be assigned work. */
 export const TEAM: readonly Owner[] = [
   { id: "u1", name: "Arun Menon", initials: "AM", role: "Admin" },
   { id: "u2", name: "Sneha Thomas", initials: "ST", role: "Staff" },
   { id: "u3", name: "Vikram Shah", initials: "VS", role: "Manager" },
   { id: "u4", name: "Neha Thomas", initials: "NT", role: "Staff" },
-  { id: "u5", name: "Fathima Rasheed", initials: "FR", role: "Staff" },
+  // Fathima Rasheed (invited, not yet active) is deliberately absent: an
+  // invited user cannot be given work. The Customer of the same name is a
+  // different person and lives in DIRECTORY_CUSTOMERS.
+  // Active salespeople added with the Sales Teams wireframes (see
+  // SETTINGS_USERS). Only ever offered as options in assignee pickers.
+  { id: "u6", name: "Divya Mohan", initials: "DM", role: "Staff" },
+  { id: "u7", name: "Ajay Varma", initials: "AV", role: "Staff" },
+  { id: "u8", name: "Nisha George", initials: "NG", role: "Staff" },
+  { id: "u9", name: "Kavya Raghavan", initials: "KR", role: "Staff" },
 ];
 
 /* --------------------------------------------------------- Flow A: import */
@@ -2161,6 +2170,22 @@ export const PIPELINE = [
   { stage: "Won", count: 4, share: 10 },
 ] as const;
 
+/**
+ * Pipeline totals. Won is a terminal stage: its Leads are shown historically
+ * and never counted as active or open.
+ */
+export const PIPELINE_TOTALS = {
+  total: PIPELINE.reduce((n, p) => n + p.count, 0),
+  active: PIPELINE.filter((p) => p.stage !== "Won").reduce(
+    (n, p) => n + p.count,
+    0,
+  ),
+  won: PIPELINE.filter((p) => p.stage === "Won").reduce(
+    (n, p) => n + p.count,
+    0,
+  ),
+};
+
 export const RECENT_ACTIVITY: readonly Activity[] = [
   {
     id: "ra1",
@@ -2203,59 +2228,50 @@ export type WorkloadRow = {
   id: string;
   user: string;
   initials: string;
-  openLeads: number;
+  assignedLeads: number;
   followUpsToday: number;
   overdue: number;
   renewals: number;
 };
 
-export const TEAM_WORKLOAD: readonly WorkloadRow[] = [
-  {
-    id: "wl1",
-    user: "Arun Menon",
-    initials: "AM",
-    openLeads: 14,
+/**
+ * Assigned work per person, keyed by workspace user name.
+ *
+ * `assignedLeads` counts Lead records currently assigned to the user, which
+ * can include Leads that are no longer active (Won, for example) — it is not
+ * an "open Leads" figure. Only people who hold assigned work are listed;
+ * every other active user shows zeros in TEAM_WORKLOAD, and nothing is
+ * invented for them.
+ * Invited and deactivated users hold no work and never appear (§159, §160).
+ */
+const OPEN_WORK: Readonly<
+  Record<string, Omit<WorkloadRow, "id" | "user" | "initials">>
+> = {
+  "Arun Menon": {
+    assignedLeads: 14,
     followUpsToday: 4,
     overdue: 1,
     renewals: 7,
   },
-  {
-    id: "wl2",
-    user: "Sneha Thomas",
-    initials: "ST",
-    openLeads: 11,
+  "Sneha Thomas": {
+    assignedLeads: 11,
     followUpsToday: 3,
     overdue: 0,
     renewals: 5,
   },
-  {
-    id: "wl3",
-    user: "Vikram Shah",
-    initials: "VS",
-    openLeads: 9,
+  "Vikram Shah": {
+    assignedLeads: 9,
     followUpsToday: 2,
     overdue: 2,
     renewals: 6,
   },
-  {
-    id: "wl4",
-    user: "Neha Thomas",
-    initials: "NT",
-    openLeads: 7,
+  "Neha Thomas": {
+    assignedLeads: 7,
     followUpsToday: 3,
     overdue: 2,
     renewals: 4,
   },
-  {
-    id: "wl5",
-    user: "Fathima Rasheed",
-    initials: "FR",
-    openLeads: 5,
-    followUpsToday: 0,
-    overdue: 0,
-    renewals: 2,
-  },
-];
+};
 
 /* -------------------------------------------------- Flow E: admin settings */
 
@@ -2324,7 +2340,84 @@ export const SETTINGS_USERS: readonly SettingsUser[] = [
     assignedRecords: 38,
     lastActive: "14 Aug 2026",
   },
+  /*
+   * Added for the Sales Teams wireframes (§163). Two active salespeople were
+   * not enough for three teams that each need their own active Team Lead, a
+   * paused member and a warning example — and Fathima (invited) and Joseph
+   * (deactivated) cannot join an active rotation. Kavya belongs to no team,
+   * so "add an existing active user" has someone to add.
+   */
+  {
+    id: "s7",
+    name: "Divya Mohan",
+    email: "divya@asfincare.example",
+    role: "Staff",
+    status: "Active",
+    assignedRecords: 29,
+    lastActive: "Today, 9:26 AM",
+  },
+  {
+    id: "s8",
+    name: "Ajay Varma",
+    email: "ajay@asfincare.example",
+    role: "Staff",
+    status: "Active",
+    assignedRecords: 47,
+    lastActive: "Today, 8:58 AM",
+  },
+  {
+    id: "s9",
+    name: "Nisha George",
+    email: "nisha@asfincare.example",
+    role: "Staff",
+    status: "Active",
+    assignedRecords: 22,
+    lastActive: "07 Sep",
+  },
+  {
+    id: "s10",
+    name: "Kavya Raghavan",
+    email: "kavya@asfincare.example",
+    role: "Staff",
+    status: "Active",
+    assignedRecords: 0,
+    lastActive: "Today, 8:15 AM",
+  },
 ];
+
+/**
+ * The admin dashboard's Team workload: every ACTIVE workspace user who can
+ * hold work, derived from SETTINGS_USERS so a new active user can never be
+ * silently left out. Ordered by assigned Leads, most first.
+ */
+export const TEAM_WORKLOAD: readonly WorkloadRow[] = SETTINGS_USERS.filter(
+  (u) => u.status === "Active",
+)
+  .map((u) => ({
+    id: `wl-${u.id}`,
+    user: u.name,
+    initials: u.name
+      .split(" ")
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join(""),
+    ...(OPEN_WORK[u.name] ?? {
+      assignedLeads: 0,
+      followUpsToday: 0,
+      overdue: 0,
+      renewals: 0,
+    }),
+  }))
+  .sort((a, b) => b.assignedLeads - a.assignedLeads);
+
+/** Dashboard headline figures, summed from the same rows the table shows. */
+export const WORKLOAD_TOTALS = {
+  followUpsToday: TEAM_WORKLOAD.reduce((n, r) => n + r.followUpsToday, 0),
+  usersWithFollowUpsToday: TEAM_WORKLOAD.filter((r) => r.followUpsToday > 0)
+    .length,
+  renewals: TEAM_WORKLOAD.reduce((n, r) => n + r.renewals, 0),
+  overdue: TEAM_WORKLOAD.reduce((n, r) => n + r.overdue, 0),
+};
 
 export type PipelineStage = {
   id: string;

@@ -9,9 +9,11 @@ import {
   Mail,
   MessageCircle,
   Package,
+  Route as RouteIcon,
   SlidersHorizontal,
   Timer,
   Users,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -20,7 +22,13 @@ import { useState } from "react";
 
 import { CrmChrome } from "@/components/wireframes/crm-chrome";
 import { ScreenHeading } from "@/components/wireframes/wf-ui";
-import { WORKSPACE } from "@/lib/wireframes/mock-data";
+import { SETTINGS_USERS, WORKSPACE } from "@/lib/wireframes/mock-data";
+import {
+  LEAD_ASSIGNMENT_RULES,
+  SALES_TEAMS,
+  ruleWarning,
+  teamWarning,
+} from "@/lib/wireframes/sales-teams";
 import { cn } from "@/lib/utils";
 
 /**
@@ -47,13 +55,18 @@ type Card = {
   href?: Route;
 };
 
+const INVITED = SETTINGS_USERS.filter((u) => u.status === "Invited").length;
+const TEAM_WARNINGS = SALES_TEAMS.filter((t) => teamWarning(t)).length;
+const ACTIVE_RULES = LEAD_ASSIGNMENT_RULES.filter((r) => r.status === "Active");
+const RULE_WARNINGS = ACTIVE_RULES.filter((r) => ruleWarning(r)).length;
+
 const CARDS: readonly Card[] = [
   {
     id: "users",
     href: "/wireframes/admin/users",
     title: "Users and roles",
     icon: Users,
-    summary: "6 users · 1 invitation pending",
+    summary: `${SETTINGS_USERS.length} users · ${INVITED} ${INVITED === 1 ? "invitation" : "invitations"} pending`,
     detail:
       "Who is on the team and what each person can see. Deactivating someone keeps their history and their name on past records.",
     items: [
@@ -62,6 +75,48 @@ const CARDS: readonly Card[] = [
       "Roles and permissions",
       "Deactivate a user",
     ],
+  },
+  {
+    id: "sales-teams",
+    href: "/wireframes/admin/teams",
+    title: "Sales Teams",
+    icon: UsersRound,
+    summary: `${SALES_TEAMS.length} teams`,
+    detail:
+      "Groups of salespeople who share automatic Leads. Each team has one Team Lead, and each member is either eligible for new Leads or paused.",
+    items: [
+      "Teams and Team Leads",
+      "Members and transfers",
+      "Lead-assignment eligibility",
+      "Assignment warnings",
+    ],
+    status: TEAM_WARNINGS
+      ? {
+          label: `${TEAM_WARNINGS} ${TEAM_WARNINGS === 1 ? "team needs" : "teams need"} attention`,
+          tone: "warn",
+        }
+      : undefined,
+  },
+  {
+    id: "lead-assignment",
+    href: "/wireframes/admin/lead-assignment",
+    title: "Lead assignment",
+    icon: RouteIcon,
+    summary: `${ACTIVE_RULES.length} active rules · round robin`,
+    detail:
+      "Rules that give new Leads a Record Owner by rotating through one Sales Team's eligible members.",
+    items: [
+      "Assignment rules",
+      "Target team",
+      "Batch Size",
+      "Rotation pool preview",
+    ],
+    status: RULE_WARNINGS
+      ? {
+          label: `${RULE_WARNINGS} ${RULE_WARNINGS === 1 ? "rule has a warning" : "rules have warnings"}`,
+          tone: "warn",
+        }
+      : undefined,
   },
   {
     id: "pipeline",

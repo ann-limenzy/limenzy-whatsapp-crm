@@ -21,8 +21,10 @@ import {
 import {
   CURRENT_USER,
   PIPELINE,
+  PIPELINE_TOTALS,
   RECENT_ACTIVITY,
   TEAM_WORKLOAD,
+  WORKLOAD_TOTALS,
   TODAY_FOLLOW_UPS,
   UPCOMING_RENEWALS,
   WORKSPACE,
@@ -39,7 +41,10 @@ import { cn } from "@/lib/utils";
  * CRM does not hold the data to calculate them honestly.
  *
  * Team workload is the section a manager actually acts on: it is the only
- * place that shows work piling up on one person.
+ * place that shows work piling up on one person. It lists every active user
+ * who can hold work — zeros included — and the Follow-ups Today, Renewals Due
+ * Soon and Overdue cards are summed from those same rows, so the two can
+ * never disagree.
  */
 
 const STATUS_CLASS = {
@@ -73,21 +78,21 @@ export function AdminDashboardScreen() {
           />
           <Metric
             label="Follow-ups Today"
-            value={12}
-            caption="across 5 users"
+            value={WORKLOAD_TOTALS.followUpsToday}
+            caption={`across ${WORKLOAD_TOTALS.usersWithFollowUpsToday} users`}
             icon={CalendarCheck}
             tone="info"
           />
           <Metric
             label="Renewals Due Soon"
-            value={24}
+            value={WORKLOAD_TOTALS.renewals}
             caption="next 30 days"
             icon={BellRing}
             tone="warning"
           />
           <Metric
             label="Overdue Actions"
-            value={5}
+            value={WORKLOAD_TOTALS.overdue}
             caption="needs attention"
             icon={AlarmClock}
             tone="danger"
@@ -211,7 +216,8 @@ export function AdminDashboardScreen() {
                   ))}
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  41 open leads across the active pipeline stages.
+                  {PIPELINE_TOTALS.total} leads across stages ·{" "}
+                  {PIPELINE_TOTALS.active} active · {PIPELINE_TOTALS.won} won
                 </p>
               </div>
             </Panel>
@@ -229,7 +235,7 @@ export function AdminDashboardScreen() {
                         Salesperson
                       </th>
                       <th scope="col" className="px-4 py-2.5 font-medium">
-                        Open leads
+                        Assigned Leads
                       </th>
                       <th scope="col" className="px-4 py-2.5 font-medium">
                         Today
@@ -238,7 +244,7 @@ export function AdminDashboardScreen() {
                         Overdue
                       </th>
                       <th scope="col" className="px-4 py-2.5 font-medium">
-                        Renewals
+                        Renewals due soon
                       </th>
                     </tr>
                   </thead>
@@ -257,7 +263,7 @@ export function AdminDashboardScreen() {
                           </span>
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground tabular-nums">
-                          {row.openLeads}
+                          {row.assignedLeads}
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground tabular-nums">
                           {row.followUpsToday}
@@ -281,6 +287,10 @@ export function AdminDashboardScreen() {
                   </tbody>
                 </table>
               </TableScroll>
+              <p className="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
+                Every active user who can hold work, including those with none
+                today. Invited and deactivated users are not listed.
+              </p>
             </Panel>
           </div>
 

@@ -2,6 +2,7 @@ import { History, Mail, ShieldCheck, UserMinus, UserPlus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CrmChrome } from "@/components/wireframes/crm-chrome";
+import { TeamLeadBadge } from "@/components/wireframes/teams/team-parts";
 import {
   Avatar,
   Note,
@@ -10,6 +11,7 @@ import {
   TableScroll,
 } from "@/components/wireframes/wf-ui";
 import { SETTINGS_USERS } from "@/lib/wireframes/mock-data";
+import { activeTeamOf, teamLeadOf } from "@/lib/wireframes/sales-teams";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,6 +21,10 @@ import { cn } from "@/lib/utils";
  * Kurian left the business, but his 38 records and his name on every past
  * activity stay exactly where they are. History is not rewritten when someone
  * leaves.
+ *
+ * Sales Team sits in its own column (§159). Team Lead is shown there, beside
+ * the team, because it is a responsibility inside that team — the Role
+ * column never says "Team Lead".
  */
 
 const STATUS_CLASS = {
@@ -52,7 +58,7 @@ export function UsersScreen() {
 
         <Panel title="Team" icon={ShieldCheck} count={SETTINGS_USERS.length}>
           <TableScroll>
-            <table className="w-full min-w-[48rem] text-sm">
+            <table className="w-full min-w-[56rem] text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-xs text-muted-foreground">
                   <th scope="col" className="px-4 py-2.5 font-medium">
@@ -60,6 +66,9 @@ export function UsersScreen() {
                   </th>
                   <th scope="col" className="px-4 py-2.5 font-medium">
                     Role
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-medium">
+                    Sales Team
                   </th>
                   <th scope="col" className="px-4 py-2.5 font-medium">
                     Status
@@ -78,6 +87,10 @@ export function UsersScreen() {
               <tbody>
                 {SETTINGS_USERS.map((user) => {
                   const inactive = user.status === "Deactivated";
+                  const team = activeTeamOf(user.id);
+                  const leads = team
+                    ? teamLeadOf(team)?.userId === user.id
+                    : false;
                   return (
                     <tr
                       key={user.id}
@@ -119,6 +132,18 @@ export function UsersScreen() {
                         >
                           {user.role}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {team ? (
+                          <span className="flex flex-col items-start gap-1">
+                            <span className="text-foreground">{team.name}</span>
+                            {leads ? <TeamLeadBadge /> : null}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            Not in a team
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span

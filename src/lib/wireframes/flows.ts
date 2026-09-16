@@ -36,7 +36,8 @@ export type Flow = {
     | "RefreshCw"
     | "Ellipsis"
     | "LayoutDashboard"
-    | "Settings";
+    | "Settings"
+    | "UsersRound";
   readonly description: string;
   readonly device: Device | "both";
   readonly steps: readonly Step[];
@@ -328,6 +329,56 @@ export const FLOWS: readonly Flow[] = [
         summary:
           "The settings A&S Fincare will change most often, in one place.",
         device: "desktop",
+      },
+    ],
+  },
+  {
+    id: "sales-teams",
+    name: "Sales Teams and Lead Assignment",
+    icon: "UsersRound",
+    description:
+      "Who shares new Leads: teams that each rotate Leads among their own eligible members, the rules that send Leads to one team, and a Team Lead pausing members from a phone.",
+    device: "both",
+    steps: [
+      {
+        href: "/wireframes/admin/teams",
+        label: "Sales Teams",
+        title: "Sales Teams",
+        summary:
+          "Every team, its Team Lead, who is receiving Leads, and where assignment is failing.",
+        device: "desktop",
+      },
+      {
+        href: "/wireframes/admin/teams/health-insurance",
+        label: "Team detail",
+        title: "Team membership and eligibility",
+        summary:
+          "Owner/Admin adds, transfers and overrides — none of which reassigns an existing record.",
+        device: "desktop",
+      },
+      {
+        href: "/wireframes/admin/lead-assignment",
+        label: "Assignment rules",
+        title: "Lead assignment rules",
+        summary:
+          "Each rule sends new Leads to exactly one team, by round robin. Nothing else is assigned this way.",
+        device: "desktop",
+      },
+      {
+        href: "/wireframes/admin/lead-assignment/health-insurance",
+        label: "Rule and pool",
+        title: "Round-robin rule and pool preview",
+        summary:
+          "Who gets the next Lead, and what happens when nobody in the team is eligible.",
+        device: "desktop",
+      },
+      {
+        href: "/wireframes/teams/my-team",
+        label: "My Team",
+        title: "My Team on a phone",
+        summary:
+          "A Team Lead pauses or restores their own team's members. No settings, no one else's records.",
+        device: "mobile",
       },
     ],
   },

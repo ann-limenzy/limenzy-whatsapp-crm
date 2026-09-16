@@ -10,6 +10,7 @@ import {
   Smartphone,
   Upload,
   UserRound,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -36,6 +37,7 @@ const ICONS: Record<Flow["icon"], LucideIcon> = {
   Ellipsis,
   LayoutDashboard,
   Settings,
+  UsersRound,
 };
 
 export default function WireframesIndexPage() {

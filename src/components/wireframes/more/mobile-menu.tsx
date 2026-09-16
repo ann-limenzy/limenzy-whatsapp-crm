@@ -8,6 +8,7 @@ import {
   Lock,
   Mail,
   RefreshCw,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -15,6 +16,7 @@ import Link from "next/link";
 import { useMemo } from "react";
 
 import { PhoneFrame, PhoneScreen } from "@/components/wireframes/phone-frame";
+import { TeamLeadBadge } from "@/components/wireframes/teams/team-parts";
 import { WireframeBrand } from "@/components/wireframes/wireframe-brand";
 import { Avatar } from "@/components/wireframes/wf-ui";
 import {
@@ -23,6 +25,12 @@ import {
   RENEWAL_DUE_SOON_DAYS,
   SALES_PERSONA,
 } from "@/lib/wireframes/mock-data";
+import {
+  USER,
+  activeTeamOf,
+  teamCounts,
+  teamLeadOf,
+} from "@/lib/wireframes/sales-teams";
 
 /**
  * M1 — More, on a phone.
@@ -38,8 +46,18 @@ import {
  * absent entirely: §162 denies Staff all three, so offering them even greyed
  * out would misdescribe the product.
  *
+ * My Team appears only because this salesperson is the Team Lead of a Sales
+ * Team (§163.6). It is a More entry, not a sixth bottom-navigation item, and
+ * an ordinary salesperson's menu would not contain it at all.
+ *
  * Counts are derived from the same datasets the modules themselves read.
  */
+
+// Looked up rather than assumed: the entry exists only for a current Team Lead.
+const LED_TEAM = (() => {
+  const team = activeTeamOf(USER.sneha);
+  return team && teamLeadOf(team)?.userId === USER.sneha ? team : undefined;
+})();
 
 type Module = {
   id: string;
@@ -70,7 +88,21 @@ export function MobileMoreScreen() {
     };
   }, []);
 
+  const ledCounts = LED_TEAM ? teamCounts(LED_TEAM) : null;
+
   const modules: readonly Module[] = [
+    ...(LED_TEAM && ledCounts
+      ? [
+          {
+            id: "my-team",
+            label: "My Team",
+            detail: `${LED_TEAM.name} · choose who receives new Leads`,
+            icon: UsersRound,
+            href: "/wireframes/teams/my-team",
+            badge: `${ledCounts.eligible} of ${ledCounts.active} eligible`,
+          } satisfies Module,
+        ]
+      : []),
     {
       id: "follow-ups",
       label: "Follow-ups",
@@ -127,8 +159,13 @@ export function MobileMoreScreen() {
                     <h1 className="truncate text-base font-semibold tracking-tight text-foreground">
                       {SALES_PERSONA.name}
                     </h1>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {SALES_PERSONA.role}
+                    <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground">
+                        {SALES_PERSONA.role}
+                      </span>
+                      {LED_TEAM ? (
+                        <TeamLeadBadge className="px-2 text-[10px]" />
+                      ) : null}
                     </span>
                   </span>
                 </div>
@@ -151,7 +188,8 @@ export function MobileMoreScreen() {
               <p className="px-1 pt-1 pb-1 text-[11px] leading-relaxed text-muted-foreground">
                 What appears here depends on your role. Workspace settings,
                 users and imports are administrator tools and are not part of a
-                Sales Executive&apos;s app.
+                Sales Executive&apos;s app. My Team is here because you lead a
+                Sales Team.
               </p>
             </div>
           </PhoneScreen>
