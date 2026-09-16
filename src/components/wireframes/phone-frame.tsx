@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  CalendarCheck,
+  Contact,
   Ellipsis,
   LayoutDashboard,
   MessageCircle,
@@ -83,7 +83,14 @@ const MOBILE_NAV: readonly {
     href: "/wireframes/sales/today",
   },
   { id: "leads", label: "Leads", icon: Users },
-  { id: "follow-ups", label: "Follow-ups", icon: CalendarCheck },
+  /**
+   * No href. The customer DIRECTORY does not exist yet, and pointing this at
+   * Ramesh Kumar's record would tell the client that tapping "Customers" from
+   * any screen opens one particular customer. The item stays visible because
+   * the specification puts it in the default bar; it becomes a link when the
+   * directory screen is built.
+   */
+  { id: "customers", label: "Customers", icon: Contact },
   {
     id: "whatsapp",
     label: "WhatsApp",
@@ -123,7 +130,14 @@ export function MobileBottomNav({ active }: { active: string }) {
 
         if (!item.href) {
           return (
-            <span key={item.id} className={className}>
+            // `aria-current` belongs here too, not only on the link branch:
+            // Customers marks the section the user is in even though the
+            // directory it would link to does not exist yet.
+            <span
+              key={item.id}
+              aria-current={isActive ? "page" : undefined}
+              className={className}
+            >
               {inner}
             </span>
           );

@@ -27,7 +27,13 @@ import {
   DeliveryTag,
 } from "@/components/wireframes/whatsapp/parts";
 import { Note, Panel } from "@/components/wireframes/wf-ui";
-import { CONVERSATIONS, TEMPLATES, THREAD } from "@/lib/wireframes/mock-data";
+import {
+  CONVERSATIONS,
+  CUSTOMER_POLICIES,
+  CUSTOMER_RECORD,
+  TEMPLATES,
+  THREAD,
+} from "@/lib/wireframes/mock-data";
 import { cn } from "@/lib/utils";
 
 /**
@@ -200,9 +206,18 @@ export function ConversationScreen() {
               <dl className="flex flex-col gap-3.5 text-sm">
                 <ContextRow label="Record" value={conversation.recordLabel} />
                 <ContextRow label="Product" value={conversation.product} />
-                <ContextRow label="Renewal due" value="26 Sep 2026" />
-                <ContextRow label="Record owner" value="Arun Menon" />
-                <ContextRow label="Customer since" value="14 Mar 2024" />
+                <ContextRow
+                  label="Renewal due"
+                  value={CUSTOMER_POLICIES[0]!.renewal}
+                />
+                <ContextRow
+                  label="Record owner"
+                  value={CUSTOMER_RECORD.owner}
+                />
+                <ContextRow
+                  label="Customer since"
+                  value={CUSTOMER_RECORD.since}
+                />
               </dl>
 
               <div className="mt-5 flex flex-col gap-2">

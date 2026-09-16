@@ -53,7 +53,7 @@ export function OutcomeScreen() {
       <div className="mx-auto w-full max-w-[1100px] px-0 py-0 md:px-6 md:py-8">
         <PhoneFrame caption="Back from the call — log it and set the next step">
           <PhoneScreen
-            activeNav="follow-ups"
+            activeNav="leads"
             header={
               <header className="surface-glass sticky top-0 z-10 flex items-center gap-1 rounded-none border-x-0 border-t-0 px-2 py-2 pt-[max(env(safe-area-inset-top),0.5rem)]">
                 <Link

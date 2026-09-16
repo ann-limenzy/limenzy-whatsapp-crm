@@ -801,6 +801,185 @@ export const FOLLOW_UP_TYPES: readonly string[] = [
   "Other",
 ];
 
+/* ------------------------------------------- Flow: customer record (mobile) */
+
+/**
+ * Ramesh Kumar's customer record — the single source for his identity.
+ *
+ * The WhatsApp conversation, the desktop conversation context panel and the
+ * mobile customer record all read from here, so the reference, contact
+ * details, owner and renewal date cannot drift apart between screens.
+ *
+ * Two roles are deliberately different and must stay that way (spec §87):
+ * the CONVERSATION is assigned to Sneha Thomas, while the customer RECORD is
+ * still owned by Arun Menon. Reassigning a conversation does not change the
+ * record owner.
+ */
+export const CUSTOMER_RECORD = {
+  name: "Ramesh Kumar",
+  reference: "Customer · #881",
+  status: "Active" as const,
+  since: "14 Mar 2024",
+  sinceLabel: "Customer since 2024",
+  // Reserved Indian test range, and a reserved `.example` domain: neither can
+  // reach a real person.
+  phone: "70000 12345",
+  email: "ramesh.kumar@mail.example",
+  preferredChannel: "WhatsApp",
+  /** Record owner — NOT the conversation assignee. */
+  owner: "Arun Menon",
+  /** Who holds the WhatsApp conversation. */
+  conversationAssignee: "Sneha Thomas",
+  tags: ["Health Insurance", "Motor Insurance", "Renewal due"],
+} as const;
+
+export type UpcomingAction = {
+  id: string;
+  date: string;
+  kind: "Follow-up" | "Renewal";
+  detail: string;
+  assignedTo: string;
+  /** Spec §75: overdue actions appear before future ones. */
+  overdue?: boolean;
+};
+
+export const CUSTOMER_UPCOMING: readonly UpcomingAction[] = [
+  {
+    id: "ua1",
+    date: "14 Sep 2026, 10:00 AM",
+    kind: "Follow-up",
+    detail: "Call to confirm the renewal premium",
+    assignedTo: "Sneha Thomas",
+  },
+  {
+    id: "ua2",
+    date: "26 Sep 2026",
+    kind: "Renewal",
+    detail: "Health Insurance renewal falls due",
+    assignedTo: "Arun Menon",
+  },
+];
+
+export type CustomerPolicy = {
+  id: string;
+  product: string;
+  provider: string;
+  /** Obviously fictional — never a real policy or government identifier. */
+  reference: string;
+  start: string;
+  renewal: string;
+  status: "Due soon" | "Active";
+  amount: string;
+  daysLeft?: number;
+};
+
+export const CUSTOMER_POLICIES: readonly CustomerPolicy[] = [
+  {
+    id: "p1",
+    product: "Health Insurance",
+    provider: "Star Health",
+    reference: "POL-TEST-881-A",
+    start: "26 Sep 2024",
+    renewal: "26 Sep 2026",
+    status: "Due soon",
+    amount: "₹18,400 / year",
+    daysLeft: 15,
+  },
+  {
+    id: "p2",
+    product: "Motor Insurance",
+    provider: "Shield General (sample provider)",
+    reference: "POL-TEST-881-B",
+    start: "11 Jan 2025",
+    renewal: "11 Jan 2027",
+    status: "Active",
+    amount: "₹7,250 / year",
+  },
+];
+
+export type CustomerActivity = {
+  id: string;
+  kind: "whatsapp" | "call" | "followup" | "note" | "renewal" | "created";
+  title: string;
+  detail: string;
+  by: string;
+  time: string;
+};
+
+/**
+ * One chronological history for the customer (spec §76), newest first.
+ *
+ * WhatsApp messages, calls and follow-ups all land here rather than in
+ * separate per-channel timelines. The oldest entry keeps the lead history
+ * alive after conversion, which §76 illustrates directly.
+ */
+export const CUSTOMER_ACTIVITY: readonly CustomerActivity[] = [
+  {
+    id: "ca1",
+    kind: "whatsapp",
+    title: "WhatsApp message failed",
+    detail: "Renewal options message could not be delivered",
+    by: "Sneha Thomas",
+    time: "Today, 10:41 AM",
+  },
+  {
+    id: "ca2",
+    kind: "whatsapp",
+    title: "WhatsApp reply received",
+    detail: "“Yes, please renew it”",
+    by: "From Ramesh Kumar",
+    time: "Today, 10:32 AM",
+  },
+  {
+    id: "ca3",
+    kind: "whatsapp",
+    title: "WhatsApp reminder sent",
+    detail: "Health Insurance renewal, policy renewal reminder template",
+    by: "Sneha Thomas",
+    time: "Today, 10:15 AM",
+  },
+  {
+    id: "ca4",
+    kind: "call",
+    title: "Call — Connected",
+    detail: "Confirmed he wants to renew on the same cover",
+    by: "Sneha Thomas",
+    time: "09 Sep, 4:15 PM",
+  },
+  {
+    id: "ca5",
+    kind: "followup",
+    title: "Follow-up scheduled",
+    detail: "Call · 14 Sep 2026, 10:00 AM",
+    by: "Sneha Thomas",
+    time: "08 Sep, 3:38 PM",
+  },
+  {
+    id: "ca6",
+    kind: "note",
+    title: "Note added",
+    detail: "Prefers WhatsApp over calls during working hours",
+    by: "Arun Menon",
+    time: "02 Sep, 11:10 AM",
+  },
+  {
+    id: "ca7",
+    kind: "renewal",
+    title: "Renewal reminder generated",
+    detail: "Health Insurance · due 26 Sep 2026",
+    by: "Reminder rule",
+    time: "01 Sep, 9:00 AM",
+  },
+  {
+    id: "ca8",
+    kind: "created",
+    title: "Customer created from lead",
+    detail: "Converted after the first Health Insurance enquiry",
+    by: "Arun Menon",
+    time: "14 Mar 2024",
+  },
+];
+
 /* ------------------------------------------------- Flow D: admin dashboard */
 
 export const DASHBOARD_METRICS = [

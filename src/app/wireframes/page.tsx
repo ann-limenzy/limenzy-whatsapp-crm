@@ -6,6 +6,7 @@ import {
   Settings,
   Smartphone,
   Upload,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -26,6 +27,7 @@ const ICONS: Record<Flow["icon"], LucideIcon> = {
   Upload,
   MessageCircle,
   Smartphone,
+  UserRound,
   LayoutDashboard,
   Settings,
 };
@@ -41,9 +43,10 @@ export default function WireframesIndexPage() {
               {WORKSPACE.name} — workflow wireframes
             </h1>
             <p className="mt-3 max-w-[62ch] text-base leading-relaxed text-muted-foreground">
-              Five workflows, {SEQUENCE.length} screens. Each one shows how the
-              work actually gets done — importing a spreadsheet of leads,
-              answering a customer on WhatsApp, working a day from a phone, and
+              {FLOWS.length} workflows, {SEQUENCE.length} screens. Each one
+              shows how the work actually gets done — importing a spreadsheet of
+              leads, answering a customer on WhatsApp, opening the customer
+              behind that conversation, working a day from a phone, and
               configuring the CRM without a developer.
             </p>
           </div>

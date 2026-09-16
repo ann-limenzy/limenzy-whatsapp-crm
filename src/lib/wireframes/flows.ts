@@ -28,7 +28,12 @@ export type Flow = {
   readonly name: string;
   /** Lucide icon name, resolved by the component that renders the card. */
   readonly icon:
-    "Upload" | "MessageCircle" | "Smartphone" | "LayoutDashboard" | "Settings";
+    | "Upload"
+    | "MessageCircle"
+    | "Smartphone"
+    | "UserRound"
+    | "LayoutDashboard"
+    | "Settings";
   readonly description: string;
   readonly device: Device | "both";
   readonly steps: readonly Step[];
@@ -147,6 +152,24 @@ export const FLOWS: readonly Flow[] = [
         summary:
           "What the salesperson sees when WhatsApp is not connected, the customer opted out, or a message fails.",
         device: "desktop",
+      },
+    ],
+  },
+  {
+    id: "customers",
+    name: "Customer Management",
+    icon: "UserRound",
+    description:
+      "The customer behind the conversation: contact details, who owns the record, what they hold, and one history that survived the move from lead to customer.",
+    device: "mobile",
+    steps: [
+      {
+        href: "/wireframes/customers/mobile",
+        label: "Customer record",
+        title: "Customer record on a phone",
+        summary:
+          "Opened mid-chat from WhatsApp. Shows that the record owner and the conversation assignee are two different people.",
+        device: "mobile",
       },
     ],
   },
