@@ -1984,6 +1984,10 @@ export function renewalsOverdue(): readonly MobileRenewal[] {
   return MOBILE_RENEWALS.filter((r) => r.status === "Overdue");
 }
 
+/** Handles on individual shared renewals, for the views that reuse them. */
+const RENEWAL_VIKRAM = MOBILE_RENEWALS.find((r) => r.id === "r904")!;
+const RENEWAL_LAKSHMI = MOBILE_RENEWALS.find((r) => r.id === "r921")!;
+
 /** §64 uses "Next 30 Days" as the near-term renewal window. */
 export const RENEWAL_DUE_SOON_DAYS = 30;
 
@@ -2087,21 +2091,39 @@ export type RenewalRow = {
   status: "Due Soon" | "Upcoming";
 };
 
+/**
+ * The manager's view of renewals falling due across the whole team.
+ *
+ * Every row must be a CUSTOMER. A renewal belongs to a Customer
+ * Product/Service (§62), so an active Lead cannot hold one — this list
+ * previously carried Anitha Desai and Meera Krishnan, who are Leads #2044 and
+ * #2041, and one of them was even shown against a product she had not
+ * enquired about.
+ *
+ * Rows that also exist in the mobile renewal data are spread from it rather
+ * than retyped, so the two views of the same renewal cannot drift apart.
+ * Suresh Pillai and Farhan Ali are customers owned by other salespeople, which
+ * is exactly why they appear on a manager's dashboard and not on Sneha's
+ * phone.
+ */
 export const UPCOMING_RENEWALS: readonly RenewalRow[] = [
   {
     id: "rn1",
-    customer: "Vikram Reddy",
-    service: "Motor Insurance",
-    dueDate: "20 Sep 2026",
-    daysLeft: 9,
+    customer: RENEWAL_VIKRAM.customer,
+    service: RENEWAL_VIKRAM.product,
+    dueDate: RENEWAL_VIKRAM.due,
+    daysLeft: RENEWAL_VIKRAM.dueInDays,
     status: "Due Soon",
   },
   {
+    // Was Anitha Desai (Lead · #2044), shown against Health Insurance she had
+    // never enquired about. Replaced by Ramesh Kumar's health policy, which
+    // the shared customer record already defines.
     id: "rn2",
-    customer: "Anitha Desai",
-    service: "Health Insurance",
-    dueDate: "25 Sep 2026",
-    daysLeft: 14,
+    customer: CUSTOMER_RECORD.name,
+    service: CUSTOMER_POLICIES[0]!.product,
+    dueDate: CUSTOMER_POLICIES[0]!.renewal,
+    daysLeft: CUSTOMER_POLICIES[0]!.daysLeft ?? 0,
     status: "Due Soon",
   },
   {
@@ -2121,11 +2143,13 @@ export const UPCOMING_RENEWALS: readonly RenewalRow[] = [
     status: "Upcoming",
   },
   {
+    // Was Meera Krishnan (Lead · #2041). Replaced by Lakshmi Nair's health
+    // policy, spread from the same renewal the mobile workspace shows.
     id: "rn5",
-    customer: "Meera Krishnan",
-    service: "Health Insurance",
-    dueDate: "12 Oct 2026",
-    daysLeft: 31,
+    customer: RENEWAL_LAKSHMI.customer,
+    service: RENEWAL_LAKSHMI.product,
+    dueDate: RENEWAL_LAKSHMI.due,
+    daysLeft: RENEWAL_LAKSHMI.dueInDays,
     status: "Upcoming",
   },
 ];
