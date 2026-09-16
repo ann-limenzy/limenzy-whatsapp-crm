@@ -118,6 +118,14 @@ export const FLOWS: readonly Flow[] = [
         device: "desktop",
       },
       {
+        href: "/wireframes/whatsapp/mobile-inbox",
+        label: "Phone inbox",
+        title: "WhatsApp inbox on a phone",
+        summary:
+          "The salesperson's own conversations, ordered by what needs dealing with first.",
+        device: "mobile",
+      },
+      {
         href: "/wireframes/whatsapp/mobile",
         label: "On the phone",
         title: "Conversation on a phone",

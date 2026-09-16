@@ -26,7 +26,7 @@ export function MobileTemplatesScreen() {
     .replace("{{customer_name}}", conversation.person)
     .replace("{{product}}", conversation.product)
     .replace("{{due_date}}", "26 September 2026")
-    .replace("{{document}}", "your Aadhaar card")
+    .replace("{{document}}", "the completed proposal form")
     .replace("{{date}}", "15 September")
     .replace("{{time}}", "11:30 AM");
 

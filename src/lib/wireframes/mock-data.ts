@@ -353,6 +353,14 @@ export type Conversation = {
   status: "Open" | "Closed";
   unread: number;
   delivery: DeliveryState;
+  /**
+   * Who spoke last. Together with `unread` it is what separates a
+   * conversation still waiting on the customer from one waiting on us —
+   * derived in the UI rather than stored as a status the spec does not define.
+   */
+  lastDirection: "in" | "out";
+  /** Set when a follow-up on the related record falls due. */
+  followUpDue?: string;
 };
 
 export const CONVERSATIONS: readonly Conversation[] = [
@@ -369,6 +377,53 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Open",
     unread: 2,
     delivery: "read",
+    lastDirection: "in",
+  },
+  {
+    id: "w7",
+    person: "Meera Krishnan",
+    phone: "70000 33115",
+    recordType: "Lead",
+    recordLabel: "Lead · #2041",
+    product: "Health Insurance",
+    lastMessage: "Can you send the premium for the family plan?",
+    time: "9:58 AM",
+    assignedTo: "Sneha Thomas",
+    status: "Open",
+    unread: 1,
+    delivery: "read",
+    lastDirection: "in",
+  },
+  {
+    id: "w8",
+    person: "Rajesh Menon",
+    phone: "70000 61204",
+    recordType: "Lead",
+    recordLabel: "Lead · #2107",
+    product: "Health Insurance",
+    lastMessage: "Sending the revised quote now",
+    time: "9:20 AM",
+    assignedTo: "Sneha Thomas",
+    status: "Open",
+    unread: 0,
+    delivery: "failed",
+    lastDirection: "out",
+  },
+  {
+    id: "w9",
+    person: "Vikram Reddy",
+    phone: "70000 77410",
+    recordType: "Customer",
+    recordLabel: "Customer · #904",
+    product: "Motor Insurance",
+    lastMessage: "Renewal reminder sent for 20 September",
+    time: "Yesterday",
+    assignedTo: "Sneha Thomas",
+    status: "Open",
+    unread: 0,
+    delivery: "delivered",
+    lastDirection: "out",
+    followUpDue: "Follow-up due today, 4:00 PM",
   },
   {
     id: "w2",
@@ -383,11 +438,42 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Open",
     unread: 0,
     delivery: "read",
+    lastDirection: "in",
+  },
+  {
+    id: "w10",
+    person: "Sneha Nair",
+    phone: "70000 88132",
+    recordType: "Customer",
+    recordLabel: "Customer · #712",
+    product: "PUC Certificate",
+    lastMessage: "Shared the checklist of documents to bring",
+    time: "Yesterday",
+    assignedTo: "Sneha Thomas",
+    status: "Open",
+    unread: 0,
+    delivery: "read",
+    lastDirection: "out",
+  },
+  {
+    id: "w11",
+    person: "Fathima Rasheed",
+    phone: "70000 24507",
+    recordType: "Customer",
+    recordLabel: "Customer · #688",
+    product: "Motor Insurance",
+    lastMessage: "Renewal completed, thank you for the help",
+    time: "09 Sep",
+    assignedTo: "Sneha Thomas",
+    status: "Closed",
+    unread: 0,
+    delivery: "read",
+    lastDirection: "in",
   },
   {
     id: "w3",
-    person: "70000 33115",
-    phone: "70000 33115",
+    person: "70000 33220",
+    phone: "70000 33220",
     recordType: "Unknown",
     recordLabel: "No matching record",
     product: "—",
@@ -397,6 +483,7 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Open",
     unread: 1,
     delivery: "delivered",
+    lastDirection: "in",
   },
   {
     id: "w4",
@@ -411,13 +498,14 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Open",
     unread: 0,
     delivery: "failed",
+    lastDirection: "out",
   },
   {
     id: "w5",
     person: "Anitha Desai",
     phone: "70000 77034",
     recordType: "Lead",
-    recordLabel: "Lead · #2041",
+    recordLabel: "Lead · #2044",
     product: "Motor Insurance",
     lastMessage: "Can you share the quote again?",
     time: "Yesterday",
@@ -425,6 +513,7 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Open",
     unread: 0,
     delivery: "read",
+    lastDirection: "in",
   },
   {
     id: "w6",
@@ -439,6 +528,7 @@ export const CONVERSATIONS: readonly Conversation[] = [
     status: "Closed",
     unread: 0,
     delivery: "read",
+    lastDirection: "in",
   },
 ];
 
@@ -484,7 +574,7 @@ export const THREAD: readonly Message[] = [
   {
     id: "m5",
     direction: "out",
-    body: "Please share a copy of your Aadhaar so we can complete the KYC for this renewal.",
+    body: "Could you confirm a convenient time for us to discuss your renewal options?",
     time: "10:41 AM",
     delivery: "failed",
     failureReason:

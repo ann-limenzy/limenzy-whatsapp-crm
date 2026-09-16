@@ -116,13 +116,13 @@ export function MobileConversationScreen() {
             header={
               <header className="surface-glass sticky top-0 z-10 rounded-none border-x-0 border-t-0 px-2 pt-[env(safe-area-inset-top)]">
                 <div className="flex items-center gap-1 py-2">
-                  <button
-                    type="button"
+                  <Link
+                    href={"/wireframes/whatsapp/mobile-inbox" as Route}
                     aria-label="Back to inbox"
                     className="grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
                   >
                     <ArrowLeft className="size-5" aria-hidden="true" />
-                  </button>
+                  </Link>
 
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-foreground">

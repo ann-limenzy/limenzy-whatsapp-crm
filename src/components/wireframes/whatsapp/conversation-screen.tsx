@@ -54,7 +54,8 @@ export function ConversationScreen() {
             </Link>
           </Button>
           <span className="text-sm text-muted-foreground">
-            6 conversations · 3 unread
+            {CONVERSATIONS.length} conversations ·{" "}
+            {CONVERSATIONS.filter((c) => c.unread > 0).length} unread
           </span>
         </div>
 

@@ -88,7 +88,7 @@ const MOBILE_NAV: readonly {
     id: "whatsapp",
     label: "WhatsApp",
     icon: MessageCircle,
-    href: "/wireframes/whatsapp/mobile",
+    href: "/wireframes/whatsapp/mobile-inbox",
   },
 ];
 
