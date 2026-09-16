@@ -13,12 +13,10 @@ import {
   PhoneOutgoing,
   RefreshCw,
   ShieldCheck,
-  Smartphone,
   SquarePen,
   StickyNote,
   Tag,
   UserRoundPlus,
-  X,
   type LucideIcon,
 } from "lucide-react";
 import type { Route } from "next";
@@ -26,6 +24,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 
 import {
+  CallHandoffSheet,
   Confirmed,
   FIELD_CLASS,
   PrimaryAction,
@@ -86,8 +85,43 @@ const TABS: readonly { id: TabId; label: string; short: string }[] = [
   { id: "activity", label: "Activity", short: "Activity" },
 ];
 
-export function MobileCustomerRecordScreen() {
+/**
+ * Where the back control returns to, keyed by the `from` query parameter.
+ *
+ * This is an ALLOW-LIST, not a redirect target: the parameter selects a key
+ * in this table and its own text is never used as a URL. An unknown or
+ * missing value falls back to the directory, so a hand-edited link cannot
+ * send the back button anywhere the walkthrough does not own.
+ */
+const BACK_TARGETS = {
+  directory: {
+    href: "/wireframes/customers/mobile-directory",
+    label: "Back to customers",
+    short: "Customers",
+  },
+  whatsapp: {
+    href: "/wireframes/whatsapp/mobile",
+    label: "Back to conversation",
+    short: "Conversation",
+  },
+} as const;
+
+type BackKey = keyof typeof BACK_TARGETS;
+
+function backTarget(from: string | null) {
+  return from !== null && from in BACK_TARGETS
+    ? BACK_TARGETS[from as BackKey]
+    : BACK_TARGETS.directory;
+}
+
+export function MobileCustomerRecordScreen({
+  from,
+}: {
+  /** Raw `?from=` value, resolved against BACK_TARGETS below. Never a URL. */
+  from: string | null;
+}) {
   const customer = CUSTOMER_RECORD;
+  const back = backTarget(from);
   const [tab, setTab] = useState<TabId>("overview");
   const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [confirmed, setConfirmed] = useState<Confirmation | null>(null);
@@ -158,21 +192,33 @@ export function MobileCustomerRecordScreen() {
                       onClose={close}
                     />
                   ) : null}
-                  {sheet === "call" ? <CallSheet onClose={close} /> : null}
+                  {sheet === "call" ? (
+                    <CallHandoffSheet
+                      person={customer.name}
+                      phone={customer.phone}
+                      returnsTo={`${customer.name}'s record`}
+                      onClose={close}
+                    />
+                  ) : null}
                 </PhoneSheet>
               ) : null
             }
             header={
-              <header className="surface-glass sticky top-0 z-10 rounded-none border-x-0 border-t-0 px-2 pt-[env(safe-area-inset-top)]">
-                <div className="flex items-center gap-1 py-2">
-                  <Link
-                    href={"/wireframes/whatsapp/mobile" as Route}
-                    aria-label="Back to conversation"
-                    className="grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
-                  >
-                    <ArrowLeft className="size-5" aria-hidden="true" />
-                  </Link>
+              <header className="surface-glass sticky top-0 z-10 rounded-none border-x-0 border-t-0 px-3 pt-[env(safe-area-inset-top)]">
+                {/* The back control NAMES its destination. This record is
+                    reached from two places, and an unlabelled arrow would
+                    leave the salesperson guessing which one they are about to
+                    return to. */}
+                <Link
+                  href={back.href as Route}
+                  aria-label={back.label}
+                  className="-ms-1 inline-flex min-h-11 items-center gap-1 rounded-lg ps-1 pe-2 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
+                  {back.short}
+                </Link>
 
+                <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <h1 className="truncate text-sm font-semibold text-foreground">
                       {customer.name}
@@ -191,7 +237,7 @@ export function MobileCustomerRecordScreen() {
                     rather than truncating: at 326px a clipped "Customer since
                     2…" tells the reader nothing, and ownership is the first
                     thing that decides whether you may act alone. */}
-                <p className="pb-2 pl-12 text-[11px] leading-snug text-muted-foreground">
+                <p className="pt-1 pb-2 text-[11px] leading-snug text-muted-foreground">
                   {customer.sinceLabel} · Record owner{" "}
                   <span className="font-medium text-foreground">
                     {customer.owner}
@@ -364,22 +410,30 @@ function OverviewTab() {
         <Fact label="Preferred channel" value={c.preferredChannel} />
       </Card>
 
-      <Card title="Ownership">
-        {/* Two distinct roles. Collapsing them into one "assigned to" line is
-            the single most misleading thing this screen could do. */}
+      <Card title="Ownership & access">
+        {/* THREE distinct things, deliberately on three rows. Merging any two
+            of them is the most misleading thing this screen could do: it would
+            teach the client that handing someone a chat hands them the
+            customer file. */}
         <Fact
           label="Record owner"
           value={c.owner}
           hint="Owns the customer record"
         />
         <Fact
+          label="Your access"
+          value="Shared with you"
+          hint={`${SALES_PERSONA.name} is a permitted user on this record`}
+        />
+        <Fact
           label="WhatsApp conversation"
           value={c.conversationAssignee}
-          hint="You — assigned the conversation only"
+          hint="Assigned to you — the conversation only"
         />
         <p className="mt-2 rounded-lg bg-muted px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          Being assigned a conversation does not transfer ownership of the
-          record. Changing the owner is a separate action.
+          These are three separate permissions. Holding the conversation does
+          not give you the record, and neither makes you the owner. Each is
+          granted and removed on its own.
         </p>
       </Card>
 
@@ -600,72 +654,6 @@ function MoreSheet({
           reason="Your role permits editing — the edit screen is not included in this walkthrough"
         />
       </div>
-    </>
-  );
-}
-
-/**
- * Call hand-off.
- *
- * Deliberately says what the CRM cannot do. There is no in-app calling, no
- * recording, no duration capture, no reading of the phone's call history, and
- * no way to detect whether the call was answered. The salesperson tells the
- * CRM what happened, or nothing is logged.
- */
-function CallSheet({ onClose }: { onClose: () => void }) {
-  const c = CUSTOMER_RECORD;
-  return (
-    <>
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-primary"
-        >
-          <PhoneOutgoing className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">
-            Your phone&apos;s dialler opens
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            The CRM hands {c.phone} to the phone and steps aside. The call
-            itself happens in your normal calling screen, over your mobile
-            network.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close call hand-off"
-          className="-mt-1 grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="mt-3.5 rounded-lg border border-border bg-muted px-3 py-2.5">
-        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-          <Smartphone className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            When you come back, the CRM reopens {c.name}&apos;s record and
-            offers to record what happened. It does not record calls, time them,
-            read your call history, or know whether anyone answered — you say.
-          </span>
-        </p>
-      </div>
-
-      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
-        Concept wireframe — nothing dials. On a real phone this opens the native
-        calling screen.
-      </p>
-
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
-      >
-        Close
-      </button>
     </>
   );
 }

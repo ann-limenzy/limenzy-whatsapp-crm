@@ -429,10 +429,14 @@ export const CONVERSATIONS: readonly Conversation[] = [
     id: "w2",
     person: "Priya Iyer",
     phone: "70000 41288",
-    recordType: "Customer",
-    recordLabel: "Customer · #642",
+    // Priya is a LEAD in this snapshot, matching LEAD_RECORD and the
+    // salesperson lead flow. She was previously labelled "Customer · #642"
+    // here, which contradicted her own lead-detail screen — the same person
+    // shown as two different record types at the same moment.
+    recordType: "Lead",
+    recordLabel: "Lead · #2088",
     product: "Health Insurance",
-    lastMessage: "Thank you, received the policy copy",
+    lastMessage: "Thank you, received the quote comparison",
     time: "9:45 AM",
     assignedTo: "Sneha Thomas",
     status: "Open",
@@ -826,9 +830,19 @@ export const CUSTOMER_RECORD = {
   phone: "70000 12345",
   email: "ramesh.kumar@mail.example",
   preferredChannel: "WhatsApp",
-  /** Record owner — NOT the conversation assignee. */
+  /** Record owner — NOT the conversation assignee, NOT the permitted user. */
   owner: "Arun Menon",
-  /** Who holds the WhatsApp conversation. */
+  /**
+   * Salespeople the record has been explicitly shared with.
+   *
+   * This is what grants access to the customer record, and it is deliberately
+   * its own field. Access is NOT derived from `conversationAssignee`: holding
+   * a WhatsApp conversation is a messaging assignment, not a grant of the
+   * whole customer file. Presentation-only — the real mechanism (a sharing
+   * table, a team, a manager-configured rule) is still to be decided.
+   */
+  permittedUsers: ["Sneha Thomas"] as readonly string[],
+  /** Who holds the WhatsApp conversation. Grants no record access by itself. */
   conversationAssignee: "Sneha Thomas",
   tags: ["Health Insurance", "Motor Insurance", "Renewal due"],
 } as const;
@@ -979,6 +993,222 @@ export const CUSTOMER_ACTIVITY: readonly CustomerActivity[] = [
     time: "14 Mar 2024",
   },
 ];
+
+/* --------------------------------------- Flow: customer directory (mobile) */
+
+/**
+ * The date the whole presentation is anchored to.
+ *
+ * Every relative phrase on the directory ("in 15 days", "Due today") is
+ * derived from a day offset against this, so the cards can never disagree
+ * with the customer record's own "Renews in 15 days".
+ */
+export const PRESENTATION_TODAY = "11 Sep 2026";
+
+export type DirectoryCustomer = {
+  id: string;
+  name: string;
+  /** "Customer · #881" — the same shape the WhatsApp rows use. */
+  reference: string;
+  phone: string;
+  email: string;
+  /** Nearest upcoming product/service (spec §53). */
+  product: string;
+  /** Spec §53 allows a count where a customer holds several. */
+  serviceCount?: number;
+  /** Obviously fictional — never a real policy or government identifier. */
+  policyRef: string;
+  /** Record owner, which is not necessarily the signed-in user. */
+  owner: string;
+  /** Next due/renewal date and its offset in days from PRESENTATION_TODAY. */
+  renewal: string;
+  renewalInDays: number;
+  /** Spec §66 statuses. */
+  renewalStatus: "Upcoming" | "Due Today" | "Overdue" | "Renewed";
+  /** Next follow-up, where one is scheduled. Negative days = overdue. */
+  followUp?: { label: string; inDays: number };
+  /** Spec §53 "Last Activity". */
+  lastActivity: string;
+  lastActivityDaysAgo: number;
+  /**
+   * Salespeople the record is explicitly shared with, beyond its owner.
+   *
+   * Together with `owner` this is the ONLY thing that decides whether a
+   * customer appears in someone's directory. `conversationAssignee` does not
+   * enter into it.
+   */
+  permittedUsers: readonly string[];
+  /**
+   * Who holds the WhatsApp conversation, where there is one. Shown so the
+   * three roles stay visibly distinct; it grants no access on its own.
+   */
+  conversationAssignee?: string;
+  /** Set ONLY where a record wireframe exists for this person. */
+  hasRecord?: boolean;
+  /** Set ONLY where a conversation wireframe exists for this person. */
+  hasConversation?: boolean;
+};
+
+/**
+ * Customers Sneha Thomas is permitted to work with.
+ *
+ * Ramesh is spread from CUSTOMER_RECORD and CUSTOMER_POLICIES rather than
+ * retyped, so his phone, email, owner, policy reference and renewal date
+ * cannot drift away from the record screen and the WhatsApp flow.
+ *
+ * Everyone else here is fictional. Where a person also appears in
+ * CONVERSATIONS, the reference, phone, product and last message agree with
+ * that entry — a directory that contradicted the inbox would be worse than no
+ * directory at all. Leads (Meera Krishnan, Rajesh Menon, Anitha Desai) are
+ * deliberately absent: this is the customer directory.
+ */
+export const DIRECTORY_CUSTOMERS: readonly DirectoryCustomer[] = [
+  {
+    id: "d881",
+    name: CUSTOMER_RECORD.name,
+    reference: CUSTOMER_RECORD.reference,
+    phone: CUSTOMER_RECORD.phone,
+    email: CUSTOMER_RECORD.email,
+    product: CUSTOMER_POLICIES[0]!.product,
+    serviceCount: CUSTOMER_POLICIES.length,
+    policyRef: CUSTOMER_POLICIES[0]!.reference,
+    owner: CUSTOMER_RECORD.owner,
+    renewal: CUSTOMER_POLICIES[0]!.renewal,
+    renewalInDays: CUSTOMER_POLICIES[0]!.daysLeft ?? 0,
+    renewalStatus: "Upcoming",
+    followUp: { label: "14 Sep 2026, 10:00 AM", inDays: 3 },
+    lastActivity: "WhatsApp · Today, 10:41 AM",
+    lastActivityDaysAgo: 0,
+    // Three separate facts: Arun owns it, Sneha is permitted on it, Sneha
+    // holds the conversation. All three come from the shared record.
+    permittedUsers: CUSTOMER_RECORD.permittedUsers,
+    conversationAssignee: CUSTOMER_RECORD.conversationAssignee,
+    hasRecord: true,
+    hasConversation: true,
+  },
+  {
+    id: "d904",
+    name: "Vikram Reddy",
+    reference: "Customer · #904",
+    phone: "70000 77410",
+    email: "vikram.reddy@mail.example",
+    product: "Motor Insurance",
+    policyRef: "POL-TEST-904-A",
+    owner: "Sneha Thomas",
+    renewal: "20 Sep 2026",
+    renewalInDays: 9,
+    renewalStatus: "Upcoming",
+    followUp: { label: "09 Sep 2026, 2:30 PM", inDays: -2 },
+    lastActivity: "WhatsApp · Yesterday",
+    lastActivityDaysAgo: 1,
+    permittedUsers: [],
+  },
+  {
+    id: "d712",
+    name: "Sneha Nair",
+    reference: "Customer · #712",
+    phone: "70000 88132",
+    email: "sneha.nair@mail.example",
+    product: "PUC Certificate",
+    policyRef: "PUC-TEST-712",
+    owner: "Sneha Thomas",
+    renewal: PRESENTATION_TODAY,
+    renewalInDays: 0,
+    renewalStatus: "Due Today",
+    followUp: { label: "Today, 3:00 PM", inDays: 0 },
+    lastActivity: "WhatsApp · Yesterday",
+    lastActivityDaysAgo: 1,
+    permittedUsers: [],
+  },
+  {
+    id: "d859",
+    name: "Joseph Thomas",
+    reference: "Customer · #859",
+    phone: "70000 51904",
+    email: "joseph.thomas@mail.example",
+    product: "Motor Insurance",
+    policyRef: "POL-TEST-859-A",
+    owner: "Sneha Thomas",
+    renewal: "03 Sep 2026",
+    renewalInDays: -8,
+    renewalStatus: "Overdue",
+    followUp: { label: "08 Sep 2026, 11:00 AM", inDays: -3 },
+    lastActivity: "Call · 08 Sep",
+    lastActivityDaysAgo: 3,
+    permittedUsers: [],
+  },
+  {
+    id: "d893",
+    name: "Anil Varghese",
+    reference: "Customer · #893",
+    phone: "70000 63118",
+    email: "anil.varghese@mail.example",
+    product: "Travel Insurance",
+    policyRef: "POL-TEST-893-A",
+    owner: "Sneha Thomas",
+    renewal: "24 Sep 2026",
+    renewalInDays: 13,
+    renewalStatus: "Upcoming",
+    lastActivity: "Call · 05 Sep",
+    lastActivityDaysAgo: 6,
+    permittedUsers: [],
+  },
+  {
+    id: "d921",
+    name: "Lakshmi Nair",
+    reference: "Customer · #921",
+    phone: "70000 30276",
+    email: "lakshmi.nair@mail.example",
+    product: "Health Insurance",
+    policyRef: "POL-TEST-921-A",
+    owner: "Sneha Thomas",
+    renewal: "05 Nov 2026",
+    renewalInDays: 55,
+    renewalStatus: "Upcoming",
+    followUp: { label: "12 Sep 2026, 11:30 AM", inDays: 1 },
+    lastActivity: "Note · 02 Sep",
+    lastActivityDaysAgo: 9,
+    permittedUsers: [],
+  },
+  {
+    id: "d688",
+    name: "Fathima Rasheed",
+    reference: "Customer · #688",
+    phone: "70000 24507",
+    email: "fathima.rasheed@mail.example",
+    product: "Motor Insurance",
+    serviceCount: 3,
+    policyRef: "POL-TEST-688-A",
+    owner: "Sneha Thomas",
+    // Renewed on 09 Sep, so the next cycle is a year out (spec §71).
+    renewal: "20 Aug 2027",
+    renewalInDays: 343,
+    renewalStatus: "Renewed",
+    lastActivity: "WhatsApp · 09 Sep",
+    lastActivityDaysAgo: 2,
+    permittedUsers: [],
+  },
+  {
+    id: "d877",
+    name: "Deepa Menon",
+    reference: "Customer · #877",
+    phone: "70000 45890",
+    email: "deepa.menon@mail.example",
+    product: "Health Insurance",
+    serviceCount: 3,
+    policyRef: "POL-TEST-877-A",
+    owner: "Sneha Thomas",
+    renewal: "22 Jan 2027",
+    renewalInDays: 133,
+    renewalStatus: "Upcoming",
+    lastActivity: "Email · 21 Aug",
+    lastActivityDaysAgo: 21,
+    permittedUsers: [],
+  },
+];
+
+/** Spec §64 uses "Next 30 Days" as the near-term renewal window. */
+export const RENEWAL_WINDOW_DAYS = 30;
 
 /* ------------------------------------------------- Flow D: admin dashboard */
 

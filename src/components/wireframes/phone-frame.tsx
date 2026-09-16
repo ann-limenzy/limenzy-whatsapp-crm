@@ -83,14 +83,14 @@ const MOBILE_NAV: readonly {
     href: "/wireframes/sales/today",
   },
   { id: "leads", label: "Leads", icon: Users },
-  /**
-   * No href. The customer DIRECTORY does not exist yet, and pointing this at
-   * Ramesh Kumar's record would tell the client that tapping "Customers" from
-   * any screen opens one particular customer. The item stays visible because
-   * the specification puts it in the default bar; it becomes a link when the
-   * directory screen is built.
-   */
-  { id: "customers", label: "Customers", icon: Contact },
+  {
+    id: "customers",
+    label: "Customers",
+    icon: Contact,
+    // The directory now exists, so this is a real destination. It goes to the
+    // LIST, never to one particular customer.
+    href: "/wireframes/customers/mobile-directory",
+  },
   {
     id: "whatsapp",
     label: "WhatsApp",

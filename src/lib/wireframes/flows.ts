@@ -160,15 +160,23 @@ export const FLOWS: readonly Flow[] = [
     name: "Customer Management",
     icon: "UserRound",
     description:
-      "The customer behind the conversation: contact details, who owns the record, what they hold, and one history that survived the move from lead to customer.",
+      "Working customers from a phone: finding the right one, seeing what is falling due, and opening a record that keeps ownership and conversation assignment distinct.",
     device: "mobile",
     steps: [
+      {
+        href: "/wireframes/customers/mobile-directory",
+        label: "Directory",
+        title: "Customer directory on a phone",
+        summary:
+          "Find a customer, see which renewals and follow-ups are falling due, and act — limited to the customers this salesperson may work with.",
+        device: "mobile",
+      },
       {
         href: "/wireframes/customers/mobile",
         label: "Customer record",
         title: "Customer record on a phone",
         summary:
-          "Opened mid-chat from WhatsApp. Shows that the record owner and the conversation assignee are two different people.",
+          "Reached from the directory or mid-chat from WhatsApp. Shows that the record owner and the conversation assignee are two different people.",
         device: "mobile",
       },
     ],

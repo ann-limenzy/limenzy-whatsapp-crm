@@ -1,6 +1,13 @@
 "use client";
 
-import { CircleCheck, Lock, X, type LucideIcon } from "lucide-react";
+import {
+  CircleCheck,
+  Lock,
+  PhoneOutgoing,
+  Smartphone,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -211,5 +218,85 @@ export function Confirmed({
         {closeLabel}
       </button>
     </div>
+  );
+}
+
+/**
+ * Click-to-call hand-off (spec §27.1–27.5).
+ *
+ * One implementation for every screen that offers Call, because the honest
+ * part of this sheet is what it REFUSES to claim: there is no in-app calling,
+ * no recording, no duration capture, no access to the phone's call history,
+ * and no way to detect whether anyone answered. The salesperson says what
+ * happened, or nothing is logged. Copies of that disclosure drift; this does
+ * not.
+ *
+ * Nothing dials. There is no `tel:` navigation here.
+ */
+export function CallHandoffSheet({
+  person,
+  phone,
+  returnsTo,
+  onClose,
+}: {
+  person: string;
+  phone: string;
+  /** Where the salesperson lands afterwards, named so it is not a guess. */
+  returnsTo: string;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-primary"
+        >
+          <PhoneOutgoing className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-foreground">
+            Your phone&apos;s dialler opens
+          </h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Calling {person}. The CRM hands {phone} to the phone and steps
+            aside. The call itself happens in your normal calling screen, over
+            your mobile network.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close call hand-off"
+          className="-mt-1 grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
+        >
+          <X className="size-4" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="mt-3.5 rounded-lg border border-border bg-muted px-3 py-2.5">
+        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <Smartphone className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            When you come back, the CRM reopens {returnsTo} and offers to record
+            what happened. It does not record calls, time them, read your call
+            history, or know whether anyone answered — you say.
+          </span>
+        </p>
+      </div>
+
+      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
+        Concept wireframe — nothing dials. On a real phone this opens the native
+        calling screen.
+      </p>
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
+      >
+        Close
+      </button>
+    </>
   );
 }

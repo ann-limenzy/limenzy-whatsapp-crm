@@ -9,12 +9,9 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   Phone,
-  PhoneOutgoing,
   RotateCcw,
   Send,
-  Smartphone,
   UserCog,
-  X,
   XCircle,
 } from "lucide-react";
 import type { Route } from "next";
@@ -22,6 +19,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import {
+  CallHandoffSheet,
   Confirmed,
   FIELD_CLASS,
   PrimaryAction,
@@ -110,9 +108,10 @@ export function MobileConversationScreen() {
                     />
                   ) : null}
                   {sheet === "call" ? (
-                    <CallSheet
+                    <CallHandoffSheet
                       person={conversation.person}
                       phone={conversation.phone}
+                      returnsTo={`${conversation.person}'s conversation`}
                       onClose={close}
                     />
                   ) : null}
@@ -290,7 +289,7 @@ function MoreSheet({
          * customer. So the capability is shown and labelled instead.
          */}
         <Link
-          href={"/wireframes/customers/mobile" as Route}
+          href={"/wireframes/customers/mobile?from=whatsapp" as Route}
           className="flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent"
         >
           <ExternalLink
@@ -496,77 +495,6 @@ function NoteSheet({
           Add note
         </button>
       </div>
-    </>
-  );
-}
-
-/**
- * Call hand-off (spec §27.1–27.2).
- *
- * Click-to-call, not in-app calling: the CRM passes the number to the phone
- * and steps aside. Nothing dials here — there is no `tel:` navigation — and
- * the copy is careful not to claim the CRM can tell what happened on the call.
- */
-function CallSheet({
-  person,
-  phone,
-  onClose,
-}: {
-  person: string;
-  phone: string;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/12 text-primary"
-        >
-          <PhoneOutgoing className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">
-            Your phone&apos;s dialler opens
-          </h2>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            The CRM hands {phone} to the phone and steps aside. The call itself
-            happens in your normal calling screen, over your mobile network.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close call hand-off"
-          className="-mt-1 grid size-11 shrink-0 place-items-center rounded-lg text-muted-foreground"
-        >
-          <X className="size-4" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="mt-3.5 rounded-lg border border-border bg-muted px-3 py-2.5">
-        <p className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
-          <Smartphone className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            When you come back, the CRM reopens {person}&apos;s conversation and
-            offers to record what happened. It cannot tell on its own whether
-            the call connected — you say.
-          </span>
-        </p>
-      </div>
-
-      <p className="mt-3 rounded-lg border border-warning/30 bg-warning-subtle px-3 py-2 text-[11px] leading-relaxed text-warning-on-subtle">
-        Concept wireframe — nothing dials. On a real phone this opens the native
-        calling screen.
-      </p>
-
-      <button
-        type="button"
-        onClick={onClose}
-        className="mt-3.5 inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border text-sm font-medium text-foreground"
-      >
-        Close
-      </button>
     </>
   );
 }
