@@ -110,13 +110,14 @@ Can:
 >
 > • manage Leads and Customers
 >
-> • assign/reassign records where permitted
+> • assign/reassign records where Section 162 permits it
 >
 > • view permitted Follow-ups
 >
 > • send individual Emails
 >
-> • send manual and controlled bulk Email reminders where permitted
+> • send manual and controlled bulk Email reminders where Section 162
+> permits it
 >
 > • handle WhatsApp conversations
 >
@@ -152,11 +153,22 @@ Should not have access to organization-wide configuration by default.
 **Team Lead responsibility**
 
 **Team Lead** is not a separate role. It is a responsibility held by one
-active member of a Sales Team (Section 163.3). A Team Lead keeps their
-Owner/Admin, Manager or Staff/Sales role and gains only team-scoped
-responsibilities for their own team: the My Team eligibility controls
-(Section 163.6) and inclusion in that team's Lead rotation while eligible
-(Section 163.3).
+active member of a Sales Team (Section 163.3). A Staff/Sales, Manager or
+Owner/Admin user may be designated Team Lead, and they keep their
+workspace role while holding it.
+
+The responsibility grants only team-scoped capabilities for the team
+they lead: the confirmed My Team capabilities in Section 163.6 and
+inclusion in that team's Lead rotation while eligible (Section 163.3). A
+Team Lead cannot exercise those capabilities over any other team.
+
+A **Manager** receives no Sales Team authority from the Manager role
+itself. A Manager who is the active Team Lead of a team exercises the
+confirmed Team Lead capabilities for that team, and does so because of
+the responsibility, not the role. What authority the Manager role itself
+confers — including cross-team and administrative powers — is unresolved
+client decision 5 (Section 163.18). **Owner/Admin** retains workspace-wide
+administrative authority in every team (Sections 162 and 163.12).
 
 **3. Overall Application Navigation**
 
@@ -202,8 +214,8 @@ Central area for expiry dates, renewals and recurring customer actions.
 
 **WhatsApp**
 
-Communication module containing inbox, message history and templates
-where permitted.
+Communication module containing the inbox, message history and templates
+a user may access (Sections 162 and 162.1).
 
 **Email**
 
@@ -949,9 +961,10 @@ allow it.
 
 A Team Lead's dashboard may additionally show their own team's
 Lead-assignment eligibility and any Assignment Required alert for that
-team (Section 163.6). Which other team-level information a Team Lead may
-see is a pending decision (Section 163.18). Being Team Lead does not
-reveal other teams or organization-wide data.
+team (Section 163.6). What other team-level information a Team Lead may
+see is unresolved client decision 3 (Section 163.18) and is denied until
+approved (Section 162). Being Team Lead does not reveal other teams,
+another member's records or organization-wide data (Section 162.1).
 
 **23. Dashboard Empty States**
 
@@ -999,7 +1012,7 @@ When WhatsApp is not connected, WhatsApp-related areas should show:
 
 **\[ Connect WhatsApp \]**
 
-Visible to authorized roles only.
+Visible to Owner/Admin only (Section 162).
 
 **24. Dashboard Loading / Error States**
 
@@ -1095,7 +1108,9 @@ Follow-ups, Renewal actions and WhatsApp conversations use **Assigned
 To**.
 
 By default, operational actions may inherit the related Lead/Customer's
-Record Owner, but they can be reassigned by authorized users.
+Record Owner. They may be reassigned only by a user holding the relevant
+permission in Section 162, and only to a user who can access the related
+Lead or Customer (Section 162.1).
 
 Sales Teams and Lead round robin affect only the Record Owner of new
 Leads (Section 163). They never assign or reassign Customers,
@@ -1157,7 +1172,7 @@ Example:
 
 ## 27.1 One-Tap Click-to-Call
 
-An authorized user with access to a Lead or Customer may initiate a
+A user who may access a Lead or Customer (Section 162.1) may initiate a
 telephone call from the relevant CRM screen.
 
 The V1 implementation is click-to-call. Selecting **Call** on a
@@ -1423,13 +1438,61 @@ Archived records:
 
 > • disappear from normal lists
 >
-> • remain searchable under archived filter
+> • remain searchable under the archived filter, by users permitted to
+> view archived records (Sections 162 and 162.1)
 >
 > • retain history
 >
-> • can be restored by authorized users
+> • can be restored by users holding the archive/restore permission for
+> that record type (Section 162)
 
 This reduces accidental data loss.
+
+Archiving stops future operational work; it never deletes a record, an
+activity, a message or an audit entry. What each archive cancels is
+defined in Section 50 for Leads and Section 78 for Customers. Restoring
+is defined in Section 29.1.
+
+## 29.1 Restore Behaviour
+
+This subsection is authoritative for restoring an archived Lead or
+Customer. Sections 50 and 78 refer to it.
+
+Restoring must:
+
+- make the record active again under the **same record reference**
+- preserve the Record Owner, where that owner is still an active user
+  who may hold the record
+- validate ownership and access before the restoration completes
+  (Section 162.1)
+- retain every archive and restore audit entry
+- retain the cancellation reasons and historical states created while
+  the record was archived
+
+If the former Record Owner is no longer an active, permitted user,
+restoration requires the restoring user to choose an active Record
+Owner. The system must not silently leave the record with an invalid
+owner and must not assign one automatically.
+
+An explicit record share that was never revoked may resume access when
+the record is restored. A revoked share stays revoked (Section 162.1).
+
+**Restoring must not automatically**
+
+- reactivate cancelled Follow-ups
+- reopen closed WhatsApp conversations
+- recreate cancelled reminders
+- return Renewal actions to operational queues
+- resend any message
+- restore separately archived documents
+- retry failed provider work
+- re-enter a Lead into round robin (Section 163)
+- reopen a Converted Lead (Section 46.1)
+
+Operational work is recreated only when a permitted user explicitly
+creates or schedules it after restoration. Restoring a Customer does not
+restore documents that were archived separately; each document follows
+its own lifecycle (Section 176).
 
 **30. Lead Management**
 
@@ -1451,8 +1514,8 @@ Lead → Assign → Follow-up → Update Stage → Lost → Closed.
 
 **Purpose**
 
-Provide a searchable and filterable view of all leads the user is
-permitted to access.
+Provide a searchable and filterable view of the Leads the user may
+access under Section 162.1.
 
 **Header**
 
@@ -1525,7 +1588,7 @@ Available filters:
 >
 > • Created Date
 >
-> • Sales Team — where permitted
+> • Sales Team — where Section 162 permits it
 
 Quick filters:
 
@@ -1534,8 +1597,10 @@ Quick filters:
 For Staff users, **My Leads** should be the default view unless their
 permissions allow broader access.
 
-Users permitted to resolve Lead assignment may also filter by
-**Unassigned** and **Assignment Required** (Section 163.9).
+Users holding the Assignment Required permissions in Section 162 may
+also filter by **Unassigned** and **Assignment Required**, and may
+resolve, retry or bulk reprocess the waiting Leads from that filtered
+view (Section 163.9).
 
 **Search**
 
@@ -1601,16 +1666,19 @@ provided.
 > configuration this is **New.**
 >
 > • Record Owner defaults according to the workspace's Lead assignment
-> rules. Automatic assignment is team-scoped round robin (Section 163).
-> How the target Sales Team is chosen is a pending decision (Section
-> 163.18).
+> rules. Automatic assignment is team-scoped round robin and must
+> resolve exactly one active matching rule (Sections 163.7 and 163.8).
+> Which Lead field or fields select that rule is unresolved client
+> decision 1 (Section 163.18).
 >
-> • If no Lead assignment rule applies, the creator may assign a user
-> manually where permitted (Section 163.10).
+> • If no rule can be resolved, the Lead is saved in **Assignment
+> Required** with the canonical failure reason, and a user holding the
+> manual assignment permission in Section 162 may assign it (Sections
+> 163.9 and 163.10).
 >
 > • If a rule applies but no eligible member of its target Sales Team is
-> available, the Lead is saved in **Assignment Required** rather than
-> rejected (Section 163.9).
+> available, the Lead is saved in **Assignment Required** with the reason
+> **No Eligible Team Member** rather than rejected (Section 163.9).
 >
 > • The server validates the Sales Team and assignee. Neither is
 > accepted from the browser without authorization checks.
@@ -1639,8 +1707,9 @@ Creates the Lead and immediately opens the Schedule Follow-up form.
 
 **Duplicate Warning**
 
-Before saving, the system should check for an existing Lead or Customer
-with the same phone number or email.
+Before saving, the system checks for an existing Lead or Customer whose
+normalized phone number or email matches, using the rules in Section
+130.1.
 
 If a possible duplicate exists:
 
@@ -1650,12 +1719,14 @@ Show the matching record(s) and allow the user to:
 
 **View Existing Record**
 
-or, where permitted:
+or, for a Manager or Owner/Admin (Section 162):
 
 **Create Anyway**
 
-The system should warn about duplicates rather than silently creating
-them.
+The system warns about duplicates rather than silently creating them,
+and never merges records. Where the match is a Customer and this is a
+further enquiry, the user creates a new Lead linked to that Customer
+instead (Section 47).
 
 **33. Lead Pipeline View**
 
@@ -2047,7 +2118,38 @@ After scheduling:
 >
 > • an activity entry is created
 
+**Follow-up lifecycle**
+
+A Follow-up holds exactly one of three persisted states:
+
+> • **Scheduled** — created and not yet completed or cancelled
+>
+> • **Completed** — finished by a user (Section 41)
+>
+> • **Cancelled** — ended without being completed
+
+**Upcoming**, **Due Today** and **Overdue** are derived time views of a
+Scheduled Follow-up (Sections 43 and 44). They are not separate
+persisted states, and the system never changes a stored state merely
+because time passes.
+
+A Cancelled Follow-up must retain its cancellation reason, the acting
+user or system source, the timestamp, the previous due date and time,
+and its related record. Cancellation reasons defined by this
+specification include `Resolved During Lead Conversion` (Section 46.1),
+`Related Lead Archived` (Section 50), `Related Customer Archived`
+(Section 78) and `Module Disabled` (Section 172.1).
+
+A Completed or Cancelled Follow-up must never return to Scheduled.
+Where further work is needed, a permitted user creates a new Follow-up
+(Section 162). Rescheduling a Scheduled Follow-up keeps the same record
+(Section 42).
+
 **41. Completing a Follow-up**
+
+A Follow-up is completed by the user it is assigned to, or by a Manager
+or Owner/Admin according to Section 162, and only on a record they may
+access (Section 162.1).
 
 Selecting **Mark Complete** opens a small completion form.
 
@@ -2097,7 +2199,8 @@ Selecting **Reschedule** allows the user to change:
 >
 > • Time
 >
-> • Assigned To, where permitted
+> • Assigned To, where Section 162 permits reassignment and the new
+> assignee can access the related record (Section 162.1)
 
 Optional:
 
@@ -2180,8 +2283,8 @@ Selecting the Person opens the related record.
 >
 > • Date Range
 
-Staff users should primarily see follow-ups assigned to them unless
-broader permissions are granted.
+Staff users see the Follow-ups assigned to them, together with those on
+records they may access under Section 162.1.
 
 **Actions**
 
@@ -2273,34 +2376,121 @@ Example:
 
 **\[ Cancel \]**
 
+Conversion is available to a Staff/Sales user for a Lead they own and
+can access, and to Managers and Owner/Admin according to Section 162.
+Record access follows Section 162.1.
+
 **After Conversion**
 
-The system should:
+The system must:
 
-> • Create a Customer using the Lead's information.
+> • Create exactly one Customer using the Lead's information.
 >
 > • Retain the Lead's historical activity.
 >
-> • Link the original Lead and resulting Customer.
+> • Link the original Lead and resulting Customer through an immutable
+> conversion reference.
 >
-> • Carry forward incomplete future follow-ups.
+> • Set the Customer's Record Owner to the Lead's current Record Owner.
 >
-> • Retain the Record Owner unless deliberately changed.
+> • Resolve every incomplete Follow-up as defined in Section 46.1.
 >
-> • Do not run round robin or select a different salesperson
+> • Not run round robin or select a different salesperson
 > automatically. Conversion never invokes Lead assignment (Section
 > 163.11).
 >
 > • Mark the Lead as **Converted**.
 >
-> • Converted Leads are removed from active Pipeline/List views and
-> remain accessible through a Converted filter/history.
+> • Remove Converted Leads from active Pipeline/List views while keeping
+> them accessible through a Converted filter/history.
 >
 > • Prevent the same Lead from being converted a second time.
 >
 > • Open the newly created Customer Profile.
 
-The original Lead should **not be deleted**.
+The original Lead must **not be deleted**.
+
+The integrity, atomicity and Follow-up rules that govern this operation
+are defined in Section 46.1 and apply equally to linking a Lead to an
+existing Customer (Section 47).
+
+## 46.1 Conversion Integrity Rules
+
+Conversion is an **atomic, idempotent, server-side** operation. It
+applies both when a new Customer is created (Section 46) and when a Lead
+is linked to an existing Customer (Section 47).
+
+**Required sequence**
+
+1. Verify the Lead is not already **Converted**.
+2. Verify the Lead is not **Archived** (Section 50).
+3. Lock, or otherwise protect, the Lead against concurrent conversion.
+4. Create exactly one Customer, or select the existing Customer being
+   linked.
+5. Preserve the complete Lead record and its activity history.
+6. Set a newly created Customer's Record Owner to the Lead's current
+   Record Owner. When linking, the existing Customer's Record Owner is
+   unchanged (Section 47).
+7. Create an immutable Lead-to-Customer conversion reference.
+8. Transfer the eligible incomplete Follow-ups defined below.
+9. Set the Lead to **Converted**.
+10. Commit every change together, or none of them.
+
+A retry after an uncertain response must return the **existing**
+conversion result rather than creating a second Customer. If the Lead
+was converted or linked concurrently elsewhere, the conflicting
+operation is rejected and the existing result is shown.
+
+**A Converted Lead**
+
+- remains visible in history
+- is read-only, except for historical annotations permitted by Section
+  162, such as adding a note
+- must never return to an active Lead stage
+- must never be converted a second time
+- must never become an active Lead again through archive and restore
+  (Section 29.1)
+
+**Follow-ups during conversion**
+
+Operational Follow-ups must never be left attached to an immutable
+Converted Lead.
+
+*Incomplete Follow-ups due in the future* transfer to the resulting
+Customer, preserving their type, due date and time, note, creation
+history, original Lead reference and — subject to the access check
+below — their assignee.
+
+*Incomplete Follow-ups due today or overdue* must be resolved
+explicitly during conversion. The conversion screen requires the user to
+choose, for each one:
+
+- transfer it to the resulting Customer
+- mark it **Completed** with an outcome or note
+- **Cancel** it with the reason `Resolved During Lead Conversion`
+
+Conversion must not complete while a due-today or overdue incomplete
+Follow-up remains unresolved.
+
+**Assignee validation**
+
+Before any Follow-up is transferred, the server must verify that its
+assignee can access the resulting Customer (Section 162.1). If that
+access exists, the assignee is preserved. If it does not, conversion
+requires either:
+
+- an authorized explicit Customer share (Section 162.1), or
+- reassignment to an active user who does have access
+
+The system must not silently remove the assignee and must not silently
+grant access.
+
+**Timeline integrity**
+
+A transferred Follow-up appears once in the Customer timeline while
+retaining its original Lead reference. Lead and Customer history may be
+displayed together through references. The same activity must never be
+copied into duplicate rows.
 
 **47. Existing Customer During Conversion**
 
@@ -2321,14 +2511,40 @@ Show:
 
 **\[ Cancel \]**
 
-Authorized users may link the Lead to the existing Customer.
+A user may link the Lead only when they can access **both** records
+(Section 162.1); otherwise Manager or Owner/Admin assistance is required
+(Section 162).
 
-The Lead is then marked **Converted** and its history remains available.
+Linking follows the atomic, idempotent sequence in Section 46.1,
+including its Follow-up resolution and assignee-access rules.
 
-Incomplete Follow-ups belonging to the Lead are transferred to the
-existing Customer, while historical Lead activities remain associated
-with the original Lead and accessible through the linked Customer
-history.
+When a Lead is linked to an existing Customer:
+
+- the existing Customer remains the same record; no replacement Customer
+  is created
+- the existing Customer's **Record Owner is unchanged**. Linking never
+  transfers Customer ownership
+- the Lead's previous Record Owner remains visible in the Lead record
+  and in the conversion history
+- the Lead is marked **Converted** and its history remains available
+- historical Lead activities remain associated with the original Lead
+  and are reachable through the linked Customer history, without
+  duplicating any activity row
+
+Several Leads may link to the same Customer over time. Each Lead may
+link to only **one** resulting Customer.
+
+**Later enquiries from an existing Customer**
+
+A Converted Lead must never be reopened because the same person enquires
+again. The authorized user creates a **new Lead linked to the existing
+Customer**, with its own reference, source, product or service interest,
+Record Owner and assignment history, stage and Follow-ups. The earlier
+Lead and its conversion reference remain immutable history.
+
+Duplicate detection (Sections 32 and 55) may warn that the person
+already exists, but it must offer this "new enquiry linked to an
+existing Customer" path rather than reopening the earlier Lead.
 
 **48. Mark Lead as Lost**
 
@@ -2345,11 +2561,13 @@ When marking a Lead as Lost:
 > • retain the complete history
 >
 > • When a Lead is marked Lost, any incomplete Follow-ups for that Lead
-> are cancelled and retained in history. Reopening the Lead does not
-> automatically restore cancelled Follow-ups; a new Follow-up may be
-> scheduled.
+> are cancelled with the reason `Lead Marked Lost` and retained in
+> history (Section 40). Reopening the Lead does not restore cancelled
+> Follow-ups; a new Follow-up may be scheduled.
 
-A Lost Lead may later be reopened by an authorized user.
+A Lost Lead may later be reopened by a user permitted to edit that Lead
+(Sections 162 and 162.1). A **Converted** Lead is never reopened
+(Section 46.1).
 
 Reopening returns the Lead to an active pipeline stage selected by the
 user.
@@ -2358,7 +2576,8 @@ user.
 
 A Lead should receive a Record Owner according to the workspace's Lead
 assignment rules. If assignment cannot be completed, the Lead may remain
-**Unassigned** until an authorized user assigns it.
+**Unassigned** until a user holding the manual assignment permission
+assigns it (Sections 162 and 163.10).
 
 V1 supports manual assignment and **team-scoped** round-robin
 assignment of the Record Owner. Round robin rotates only among the
@@ -2370,20 +2589,28 @@ When a Lead assignment rule applies but its target Sales Team has no
 eligible member, the Lead remains Unassigned in the **Assignment
 Required** state (Section 163.9).
 
+Automatic assignment must resolve exactly one active matching Lead
+assignment rule. Where it cannot, the Lead is kept in **Assignment
+Required** with a canonical failure reason and is never discarded
+(Sections 163.7 and 163.9).
+
 Owner/Admin can configure Sales Teams and Lead assignment rules in
 Settings.
 
-Managers may reassign Leads where permitted.
-
-Staff users should not normally reassign Leads to other users unless
-specifically permitted. Being a Team Lead does not, by itself, grant
-this permission (Section 163.18).
+Manual assignment follows Section 163.10 and the permission rows in
+Section 162: an Owner/Admin may assign to any active workspace user; a
+Manager may assign only where that permission is enabled and only within
+their permitted records and teams; Staff/Sales users cannot reassign
+Leads by default. Whether a Team Lead may reassign within their own team
+is unresolved client decision 4 (Section 163.18) and is denied until
+approved.
 
 Every reassignment should appear in Activity History.
 
 **50. Lead Archive**
 
-Authorized users may archive a Lead.
+A user holding the Lead archive permission in Section 162 may archive a
+Lead they can access (Section 162.1).
 
 Archived Leads:
 
@@ -2393,13 +2620,50 @@ Archived Leads:
 >
 > • retain activity and follow-up history
 >
-> • can be viewed using an Archived filter
+> • can be viewed using an Archived filter by users permitted to see
+> archived records
 >
-> • can be restored
+> • can be restored (Section 29.1)
 
-Archive always requires confirmation. If incomplete Follow-ups exist,
-the confirmation additionally warns that they will be removed from
-active work views and retained in history.
+**Archiving a Lead must**
+
+> • mark the Lead **Archived** rather than delete it
+>
+> • make it unavailable for new assignment, for conversion and for new
+> operational work
+>
+> • cancel every incomplete Follow-up with the reason `Related Lead
+> Archived` (Section 41)
+>
+> • close any active Assignment Required warning for that Lead with the
+> reason `Related Lead Archived` (Section 163.9)
+>
+> • close any open WhatsApp conversation that relates only to that Lead,
+> while retaining every message and every delivery attempt. Inbound
+> messages that arrive afterwards follow Section 88
+>
+> • preserve Record Owner history, team-assignment and manual-assignment
+> history (Section 163.13)
+>
+> • preserve conversion references, activities, notes and audit history
+
+**Archiving a Lead must not**
+
+> • delete the Lead, its activities or its messages
+>
+> • alter any other Lead or Customer
+>
+> • reassign ownership
+>
+> • advance a round-robin position (Section 163.8)
+
+Where an outbound message has already been accepted by a provider, the
+in-flight rules in Section 172.1 apply. The CRM must not present such a
+message as cancelled.
+
+Archive always requires confirmation. The confirmation must state which
+incomplete Follow-ups will be cancelled, whether an Assignment Required
+warning will be closed and whether a conversation will be closed.
 
 The user must confirm before proceeding.
 
@@ -2499,8 +2763,8 @@ Renewal/Completion → New Due Date
 
 **Purpose**
 
-Provide a searchable and filterable view of all Customers the user is
-permitted to access.
+Provide a searchable and filterable view of the Customers the user may
+access under Section 162.1.
 
 **Header**
 
@@ -2655,8 +2919,8 @@ Creates the Customer and immediately opens the Add Product/Service form.
 
 **55. Customer Duplicate Warning**
 
-Before creating a Customer, check for an existing Lead or Customer with
-the same phone number or email.
+Before creating a Customer, check for an existing Lead or Customer whose
+normalized phone number or email matches (Section 130.1).
 
 If a possible duplicate exists:
 
@@ -2668,14 +2932,14 @@ Actions:
 
 **View Existing Record**
 
-**Create Anyway** — where permitted
+**Create Anyway** — Manager or Owner/Admin only (Section 162)
 
 If the match is an existing Lead, the system should allow the user to
 open that Lead and decide whether it should be converted instead of
 creating a separate Customer.
 
-The system should warn about possible duplicates but should not
-automatically merge records.
+The system warns about possible duplicates and must never merge records
+automatically (Section 130.1).
 
 **56. Customer Profile**
 
@@ -2978,8 +3242,13 @@ The Customer name should link back to the Customer Profile.
 
 Archiving a Customer Product/Service removes it from active
 Product/Service and Renewal work views, cancels its future scheduled
-reminders, and retains its details, renewal history and activity.
-Authorized users may restore it.
+reminders that have not yet been submitted to a provider, and retains
+its details, renewal history and activity. Removal from a work view
+never means the renewal was completed (Section 66).
+
+A user holding the archive/restore permission in Section 162 may restore
+it. Restoration does not recreate cancelled reminders or requeue Renewal
+actions; new work is scheduled explicitly (Section 29.1).
 
 **63. Important Dates**
 
@@ -3064,7 +3333,9 @@ A Renewal action uses **Assigned To**, not Record Owner.
 By default, the Renewal action should inherit the Customer's Record
 Owner.
 
-Authorized users may reassign it.
+A user holding the reassignment permission in Section 162 may reassign
+it, and only to a user who can access the related Customer (Section
+162.1).
 
 Example:
 
@@ -3120,6 +3391,20 @@ The business has completed the renewal/service action.
 The Customer will not continue the Product/Service for the current
 cycle.
 
+**Archived Customers and Products/Services**
+
+Removing a Renewal action from the operational queues because its
+Customer or Product/Service was archived does **not** mean the renewal
+was completed. Such an action must never be shown as Renewed /
+Completed.
+
+- The underlying renewal cycle and its history remain intact (Sections
+  62 and 78).
+- Restoring the Customer does not automatically return the action to a
+  queue (Section 29.1).
+- Where the work resumes, a permitted user explicitly creates or resumes
+  the operational action (Section 162).
+
 **67. Reminder Configuration**
 
 A reminder may be configured for a Customer Product/Service with a Due
@@ -3172,19 +3457,106 @@ An Email reminder requires:
 
 If Email cannot be used, the reminder must not silently fail.
 
+## 67.1 Scheduling, Time Zones and Retries
+
+This subsection is authoritative for when a reminder is sent, what
+happens when execution is late or missed, and how delivery failures are
+retried. Sections 68, 102, 116.12 and 168 refer to it.
+
+**Scheduling**
+
+- The default reminder time is **9:00 AM in the workspace time zone**.
+- An Owner/Admin may configure one workspace-wide default reminder time
+  (Sections 162 and 168).
+- The configured time applies to reminder instances created after the
+  change. Changing it must not alter the instant of an existing
+  scheduled reminder.
+- Each scheduled reminder instance stores its intended local date, its
+  resolved UTC instant and the IANA scheduling time zone (Section 158).
+- Scheduling must be **idempotent**: one reminder instance is submitted
+  once, however many times a worker runs, a job is retried or a page is
+  refreshed.
+- When a Renewal starts a new cycle and generates reminders (Section
+  71), those instances use the workspace time zone and the default
+  reminder time in force **at the moment they are created**.
+
+**Late execution on the intended day**
+
+If a worker first processes a reminder later than planned, but it is
+still the intended calendar day in the reminder's scheduling time zone,
+the system must:
+
+- send it immediately
+- retain its original scheduled time
+- record the actual submission time
+- mark it as late in operational history
+
+**Missed execution**
+
+If no provider submission was attempted before the intended calendar day
+ended in the scheduling time zone, the system must:
+
+- not send it
+- mark the instance **Failed** with the reason `Scheduled Time Missed`
+- notify the assigned user and active Owner/Admin users in-app (Section
+  175)
+- not enter the transient retry ladder below
+
+**Transient delivery retries**
+
+Where a submission was attempted on the intended day and failed for a
+transient reason, the system retries after:
+
+1. **5 minutes**
+2. **30 minutes**
+3. **2 hours**
+
+A retry that falls after local midnight is still a delivery retry of an
+attempt that began on the intended day, and is permitted. It is not a
+missed initial schedule.
+
+After the final failed retry the instance is marked **Failed**, every
+attempt and provider response is retained, and the assigned user and
+active Owner/Admin users are notified in-app.
+
+**Never retried**
+
+A failure must not be retried when it is caused by:
+
+- recipient opt-out (Sections 108 and 116.8)
+- an invalid or missing recipient
+- missing record access or permission (Sections 162 and 162.1)
+- an inactive or unavailable template
+- an archived related record (Sections 50 and 78)
+- a disabled or disconnected module (Section 172.1)
+- permanent provider rejection
+- `Scheduled Time Missed`
+
+**Attempt history**
+
+Each attempt carries its own timestamp and result while belonging to one
+logical reminder instance. Concurrent workers must never submit the same
+attempt twice.
+
 **68. Reminder Status**
 
-Where applicable, show a simple reminder status such as:
+A reminder instance holds exactly one of these statuses:
 
-> • Not Scheduled
+> • **Not Scheduled** — no reminder instance exists for that date
 >
-> • Scheduled
+> • **Scheduled** — an instance exists with a resolved send instant
 >
-> • Sent
+> • **Sent** — a provider accepted the message
 >
-> • Failed
+> • **Failed** — it could not be sent, including after the final
+> permitted retry (Section 67.1)
 >
-> • Cancelled
+> • **Cancelled** — it was withdrawn before submission, for example
+> because the related record was archived or its module was disabled
+
+Every status transition records the acting user or system source, the
+time of the transition and, where applicable, the reason. Scheduling,
+retries and missed execution are defined in Section 67.1.
 
 For multiple reminders, the Product/Service detail may show the
 individual reminder history.
@@ -3199,8 +3571,9 @@ Example:
 
 **69. Send Reminder Manually**
 
-From Renewals & Reminders, authorized users may send a reminder
-manually.
+From Renewals & Reminders, a user holding the reminder permissions in
+Section 162 may send a reminder manually for a Customer they can access
+(Section 162.1). Delivery failures follow Section 67.1.
 
 Actions:
 
@@ -3274,6 +3647,9 @@ Controlled bulk Email reminders follow the validation, review and result rules d
 
 **71. Mark Renewed / Completed**
 
+Renewal completion is performed by the user the Renewal action is
+assigned to, or by a Manager or Owner/Admin, according to Section 162.
+
 Selecting **Mark Renewed / Completed** opens a small form.
 
 Fields:
@@ -3300,7 +3676,8 @@ The current cycle is marked completed and the Product/Service remains
 active with the new Due Date.
 
 Future reminders are generated from the new Due Date according to the
-reminder configuration.
+reminder configuration, using the workspace time zone and default
+reminder time in force when those instances are created (Section 67.1).
 
 Example:
 
@@ -3340,6 +3717,9 @@ If completed without a New Due Date, set the Customer Product/Service
 status to **Completed**.
 
 **73. Mark as Not Renewing**
+
+A user permitted to complete the Renewal action may also mark it Not
+Renewing (Section 162).
 
 If the Customer will not renew:
 
@@ -3511,40 +3891,79 @@ Each document should show:
 
 Actions:
 
-**View / Download**
+**View / Download** — for Customers the user may access (Section 162.1)
 
-**Delete / Archive** — according to permissions
+**Archive** — Manager or Owner/Admin only (Section 162). V1 has no
+immediate permanent deletion of Customer documents.
 
-Detailed document-storage configuration is not required for V1
-wireframes.
+Permitted file types, validation, malware scanning, storage, expiring
+download links and the document lifecycle are defined in Section 176.1.
 
 **78. Customer Archive**
 
-Authorized users may archive a Customer.
+A user holding the Customer archive permission in Section 162 may
+archive a Customer they can access (Section 162.1).
 
 Archived Customers:
 
 > • disappear from normal Customer views
 >
-> • remain accessible through an Archived filter
+> • remain accessible through an Archived filter, to users permitted to
+> view archived records
 >
 > • retain Products/Services, activities and documents
 >
-> • can be restored
+> • can be restored (Section 29.1)
 
-Archive always requires confirmation.
+**Archiving a Customer must**
 
-If the Customer has:
-
-> • incomplete Follow-ups
+> • mark the Customer **Archived** rather than delete it
 >
-> • active Renewal actions
+> • prevent new Follow-ups, Renewal actions, reminders, CRM-originated
+> outbound messages and document uploads. Inbound provider messages are
+> still received and retained (Section 88)
 >
-> • scheduled reminders
+> • cancel incomplete Follow-ups with the reason `Related Customer
+> Archived`
+>
+> • cancel future reminders that have not yet been submitted to a
+> provider (Section 67.1)
+>
+> • remove active Renewal actions from operational queues without
+> deleting their history (Section 66)
+>
+> • close open WhatsApp conversations while retaining every message and
+> every delivery attempt (Section 88)
+>
+> • retain Products/Services, policies and renewal cycles, documents,
+> notes and activities
+>
+> • retain Lead-conversion references (Section 46.1)
+>
+> • retain Record Owner history, explicit-share history and audit
+> history (Sections 162.1 and 163.13)
 
-the confirmation must warn that these active actions will be removed
-from normal work views/cancelled where applicable while their history is
-retained.
+**Archiving a Customer must not**
+
+> • delete Products/Services, policies or documents
+>
+> • mark an unfinished Renewal as Renewed / Completed
+>
+> • create a replacement Customer
+>
+> • change the Record Owner
+>
+> • delete WhatsApp or Email opt-out preferences
+>
+> • cancel a message a provider has already accepted (Section 172.1)
+
+The retained information of an archived Customer is visible only to
+users permitted to view archived records (Sections 162 and 162.1).
+
+Archive always requires confirmation. The confirmation must state which
+incomplete Follow-ups and unsent reminders will be cancelled, which
+Renewal actions will leave the operational queues, and which
+conversations will be closed.
 
 **79. Customer Management — Mobile Behaviour**
 
@@ -3676,8 +4095,9 @@ and customers added directly.
 
 **81. WhatsApp Module**
 
-The WhatsApp module allows authorized users to communicate with Leads
-and Customers from the CRM and manage incoming customer replies.
+The WhatsApp module allows users holding the WhatsApp permissions in
+Section 162 to communicate with Leads and Customers they may access
+(Section 162.1) and to manage incoming customer replies.
 
 V1 supports:
 
@@ -3729,6 +4149,96 @@ connection/number**.
 
 Support for multiple WhatsApp numbers within the same workspace is
 outside V1.
+
+## 81.1 WhatsApp Provider Contract
+
+The CRM integrates through a **server-side provider adapter**. The
+specification stays provider-agnostic: which provider is used is a
+deployment decision requiring CTO approval (Section 180.1). Provider
+credentials, tokens and secrets must never be exposed to the browser.
+
+The adapter must support outbound submission, inbound messages,
+delivery-status events, template synchronization, provider message
+identifiers, error classification and connection status.
+
+**Webhook security**
+
+Every inbound provider call must be:
+
+> • signature-verified using the provider's documented mechanism
+>
+> • rejected when the signature is invalid
+>
+> • protected against replay where the provider supports it
+>
+> • processed **idempotently**
+>
+> • deduplicated by workspace connection together with the provider
+> event or message identifier
+>
+> • safe when the same event is delivered twice or out of order
+
+Audit metadata is retained for each event without logging credentials or
+secrets.
+
+The workspace is identified from the **receiving business number or
+provider connection** before any contact record is considered. Workspace
+identity must never be resolved from the customer's phone number alone.
+Contact matching then follows Sections 94, 96 and 130.1.
+
+An event for an archived record is still accepted and retained, and
+creates no operational work (Section 88).
+
+**Delivery status and ordering**
+
+Status events are applied **monotonically** along the provider's valid
+lifecycle. A delayed lower-progress event must never downgrade a later
+confirmed state — a late `Sent` cannot replace a confirmed `Delivered`
+or `Read`.
+
+A late failure must not overwrite a confirmed Delivered or Read state
+unless the provider contract explicitly defines that failure as
+authoritative for the same attempt.
+
+Raw provider events and each delivery attempt are retained for audit.
+
+**Messaging window and templates**
+
+- A free-form outbound message is permitted only while the provider's
+  customer-service window allows it.
+- Outside that window an **active, provider-approved template** is
+  required.
+- The server enforces this even when the interface is bypassed.
+- A template that is inactive, rejected, paused or deleted at the
+  provider must not be used.
+- The CRM records which template, template version and variable values
+  were used for each message.
+
+**Outbound attempts and retries**
+
+- A transient failure permits at most **three retries** after the
+  initial attempt.
+- Provider responses are classified as transient or permanent.
+- Every attempt is retained separately with its own timestamp, result
+  and provider message identifier.
+- Concurrent workers must never submit the same attempt twice.
+- A retry creates another **delivery attempt for the same logical
+  message**. It must never create a second conversation message.
+- A manual **Retry** action revalidates every condition before
+  resubmitting.
+
+No retry is permitted when the recipient is opted out, the number is
+invalid, the related record is archived, the sender connection is
+disabled or disconnected, the template is inactive or no longer
+approved, permission or record access is missing, or the provider
+returned a permanent rejection.
+
+**Rate and bulk limits**
+
+Both provider limits and workspace limits are enforced. The V1
+controlled bulk limit is **500 recipients per job**. The final
+production limit requires CTO approval after load testing and a review
+of provider policy (Section 180.1).
 
 **82. WhatsApp Navigation**
 
@@ -3782,8 +4292,9 @@ Shows conversations that do not currently have an Assigned To user.
 
 Owner/Admin and permitted Managers may access Unassigned conversations.
 
-Staff users should not automatically have access to all workspace
-conversations.
+Staff users do not have access to all workspace conversations. They see
+the conversations assigned to them on records they may access (Sections
+162 and 162.1).
 
 **84. Conversation List**
 
@@ -3844,6 +4355,10 @@ V1 does not require complex support-inbox filters, labels or queues.
 A WhatsApp conversation is primarily identified by:
 
 **Workspace WhatsApp Number + Contact Phone Number**
+
+Both sides use the normalized comparison value defined in Section 130.1,
+and the workspace is identified from the receiving connection rather
+than from the contact's number (Section 81.1).
 
 The system should maintain a single continuous conversation history for
 that contact rather than creating a separate conversation every time a
@@ -3937,7 +4452,10 @@ Example:
 
 **New WhatsApp Conversation Assigned To: Arun**
 
-An authorized user may later reassign the conversation.
+A user holding the conversation assignment permission in Section 162 may
+later reassign the conversation, and only to a user who can access the
+related Lead or Customer (Section 162.1). Being assigned a conversation
+never grants access to that record.
 
 Example:
 
@@ -3975,13 +4493,17 @@ Available actions:
 
 **Reopen Conversation**
 
-A new incoming message to a Closed conversation automatically:
+A new incoming message to a Closed conversation whose related Lead or
+Customer is **active** automatically:
 
 > • reopens the same conversation
 >
 > • marks it unread
 >
 > • retains its previous message history
+
+Where the related record is archived, the rules under **Archived related
+records** below apply instead, and the conversation does not reopen.
 
 Closing a conversation does not:
 
@@ -3997,6 +4519,54 @@ Closing a conversation does not:
 
 WhatsApp conversations are **not permanently deleted through normal V1
 CRM actions**.
+
+**Archived related records**
+
+Archiving a Lead or Customer closes its open conversation while
+retaining every message and every delivery attempt (Sections 50 and 78).
+
+Archiving prevents new **CRM-originated outbound** messages. It cannot
+prevent an external contact from sending an inbound message, and a
+provider webhook must never be discarded merely because the related
+record is archived.
+
+When an inbound WhatsApp message arrives for an archived Lead or
+Customer, the system must:
+
+> • verify and accept the webhook normally (Section 81.1)
+>
+> • retain the message and its provider metadata
+>
+> • associate it with the existing conversation where the identity is
+> unambiguous
+>
+> • keep the conversation **Closed**, or blocked from new outbound work,
+> with the reason `Related Record Archived`
+>
+> • show an in-app review alert to the assigned user, where that user is
+> still active and permitted, and to active Owner/Admin users (Section
+> 175)
+>
+> • allow a permitted user to inspect the message in read-only context
+> (Sections 162 and 162.1)
+
+It must **not**:
+
+> • restore the Lead or Customer
+>
+> • reopen the conversation as active work
+>
+> • create a Follow-up, Renewal action, reminder or assignment
+>
+> • permit an outbound reply while the record remains archived
+
+Responding requires explicit record restoration first (Section 29.1),
+and after restoration the conversation reopens only through an explicit
+reopen action. It must never reopen automatically.
+
+Where the inbound identity is ambiguous, the event enters the manual
+identity-resolution state defined in Sections 96 and 130.1, without
+exposing another record or another workspace.
 
 **89. Starting an Individual WhatsApp Message**
 
@@ -4118,10 +4688,20 @@ normal users.
 The CRM should not recreate the entire WhatsApp platform administration
 interface.
 
-Where template creation, approval or platform-level editing must occur
-through the connected WhatsApp provider/platform, the CRM should direct
-the administrator appropriately rather than pretending the action
-occurred locally.
+**Template management boundary in V1**
+
+V1 may synchronize templates from the provider, show their provider
+status, preview approved templates and let a permitted user select an
+approved template (Section 162).
+
+V1 does **not** create a provider template, submit one for approval,
+approve one, or change its approval state at the provider. Those actions
+happen in the provider's own administration.
+
+Any **New template** control must therefore either open an explanatory
+hand-off to that external administration, or be absent from the
+operational V1 interface. It must never imply that the CRM creates a
+template that is immediately usable for sending.
 
 **92. Template Variables**
 
@@ -4254,8 +4834,9 @@ Creating a Lead/Customer should **not start a new conversation thread**.
 
 **96. Multiple CRM Record Match**
 
-If a phone number genuinely matches multiple unrelated active CRM
-records, the system must not silently select one.
+If a normalized phone number matches more than one permitted active CRM
+record (Section 130.1), the system must not silently select one. The
+conversation enters manual identity resolution.
 
 Show:
 
@@ -4273,8 +4854,41 @@ Until resolved:
 >
 > • keep the messages accessible
 >
-> • do not incorrectly add message activity to one of the possible CRM
-> records
+> • do not add message activity to any one of the candidate records
+>
+> • never show a candidate from another workspace
+
+**Who may resolve an ambiguous identity**
+
+Identity ambiguity may be resolved only by:
+
+> • an **Owner/Admin**, or
+>
+> • a **Manager**, where the capability is enabled and **every**
+> candidate record is within that Manager's permitted scope (Sections
+> 162 and 162.1)
+
+A **Staff/Sales** user must not resolve shared-number identity
+ambiguity, and being a Team Lead grants no identity-resolution
+authority.
+
+Where a Manager cannot access every candidate needed to decide safely,
+the case is escalated to an Owner/Admin without revealing details of the
+inaccessible candidates. Only users permitted to resolve the ambiguity
+may view the complete candidate list.
+
+**Resolution audit**
+
+Each resolution records the workspace, the WhatsApp connection or
+business number, the normalized contact phone number, the candidate
+record references, the selected record, the previously selected record
+where one is being corrected, the acting user, the timestamp and a
+**mandatory reason**.
+
+Resolving an identity must never merge records, change a Record Owner,
+grant record access or move data across workspaces. Every previous
+resolution stays in history, and a later correction is possible only
+through this same authorized, audited process (Section 97).
 
 **97. Link / Correct Conversation Association**
 
@@ -4297,8 +4911,11 @@ Search by:
 >
 > • email
 
-If a conversation is associated with the wrong CRM record, an authorized
-user may correct the association.
+If a conversation is associated with the wrong CRM record, the
+association may be corrected by a user permitted to resolve conversation
+identity — an Owner/Admin, or a Manager within scope (Sections 96 and
+162). The correction follows the same audited process and carries a
+mandatory reason.
 
 Correcting the CRM association:
 
@@ -4326,8 +4943,9 @@ Before sending any outgoing message, the system should verify:
 >
 > • required template variables are available
 
-If a condition fails, display the reason before or after the send
-attempt as appropriate.
+Every condition is enforced on the server, not only in the interface
+(Section 81.1). If a condition fails, display the reason before or after
+the send attempt as appropriate.
 
 The system must not show an unsuccessful message as successfully sent.
 
@@ -4358,12 +4976,18 @@ If a message fails:
 >
 > • display a useful reason where available
 >
-> • allow retry where appropriate
+> • allow a permitted user to retry a **transient** failure, within the
+> limit of three retries after the initial attempt (Section 81.1)
 >
-> • retain the failed attempt in message history
+> • retain the failed attempt, its provider response and its identifier
+> in message history
 
-Retrying should create a new send attempt rather than rewriting the
-historical failed attempt as successful.
+A retry creates a new delivery attempt for the same logical message. It
+never rewrites a historical failed attempt as successful, and never
+creates a second conversation message. Permanent failures — including
+opt-out, an invalid number, an archived record, a disconnected sender,
+an unusable template or a permanent provider rejection — must not be
+retried.
 
 **100. WhatsApp Message History in CRM Records**
 
@@ -4463,11 +5087,13 @@ If unsuccessful:
 > • surface the failure to appropriate users
 
 A failed reminder does not automatically become Sent later unless a
-successful retry/send occurs.
+successful retry or send occurs. Late execution, missed execution and
+the permitted retry intervals are defined in Section 67.1.
 
 **103. Manual Renewal Reminder**
 
-From Renewals & Reminders, an authorized user may select:
+From Renewals & Reminders, a user holding the reminder permissions in
+Section 162 may select:
 
 **Send WhatsApp Reminder**
 
@@ -4504,7 +5130,9 @@ The action is:
 **Send WhatsApp Message**
 
 V1 bulk messaging is **selection-based messaging**, not a marketing
-campaign builder.
+campaign builder. A bulk job requires the bulk permission in Section 162,
+uses an active approved template where one is required, and is limited to
+**500 recipients per job** in V1 (Section 81.1).
 
 It does not include:
 
@@ -4619,7 +5247,12 @@ Definitions:
 ** The CRM did not attempt to send because validation/eligibility failed
 before sending.
 
-The user should be able to identify the affected records.
+The user should be able to identify the affected records. Each recipient
+keeps its own status and attempt history.
+
+A bulk job may be cancelled for recipients **not yet submitted**.
+Cancellation never recalls a message a provider has already accepted
+(Section 172.1), and a job must never cross workspace boundaries.
 
 V1 does not require campaign analytics beyond operational send results.
 
@@ -4641,9 +5274,34 @@ or
 Such recipients must be excluded from applicable bulk or automated
 outbound messaging.
 
-Authorized users can mark a Lead or Customer as **WhatsApp Opted Out**
-from the relevant record/contact communication settings. The state may
-also be updated from the WhatsApp integration where supported.
+A Staff/Sales user may mark a Lead or Customer **WhatsApp Opted Out**.
+Only a Manager or Owner/Admin may remove that opt-out, and the removal
+is audited (Section 162). The state may also be set from the provider
+integration where supported.
+
+An opted-out recipient must not receive manual, automated, reminder or
+bulk WhatsApp messages, and an inbound message from that contact does
+not remove the opt-out by itself. The interface must show the
+restriction and the alternative actions still available.
+
+**Opt-out applies to the destination, not to one record**
+
+WhatsApp opt-out applies to the **normalized phone number** within the
+workspace and its WhatsApp connection (Section 130.1). Where several
+Leads or Customers use that number:
+
+> • the opt-out blocks manual, automated, reminder and bulk sends
+> through **all** of them
+>
+> • creating another Lead or Customer with that number does not bypass
+> it
+>
+> • resolving conversation identity does not remove it (Section 96)
+>
+> • an inbound message does not remove it
+
+Contact-level history and record references are retained, but suppression
+is enforced at the normalized destination.
 
 The CRM should never attempt to bypass WhatsApp platform restrictions.
 
@@ -4743,10 +5401,11 @@ At minimum, permissions should distinguish between:
 >
 > • viewing/managing templates
 
-Users should not be shown actions they cannot perform.
+Users must not be shown actions they cannot perform, and every action is
+enforced on the server (Section 81.1).
 
-The detailed role matrix will be defined in the Settings &
-Administration section.
+The authoritative role matrix is Section 162, and record access follows
+Section 162.1.
 
 **113. WhatsApp Inbox — Empty States**
 
@@ -4968,7 +5627,7 @@ Lead or Customer Record Owner.
 
 ## 116.1 Email Communications
 
-The Email module allows authorized users to send business emails from CRM Lead, Customer and Renewal records.
+The Email module allows users holding the Email permissions in Section 162 to send business emails from the CRM Lead, Customer and Renewal records they may access (Section 162.1).
 
 Email is an outbound communication channel in V1.
 
@@ -5178,10 +5837,12 @@ Attachments may be:
 
 Validate attachments before sending.
 
-Validation should include:
+Validation must include:
 
-- permitted file type
-- configured file-size limit
+- permitted file type, verified by signature and MIME, with a successful
+  malware scan, exactly as defined in Section 176.1 — including for a
+  file uploaded only for this message
+- a total attachment size of no more than **10 MB** per email
 - safe file name
 - successful upload
 - file availability
@@ -5193,7 +5854,7 @@ When an attachment is selected from Customer Documents, the original document re
 
 An attachment uploaded while emailing a Lead may be retained with the email activity entry but does not create a general Lead Documents module.
 
-Email activity should retain attachment names and references where permitted.
+Email activity retains attachment names and references for users who may access the related record (Section 162.1).
 
 ## 116.8 Recipient Validation and Email Preference
 
@@ -5221,9 +5882,13 @@ When Email Opted Out is enabled:
 - individual email actions should be disabled
 - existing email history must remain visible
 
-An authorized user may update the preference. The change should be recorded in CRM Activity with the user and date.
+A Staff/Sales user may record **Email Opted Out**. Only a Manager or Owner/Admin may remove it, and the removal is audited (Section 162). Every change is recorded in CRM Activity with the acting user and date.
 
-The system must not automatically remove an opt-out without an authorized user action.
+An unsubscribe or provider complaint may set the opt-out automatically. No delivery event, later profile edit, address change or import may clear it silently (Section 116.19).
+
+**Email Opted Out** and complaint suppression are **consent** restrictions recorded at contact level, with the normalized destination suppressed as well. They are separate from the technical deliverability states in Section 116.19: clearing one never clears the other, and a send requires both a deliverable address and an unsuppressed contact.
+
+Because several records may share a destination, the restriction applies through every one of them; another record, an import or a formatting-only edit cannot be used to send anyway (Sections 116.19 and 130.1). Where a contact who opted out is given a genuinely different address, sending resumes only after an explicit, auditable opt-in (Section 116.19).
 
 ## 116.9 Sending an Individual Email
 
@@ -5250,8 +5915,9 @@ If sending fails:
 
 - retain the composed subject and message where possible
 - do not record the email as successfully sent
-- store the available failure reason
-- allow a permitted user to retry
+- store the available failure reason and provider identifier
+- allow a permitted user to retry a transient failure, within the limit
+  of three retries after the initial attempt (Section 116.19)
 - do not create duplicate successful sends during retry
 
 ## 116.10 Email Status
@@ -5284,7 +5950,9 @@ The CRM or provider could not send the email.
 
 **Bounced**
 
-The provider reported that the recipient address did not accept the email.
+The provider reported that the recipient address did not accept the email. A **hard** bounce additionally establishes the technical state **Undeliverable** for that address and blocks new sends to it, while a provider **complaint** establishes the consent restriction **Email Opted Out** for the contact (Section 116.19).
+
+Status events are applied monotonically in attempt and event order. A late event from an earlier attempt must never downgrade a later confirmed status, and must never clear an established Undeliverable state, opt-out or complaint suppression (Section 116.19).
 
 The CRM must not describe an email as Delivered unless the provider has confirmed delivery.
 
@@ -5359,13 +6027,17 @@ If unsuccessful:
 - mark the reminder instance Failed
 - store the available failure reason
 - notify the appropriate user
-- allow an authorized user to retry or use another permitted action
+- allow a permitted user to retry within the limits in Section 67.1, or
+  to take another action permitted by Section 162
 
 The system must prevent the same reminder instance from being sent twice because of a retry, refresh or repeated background-job execution.
 
+Late execution, missed execution, the permitted retry intervals and the failures that must never be retried are defined in Section 67.1.
+
 ## 116.13 Manual Email Renewal Reminder
 
-From Renewals & Reminders, an authorized user may select:
+From Renewals & Reminders, a user holding the reminder permissions in
+Section 162 may select:
 
 **Send Email Reminder**
 
@@ -5422,7 +6094,7 @@ Review screen:
 
 **[Cancel]**
 
-Bulk Email requires explicit confirmation.
+Bulk Email requires explicit confirmation and is limited to **500 recipients per job** in V1 (Section 116.19).
 
 Excluded records do not prevent eligible records from being processed.
 
@@ -5450,7 +6122,7 @@ V1 does not include campaign analytics beyond operational send results.
 
 ## 116.15 Email Permission Behaviour
 
-Email actions must follow the role and permission rules defined under Settings → Roles & Permissions.
+Email actions follow the role matrix in Section 162 and the record-access rules in Section 162.1.
 
 Permissions should distinguish between:
 
@@ -5590,10 +6262,205 @@ Workspace Email configuration, template administration and bulk Email sending re
 - **Yes:** Reminder = Sent, Email History and Customer Activity updated
 - **No:** Reminder = Failed, reason stored and responsible user notified
 
+## 116.19 Email Provider Contract
+
+Email is sent through a **provider-independent, server-side adapter**.
+Which provider is used is a deployment decision requiring CTO approval
+(Section 180.1). Provider credentials and secrets remain server-side and
+are never exposed to the browser.
+
+V1 supports **one verified sender identity per workspace** (Section
+116.3). The sender must be verified before outbound email is enabled.
+
+The adapter must support submission, delivery events, provider message
+identifiers, bounce events, complaint events, error classification and
+connection status.
+
+**Webhook security**
+
+Every inbound provider event must be signature-verified, rejected when
+invalid, processed idempotently, deduplicated, and safe when delivered
+twice or out of order. Events are associated using the workspace
+connection together with the provider identifier. Audit metadata is
+retained without exposing credentials.
+
+Events for archived records and disabled modules are still accepted and
+retained, and create no operational work (Sections 78 and 172.1).
+
+**Three distinct states**
+
+The CRM distinguishes:
+
+- **message delivery status** — what happened to one message (Section
+  116.10)
+- **recipient-address status** — whether an address can be delivered to
+- **contact opt-out status** — whether the person may be emailed at all
+
+**Address-level deliverability**
+
+Deliverability is a **technical** property of the normalized email
+address within the workspace (Section 130.1), not of a single Lead or
+Customer record. An address holds one of:
+
+- **Unknown** — never yet confirmed either way
+- **Deliverable** — a successful delivery has been confirmed
+- **Undeliverable** — a hard bounce has been recorded
+
+A **hard bounce** records the message's final bounce result and may
+establish **Undeliverable**, blocking new sends to that address.
+
+**Deliverability and consent are separate**
+
+Unknown, Deliverable and Undeliverable describe only whether an address
+can technically be delivered to. They say nothing about permission to
+write to the person.
+
+**Email Opted Out** and **complaint suppression** are **consent**
+restrictions. An explicit unsubscribe, or a provider complaint,
+establishes them (Section 116.8).
+
+- Clearing **Undeliverable** never clears an opt-out or complaint
+  suppression.
+- Clearing an **opt-out** never makes an address Deliverable; its
+  technical state is unchanged.
+- A send is permitted only when **both** conditions hold: the address is
+  not technically blocked, **and** the contact is not suppressed by
+  consent.
+
+**Where each restriction is stored**
+
+- The **technical** state belongs to the normalized address within the
+  workspace.
+- **Consent** is recorded at **contact level**, and the normalized
+  destination involved is suppressed as well. Contact-level opt-out
+  history is preserved permanently.
+
+Where the same normalized address appears on several records, both kinds
+of restriction apply to **every** one of them. Creating another record,
+editing a record, importing a record, resolving a duplicate identity or
+changing capitalization must never be a way to bypass either (Sections
+96 and 130.1).
+
+**Changing a contact's email address**
+
+Where a permitted user changes the contact to a genuinely **different**
+normalized address, the system must:
+
+- preserve the previous normalized address and its complete technical
+  and consent history in record history and audit
+- create the new normalized address with the technical state **Unknown**
+  and validate its format
+- not copy the previous address's Undeliverable state to the different
+  address
+- not treat the address change itself as consent
+
+An address change must never restore Email permission for a contact who
+opted out or whose address drew a complaint. Sending resumes only after
+an **explicit, auditable opt-in** recorded through an approved workflow,
+capturing who recorded it, when, for which contact and normalized
+address, and the stated basis. V1 requires only this minimum record; it
+defines no wider legal consent-capture system.
+
+A change that only alters capitalization, surrounding whitespace or
+other formatting produces the **same** normalized address and bypasses
+neither the technical block nor the consent restriction.
+
+**Clearing Undeliverable on the same address**
+
+Because the state belongs to the address rather than to one record,
+clearing it can affect every record that uses it. It may be cleared
+only by:
+
+- an **Owner/Admin**, or
+- a **Manager**, where the capability is enabled for Managers **and**
+  every record currently using that normalized address is within the
+  Manager's permitted scope (Sections 162 and 162.1)
+
+Access to only one of several matching records is **not** sufficient.
+Where any matching record falls outside the Manager's scope, the action
+must be escalated to an Owner/Admin, and the Manager must not be shown
+the details of the records they cannot access. A **Staff/Sales** user
+cannot clear the status, and holding the Team Lead responsibility grants
+no email-administration authority.
+
+Clearing requires:
+
+- explicit confirmation that the address was corrected or verified
+  outside the CRM
+- a **mandatory reason**
+
+and records the acting user, the timestamp, the affected normalized
+address, the count of records affected, the related records the actor
+was permitted to see, whether the action was escalated, and the old and
+new technical state.
+
+Re-saving the same address through ordinary record editing must never
+clear an Undeliverable status.
+
+Clearing a technical block, or recording a re-opt-in, never merges
+records, never changes a Record Owner and never grants record access
+(Section 162.1).
+
+**Late and out-of-order provider events**
+
+Provider events are applied **monotonically**, in attempt and event
+order (Section 116.10).
+
+- A delayed **Delivered** event belonging to an older attempt must never
+  automatically clear a later **Undeliverable** state.
+- Once Undeliverable is established for an address, only the authorized,
+  audited clearing workflow above may clear it.
+- A retry, or a later successful delivery, updates its own attempt and
+  message history but must not bypass the address-level block.
+- A provider event must never clear an opt-out or complaint
+  suppression.
+
+**Attempts and retries**
+
+- A transient failure permits at most **three retries** after the
+  initial attempt.
+- Each attempt is retained separately with its provider message
+  identifier and result.
+- Concurrent workers must not create duplicate attempts.
+- Permanent failures are classified explicitly.
+- A manual retry revalidates every condition first.
+
+No retry is permitted for: Email Opted Out, an Undeliverable address, an
+invalid recipient, an archived related record, a disabled Email module,
+an unverified sender, missing permission or record access, a permanent
+provider rejection, a complaint, or a hard bounce.
+
+**Attachments**
+
+Total attachment size per email must not exceed **10 MB**.
+
+**Every outbound attachment** must pass the file-type, signature, MIME
+and size validation and the malware scan defined in Section 176.1
+**before submission**, whether it was selected from Customer Documents
+or uploaded only for this message. A transient attachment must never
+bypass those checks, and a file that fails validation or scanning must
+not be sent (Section 116.7).
+
+**Incoming replies**
+
+Incoming replies are **not** synchronized into the CRM in V1 (Section
+116.1). Delivery, bounce and complaint webhooks are still processed.
+Email remains a separate channel and never becomes a WhatsApp
+conversation.
+
+**Bulk limit**
+
+The V1 controlled bulk Email limit is **500 recipients per job**. It is
+deployment-configurable only after load testing and CTO approval
+(Section 180.1). A bulk job revalidates opt-out status, Undeliverable
+status, permission and recipient validity for **every** recipient, and
+each recipient keeps its own result and attempt history.
+
 **117. Data Import & Export**
 
-The CRM should allow authorized users to import existing Lead and
-Customer data and export permitted CRM data when required.
+The CRM allows users holding the Import / Export permission in Section
+162 to import Lead and Customer data, and to export the records and
+fields they may access under Section 162.1.
 
 V1 supports:
 
@@ -5639,17 +6506,25 @@ Import may be started from:
 
 The onboarding import step should also open the same import workflow.
 
-Import functionality should be available only to authorized users.
+Import is available only to users holding the Import / Export permission
+(Section 162), and the limits and file rules in Section 119.1 apply to
+every entry point.
 
 **119. Supported Import File**
 
-V1 should support:
+V1 supports:
 
-> • CSV
+> • CSV, encoded as UTF-8
 >
-> • XLSX / Excel
+> • XLSX only, as the spreadsheet format
 
-The upload screen should clearly state the accepted formats.
+Legacy and macro-capable spreadsheet formats — including `.xls`,
+`.xlsm` and `.xlsb` — are rejected, as are password-protected or
+encrypted files. The limits and validation rules are defined in Section
+119.1.
+
+The upload screen must clearly state the accepted formats and the
+current limits.
 
 Example:
 
@@ -5663,6 +6538,101 @@ Upload a CSV or Excel file containing your customer data.
 
 The sample file should contain the standard CRM fields expected for that
 record type.
+
+## 119.1 Import Limits and File Safety
+
+This subsection is authoritative for what an import may accept, how the
+file is handled and how long it is kept. Sections 119, 121, 128, 132,
+134, 135 and 136 refer to it.
+
+**V1 default limits**
+
+> • maximum uploaded file size: **10 MB**
+>
+> • maximum data rows: **10,000**
+>
+> • maximum columns: **200**
+>
+> • CSV encoding: **UTF-8**
+>
+> • spreadsheet format: **`.xlsx` only**
+>
+> • worksheets imported per job: **exactly one**
+
+Where an XLSX file contains more than one worksheet, the user must
+select the worksheet explicitly before processing; the system must never
+choose one silently.
+
+Blank trailing rows and columns must not count towards the data limits,
+but the parser must still enforce safe processing limits on the raw
+file.
+
+These are the V1 defaults. A deployment may raise or lower them only
+after load testing and CTO approval (Section 180.1), and a configured
+value must never exceed the safe deployment limit.
+
+**File validation**
+
+Before parsing, the system must:
+
+> • validate the file extension, the MIME type and the actual file
+> signature
+>
+> • treat the browser-supplied MIME type as untrusted
+>
+> • reject a file whose extension and content do not match
+>
+> • reject macros, embedded executable content and unsafe external links
+>
+> • reject password-protected or encrypted files
+>
+> • reject a malformed or suspicious compressed spreadsheet archive
+
+**Safe parsing**
+
+> • Formulas must never be executed. The parser uses the cell's stored
+> displayed or cached value only.
+>
+> • Where a required cell holds a formula with no safe cached value, the
+> row raises a validation issue rather than being guessed.
+>
+> • A CSV value beginning with a formula-control character is treated as
+> data, never as executable content.
+>
+> • The parser is configured with limits for rows, columns, cell size,
+> archive entries and decompressed size.
+>
+> • Import parsing must never fetch an external URL or linked workbook
+> content.
+
+**Handling and storage**
+
+Uploads are processed in **private temporary storage**, scanned for
+malware before parsing, and are never placed in public storage.
+
+**Retention and download access**
+
+> • the temporary original upload is retained for a maximum of
+> **24 hours**
+>
+> • import results are retained for **30 days**
+>
+> • downloadable error and issue reports are retained for **30 days**
+
+When a retention period expires, the stored file or report is removed
+while the permanent audit summary is retained (Section 136).
+
+A result or report may be downloaded only by the user who started the
+import, while still authorized, and by authorized Owner/Admin users
+(Section 162). Every download performs a fresh permission check. Any
+signed or temporary link must expire promptly and must never be public.
+Cross-workspace access is forbidden.
+
+**Audit**
+
+Each import records: upload, validation start and result, import
+confirmation, cancellation, completion or failure, report download, and
+retention cleanup.
 
 **120. Import Workflow**
 
@@ -5704,9 +6674,16 @@ Actions:
 
 **Cancel**
 
-If the file cannot be read:
+If the file cannot be read, or it breaches a limit or validation rule in
+Section 119.1, the upload is rejected with the specific reason — for
+example an unsupported format, an encrypted file, a size or row limit,
+or an extension that does not match the file's content:
 
-> **Unable to read this file. Please upload a valid CSV or Excel file.**
+> **Unable to read this file. Please upload a valid UTF-8 CSV or .xlsx
+> file within the stated limits.**
+
+Where an `.xlsx` file contains several worksheets, the user must select
+the worksheet to import before continuing.
 
 **122. Step 2 — Column Mapping**
 
@@ -5807,7 +6784,7 @@ The user should be able to choose:
 
 > • map it to an existing user
 >
-> • leave those records Unassigned, where permitted
+> • leave those records Unassigned, where Section 162 permits it
 >
 > • use a default Record Owner
 
@@ -5840,8 +6817,10 @@ spreadsheet values.
 > • An imported Lead that cannot be assigned is still imported, in
 > **Assignment Required** (Section 163.9).
 
-Whether imported Leads without a valid mapped owner automatically use a
-Lead assignment rule is a pending decision (Section 163.18).
+Whether imported Leads without a valid mapped Record Owner enter
+team-scoped round robin is unresolved client decision 2 (Section
+163.18). Until it is approved, such Leads must not be assigned
+automatically.
 
 **125. Lead Stage Mapping**
 
@@ -5930,15 +6909,40 @@ Possible validation issues include:
 >
 > • possible duplicate
 
-Validation should classify rows as:
+Validation classifies each row independently as:
 
 > **• Ready**
 >
 > **• Needs Attention**
 >
-> **• Duplicate**
+> **• Possible Duplicate**
 >
 > **• Cannot Import**
+
+Each row keeps a **stable row reference** so its decision, result and
+any error can be reported without ambiguity, and without exposing data
+from another workspace.
+
+**Date interpretation**
+
+For a column containing dates the system must:
+
+> • detect unambiguous ISO-style values where it is safe to do so
+>
+> • require the user to select the expected date format where values are
+> ambiguous, for example where both day-month-year and month-day-year are
+> valid readings
+>
+> • show sample parsed results before the import is confirmed
+>
+> • reject impossible dates
+>
+> • treat renewal, expiry and equivalent values as **date-only** and
+> never shift them through UTC conversion (Section 158)
+>
+> • record the selected interpretation in import history (Section 136)
+
+The system must never guess between two valid date interpretations.
 
 **129. Import Review Summary**
 
@@ -5969,25 +6973,129 @@ importing valid records.
 
 **130. Duplicate Detection During Import**
 
-Duplicate detection should use the same basic rules used when manually
-creating Leads or Customers.
+Duplicate detection uses the same normalized matching rules as manual
+creation (Section 130.1), applied both within the file and against
+existing workspace records.
 
 Check for matching:
 
-> • phone number
+> • normalized phone number
 >
-> • email
+> • normalized email
 
 Where a possible duplicate exists, classify the row as:
 
 **Possible Duplicate**
 
-The CRM should not silently overwrite the existing record.
+The CRM must not silently overwrite or merge the existing record.
+
+## 130.1 Duplicate Matching Rules
+
+This subsection is authoritative for how duplicates are detected,
+wherever a Lead or Customer is created. Sections 32, 47, 55, 85, 96, 128
+and 131 refer to it. All matching is **workspace-scoped**: a record in
+another workspace is never a candidate and must never be revealed.
+
+**Phone normalization**
+
+- The user-entered phone number is preserved for display and audit.
+- A separate **normalized comparison value** is derived from it.
+- Normalization targets **E.164** where the country context and the
+  number allow it to be done reliably.
+- The system must not invent a country code when it cannot be determined
+  safely.
+- A number that cannot be normalized reliably is flagged for review
+  rather than silently rewritten.
+- Comparison ignores harmless display formatting — spaces, hyphens and
+  parentheses — where doing so is safe.
+- A stored contact value must never change silently because the
+  normalization logic changed later.
+
+**Email normalization**
+
+For comparison the system trims leading and trailing whitespace,
+lowercases the whole address and validates its basic structure. The
+user-entered value is preserved separately where it must be displayed.
+
+Provider-specific transformations must **not** be applied. Dots are not
+removed and a `+tag` portion is not stripped, because those are
+provider-specific conventions and treating them as equivalent would
+merge distinct addresses.
+
+**Checkpoints**
+
+Duplicate detection runs at four points:
+
+1. during manual Lead or Customer creation (Sections 32 and 55)
+2. within the current import file, across its own rows (Section 128)
+3. against existing workspace records
+4. again inside the final server-side create or import transaction
+
+The fourth check is **mandatory** even when an earlier check passed,
+because records can be created concurrently.
+
+**Matching strength**
+
+V1 classifies a candidate as:
+
+- exact normalized **phone** match
+- exact normalized **email** match
+- **both** phone and email match
+- **possible duplicate** on weaker supporting evidence, such as name
+  together with product or service context
+
+A name alone must never block creation. The system may show candidates
+and the reason each matched, but must never merge records automatically
+(Section 131).
+
+**Override**
+
+`Create Anyway` is restricted to Manager and Owner/Admin (Section 162).
+Each override records the acting user, the timestamp, the candidate
+records shown, the fields that matched, any explanation given and the
+resulting new record.
+
+**Shared phone numbers**
+
+A genuinely shared number may be retained after authorized review — for
+example a family or business number. However, where a number maps to
+more than one permitted Lead or Customer:
+
+- WhatsApp conversation identity must not be assigned automatically
+- the conversation enters manual identity resolution (Section 96)
+- resolving that identity is audited
+- no message may expose a record belonging to another workspace
+
+**Channel suppression follows the destination**
+
+Because several records may share a destination, two separate kinds of
+restriction are enforced against the **normalized phone number or email
+address within the workspace** rather than against a single record:
+
+- a **technical** block — an email address marked Undeliverable
+  (Section 116.19)
+- a **consent** restriction — WhatsApp opt-out, Email opt-out or
+  complaint suppression, recorded at contact level with the normalized
+  destination suppressed as well (Sections 108 and 116.8)
+
+A new or edited record using the same destination inherits both and can
+never be used to bypass either. Neither kind is lifted by resolving a
+duplicate identity, editing or importing a record, or changing
+capitalization, whitespace or other formatting. Each is lifted only
+through its own authorized, audited route — the clearing workflow for a
+technical block, and an explicit re-opt-in for consent (Section
+116.19).
+
+**Not a duplicate**
+
+A later enquiry from an existing Customer is **not** duplication. It
+creates a new Lead linked to that Customer and must not be blocked or
+treated as an override (Sections 46.1 and 47).
 
 **131. Duplicate Handling Options**
 
-Before import, authorized users may choose how possible duplicates are
-handled.
+Before import, a user holding the Import / Export permission (Section
+162) may choose how possible duplicates are handled.
 
 V1 options:
 
@@ -5997,10 +7105,12 @@ or
 
 **Import as New Records**
 
-where permitted.
+for a Manager or Owner/Admin, matching the duplicate-override permission
+in Section 162.
 
-V1 should **not automatically merge or update existing CRM records
-during a normal import**.
+V1 must **not automatically merge or update existing CRM records during
+a normal import**. Matching uses the rules in Section 130.1, applied
+within the file and against existing workspace records.
 
 Automatic update/merge significantly increases the risk of overwriting
 good CRM data and is outside the simple V1 import flow.
@@ -6024,13 +7134,17 @@ Actions:
 
 **View Errors**
 
-The error report should include:
+The error report includes:
 
-> • original row number
+> • the original row number and stable row reference
 >
-> • relevant identifying information
+> • relevant identifying information from that row only
 >
-> • reason the row failed
+> • the reason the row failed
+
+Error reports are retained for 30 days and may be downloaded only by the
+user who started the import, while still authorized, or by an authorized
+Owner/Admin. Every download rechecks permission (Section 119.1).
 
 Example:
 
@@ -6097,6 +7211,38 @@ The system should not create duplicate records if the user refreshes or
 accidentally revisits the import result while the same import job is
 already processing.
 
+**Row-level idempotency**
+
+Each row is processed idempotently against its stable row reference. A
+retry, refresh or repeated background execution must never create a
+second record for a row that already completed successfully, and the
+duplicate and uniqueness checks are repeated inside the final
+transaction (Section 130.1).
+
+A retry processes only the rows that did not already complete
+successfully. Importing the same file again as a **new** import is an
+explicit user action and is treated as a new job.
+
+**Import job lifecycle**
+
+An import job holds exactly one of these states:
+
+> • **Queued** — accepted and waiting to start
+>
+> • **Processing** — rows are being imported
+>
+> • **Completed** — the run finished, whether or not every row succeeded
+>
+> • **Failed** — the run could not complete
+>
+> • **Cancelled** — a permitted user stopped it, or it was stopped
+> before starting (Section 172.1)
+
+A retry creates, or records, a distinct attempt. A row already imported
+successfully must never be imported again by that retry, and row-level
+results are preserved across attempts. Detailed import limits and file
+safety rules are defined separately (Sections 119 and 121).
+
 Where imported Leads are assigned by a Lead assignment rule, background
 processing uses the same atomic, team-scoped assignment process as
 interactive Lead creation (Section 163.8). Retrying or resuming an
@@ -6126,7 +7272,10 @@ the imported Leads were assigned:
 
 Assigned, Assignment Required, skipped and failed counts must be
 accurate. A Lead that could not be assigned is still counted as
-imported.
+imported, and each such Lead records its canonical failure reason
+(Section 163.9). Imported Leads waiting in Assignment Required are
+resolved through the same explicit actions as any other waiting Lead;
+completing an import assigns none of them automatically.
 
 Actions:
 
@@ -6177,13 +7326,20 @@ Arun
 
 118 Imported
 
-Selecting an entry shows the import summary.
+Selecting an entry shows the import summary, including the worksheet
+chosen, the date interpretation used and the row-level outcome counts.
+
+Import results and reports are retained for 30 days; afterwards the
+stored file is removed and the permanent audit summary is retained
+(Section 119.1).
 
 V1 does not require detailed audit analytics for every imported cell.
 
 **137. Export**
 
-Authorized users may export permitted Lead or Customer data.
+Users holding the Import / Export permission (Section 162) may export
+the Lead or Customer data they may access (Section 162.1), subject to
+the safety rules in Section 139.
 
 Export may be available from:
 
@@ -6258,8 +7414,45 @@ separate dataset.
 
 **V1 export format: CSV**
 
-The exported file should use clear column headings corresponding to CRM
-field names.
+The exported file uses clear column headings corresponding to CRM field
+names.
+
+**Formula-injection protection**
+
+Where a text value begins with a character a spreadsheet application may
+interpret as a formula — `=`, `+`, `-`, `@`, a tab or a carriage return —
+the export must neutralize it safely for the export format, for example
+by quoting and prefixing the field so the value is read as text.
+
+The stored CRM value must never be altered to make an export safe. The
+protection applies when the file is generated, and the original value
+remains intact in the application.
+
+**Generation and delivery**
+
+Every export must:
+
+> • remain workspace-scoped
+>
+> • recheck the user's permission both when the file is generated and
+> when it is downloaded (Sections 162 and 162.1)
+>
+> • be generated into private storage, never a public location
+>
+> • use an expiring download link
+>
+> • exclude any field the user cannot view in the application
+>
+> • record the acting user, the scope, the filters applied, the row
+> count, the generation time and the download event
+
+**Export job lifecycle**
+
+An export job holds exactly one of these states: **Requested**,
+**Generating**, **Available**, **Expired** or **Failed**. An expired or
+failed export is never silently regenerated; the user requests a new
+export, which is audited in the same way. Expiry removes the generated
+file while the audit record is retained.
 
 **140. Export Confirmation / Sensitive Data**
 
@@ -6268,21 +7461,18 @@ contain a large volume of sensitive or restricted data.
 
 However:
 
-> • only authorized roles may export
+> • only the roles granted Import / Export in Section 162 may export
 >
-> • users may export only records and fields they are permitted to
-> access
-
-The detailed export permission will be defined under **Roles &
-Permissions**.
+> • users may export only the records and fields they may access under
+> Section 162.1
+>
+> • generation, delivery and formula-injection protection follow Section
+> 139
 
 **141. Import / Export Permission Behaviour**
 
-The detailed permission matrix will be defined later under:
-
-Settings → Users → Roles & Permissions
-
-At minimum:
+The authoritative permission matrix is Section 162, and record access
+follows Section 162.1. In summary:
 
 **Owner/Admin**
 
@@ -6294,14 +7484,17 @@ At minimum:
 
 **Manager**
 
-> • import/export only if explicitly permitted
+> • import and export only where the workspace has enabled the
+> Configurable permission, and only within the Manager's record scope
 
-**Staff**
+**Staff/Sales**
 
-> • no import/export access by default
+> • no import or export access. Section 162 is authoritative: this is a
+> denial, not a default that a workspace may relax
 
-Import/export controls should be hidden where the user does not have
-permission.
+Import and export controls are hidden where the user does not hold the
+permission, and every import, export and report download rechecks it on
+the server (Sections 119.1 and 139).
 
 **142. Import — Mobile Behaviour**
 
@@ -6375,8 +7568,9 @@ assistance.**
 
 **144. Reports**
 
-The Reports module provides Owner/Admin and authorized Managers with a
-simple view of CRM performance and pending business activity.
+The Reports module provides Owner/Admin, and Managers holding the View
+Reports permission (Section 162), with a simple view of CRM performance
+and pending business activity.
 
 V1 reporting focuses on:
 
@@ -6694,9 +7888,11 @@ Definitions:
 This distinction is important because **Record Owner** and **Assigned
 To** are different concepts.
 
-Where permitted, this report may be filtered by **Sales Team** and
-**Team Lead**. Filtering by team groups users by their current team; it
-does not change which records are counted against each user.
+Where the permissions in Section 162 allow it, this report may be
+filtered by **Sales Team** and **Team Lead**. Filtering by team groups
+users by their current team; it does not change which records are
+counted against each user, and it grants no access to another user's
+records (Section 162.1).
 
 **151. Report Filters**
 
@@ -6714,9 +7910,9 @@ Common filters may include:
 >
 > • Lead Source
 >
-> • Sales Team — where permitted
+> • Sales Team — where Section 162 permits it
 >
-> • Team Lead — where permitted
+> • Team Lead — where Section 162 permits it
 >
 > • Lead assignment method — Manual or Round Robin
 >
@@ -6790,7 +7986,10 @@ The export must respect:
 >
 > • selected date range
 >
-> • user permissions
+> • user permissions (Sections 162 and 162.1)
+
+Report exports use the same generation, delivery and formula-injection
+rules as record exports (Section 139).
 
 The exported data should contain the underlying report data relevant to
 the selected report rather than a screenshot of the report UI.
@@ -6819,8 +8018,9 @@ Existing filters should remain selected after a temporary loading error.
 
 **155. Reports — Mobile Behaviour**
 
-Reports are primarily a web/management feature, but authorized users may
-access a simplified report view on mobile.
+Reports are primarily a web/management feature, but users with the View
+Reports permission (Section 162) may access a simplified report view on
+mobile.
 
 On mobile:
 
@@ -6873,8 +8073,9 @@ than reproducing the full desktop reporting layout.
 
 **157. Settings & Administration**
 
-Settings & Administration allows authorized users to configure the CRM
-for their workspace.
+Settings & Administration allows users holding the Configure CRM
+Settings permission (Section 162) to configure the CRM for their
+workspace.
 
 Navigation:
 
@@ -6944,11 +8145,82 @@ Owner/Admin can manage:
 > • Currency
 
 The workspace Time Zone is used for scheduled activities such as
-Follow-ups and automated reminders.
+Follow-ups and automated reminders. It is stored as an **IANA time-zone
+identifier**, for example `Asia/Kolkata`. The server validates the
+identifier and rejects an unknown value. A fixed offset is not
+sufficient, because offsets change across daylight-saving transitions.
 
-Changing the workspace Time Zone does not change date-only values such
-as Renewal or Expiry Dates and does not silently reschedule existing
-scheduled actions.
+**Date-only values**
+
+The following are stored as calendar dates, with no time and no UTC
+conversion:
+
+> • Renewal due date
+>
+> • policy expiry date
+>
+> • service expiry date
+>
+> • any equivalent date-only business value
+
+A date-only value must never shift because of the viewer's device zone
+or because the workspace time zone changed.
+
+**Timed values**
+
+A timed Follow-up, and every scheduled reminder instance, stores:
+
+> • the resolved **UTC instant**
+>
+> • the **IANA workspace time-zone identifier** used when it was
+> scheduled
+>
+> • the entered local date and time, or enough audit information to
+> reconstruct it
+
+The browser's time zone must never silently replace the workspace time
+zone. Where a user's device is in a different zone, the interface may
+show that difference, but scheduling uses the workspace zone.
+
+**Display**
+
+Operational screens show timed work in the **current** workspace time
+zone. History retains the original scheduling zone and offset so a past
+action can still be read as it was entered.
+
+**Daylight-saving transitions**
+
+Where the chosen local time **does not exist** because the clock moves
+forward, the system must reject it, explain that it does not exist in
+the selected time zone, and require another time.
+
+Where the chosen local time **occurs twice** because the clock moves
+back, the system must require explicit confirmation of which occurrence
+or offset is intended, display the resolved abbreviation or offset
+before saving, and store the resulting UTC instant.
+
+The system must never silently guess a nonexistent or ambiguous local
+time.
+
+**Changing the workspace time zone**
+
+An Owner/Admin may change the workspace time zone (Section 162). The
+confirmation must explain that:
+
+> • date-only values do not change
+>
+> • the UTC instant of every existing Follow-up is unchanged
+>
+> • the UTC instant of every scheduled reminder is unchanged
+>
+> • existing timed items may therefore display at a different local
+> wall-clock time
+>
+> • new timed work will use the new workspace time zone
+
+Changing the time zone must not silently reschedule existing work. The
+change is audited with the old zone, the new zone, the acting user and
+the timestamp.
 
 Action:
 
@@ -7038,7 +8310,9 @@ the team explicitly deactivated, before deactivation is completed
 Historical activity should continue to show the original user's name.
 
 Reactivating the user does not automatically restore previously
-reassigned work.
+reassigned work, previous Sales Team membership, Team Lead
+responsibility or Lead-assignment eligibility. A user who rejoins a team
+receives a new membership period (Section 163.2).
 
 **161. Roles & Permissions**
 
@@ -7064,7 +8338,10 @@ V1 does not include custom role creation or field-level permission
 configuration.
 
 **Team Lead** is a responsibility within a Sales Team, not a fourth role
-(Section 163.3).
+(Section 163.3). A user of any of the three roles may hold it, and
+holding it changes neither their role nor their record access (Section
+162.1). The capabilities it confers apply only to the team they lead and
+are listed in Section 163.6.
 
 **162. Permission Matrix**
 
@@ -7224,7 +8501,7 @@ View other Sales Teams
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7232,7 +8509,7 @@ Create, edit or deactivate Sales Teams
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7240,7 +8517,7 @@ Add, remove or transfer team members
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7248,7 +8525,7 @@ Designate or replace a Team Lead
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7256,7 +8533,7 @@ Access Settings → Sales Teams
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7264,7 +8541,7 @@ View Lead-assignment eligibility
 
 Yes
 
-Team Lead of that team; otherwise Decision required
+Team Lead of that team; otherwise Decision required (163.18 #5)
 
 Team Lead of that team only
 
@@ -7272,7 +8549,7 @@ View own team's minimum roster (My Team)
 
 Yes
 
-Team Lead of that team; otherwise Decision required
+Team Lead of that team; otherwise Decision required (163.18 #5)
 
 Team Lead of that team only
 
@@ -7312,25 +8589,42 @@ Configure Lead assignment rules
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
-Preview rotation pool
+View own team's current eligible pool and empty-pool warning (My Team)
 
 Yes
 
-Decision required
-
-No
-
-View assignment failures
-
-Yes
-
-Team Lead of that team; otherwise Decision required
+Team Lead of that team; otherwise Decision required (163.18 #5)
 
 Team Lead of that team only
+
+Preview detailed rotation state — stored order, next recipient and
+batch progress
+
+Yes
+
+Decision required (163.18 #5)
+
+No; Team Lead: Decision required (163.18 #3)
+
+View own team's Assignment Required warning and its operational detail
+
+Yes
+
+Team Lead of that team; otherwise Decision required (163.18 #5)
+
+Team Lead of that team only
+
+View assignment failures for any team
+
+Yes
+
+Decision required (163.18 #5)
+
+No
 
 Manually assign Leads within a team
 
@@ -7338,13 +8632,13 @@ Yes
 
 Configurable
 
-No; Team Lead: Decision required
+No; Team Lead: Decision required (163.18 #4)
 
 Manually assign Leads across teams
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
 No
 
@@ -7352,23 +8646,248 @@ View assignment audit history
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
-No; Team Lead: Decision required
+No; Team Lead: Decision required (163.18 #3)
 
 View own team's workload
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
 
-No; Team Lead: Decision required
+No; Team Lead: Decision required (163.18 #3)
 
 View other teams' workload
 
 Yes
 
-Decision required
+Decision required (163.18 #5)
+
+No
+
+Create a Follow-up on an accessible record
+
+Yes
+
+Yes
+
+Yes
+
+Complete or reschedule a Follow-up assigned to them
+
+Yes
+
+Yes
+
+Yes
+
+Schedule the next Follow-up when completing one
+
+Yes
+
+Yes
+
+Yes
+
+Complete a Renewal, mark Not Renewing or set the next due date
+
+Yes
+
+Yes
+
+Yes, when assigned to them
+
+Send an individual renewal reminder
+
+Yes
+
+Yes
+
+Yes, when assigned to them
+
+Retry a failed reminder they sent
+
+Yes
+
+Yes
+
+Yes
+
+Change workspace reminder defaults or schedules
+
+Yes
+
+No
+
+No
+
+View an assigned WhatsApp conversation on a permitted record
+
+Yes
+
+Configurable
+
+Yes, when assigned
+
+Close or reopen a WhatsApp conversation
+
+Yes
+
+Yes
+
+Yes, when assigned
+
+Add a conversation note or create a Follow-up from a conversation
+
+Yes
+
+Yes
+
+Yes, when assigned
+
+Mark a contact WhatsApp Opted Out
+
+Yes
+
+Yes
+
+Yes
+
+Remove a WhatsApp opt-out (audited)
+
+Yes
+
+Yes
+
+No
+
+Manage WhatsApp templates
+
+Yes
+
+No
+
+No
+
+Mark a record Email Opted Out
+
+Yes
+
+Yes
+
+Yes
+
+Remove an Email opt-out (audited)
+
+Yes
+
+Yes
+
+No
+
+Convert an accessible Lead they own
+
+Yes
+
+Yes
+
+Yes
+
+Link a Lead to an existing accessible Customer
+
+Yes
+
+Yes
+
+Yes, when they can access both records
+
+Archive or restore a Lead
+
+Yes
+
+Configurable
+
+No
+
+Archive or restore a Customer
+
+Yes
+
+Configurable
+
+No
+
+Upload, view or download a Customer document
+
+Yes
+
+Yes
+
+Yes, for permitted Customers
+
+Archive or restore a Customer document
+
+Yes
+
+Yes
+
+No
+
+Create Anyway after a duplicate warning
+
+Yes
+
+Yes
+
+No
+
+Grant or revoke an explicit record share
+
+Yes
+
+Configurable, within record scope
+
+No
+
+Manually resolve a Lead in Assignment Required
+
+Yes
+
+Configurable, within record and team scope
+
+No; Team Lead: Decision required (163.18 #4)
+
+Retry automatic assignment for a waiting Lead
+
+Yes
+
+Configurable, within record and team scope
+
+No; Team Lead: Decision required (163.18 #4)
+
+Bulk reprocess Leads in Assignment Required
+
+Yes
+
+Configurable, within record and team scope
+
+No; Team Lead: Decision required (163.18 #4)
+
+Clear an Undeliverable Email address
+
+Yes
+
+Configurable, only when every record using that address is within
+permitted scope
+
+No
+
+Resolve an ambiguous WhatsApp conversation identity
+
+Yes
+
+Configurable, only when all candidates are within permitted scope
 
 No
 
@@ -7376,7 +8895,11 @@ Manager record visibility can be configured as:
 
 > **• All Records**
 >
-> **• Own Records**
+> **• Own, Assigned and Explicitly Shared Records**
+
+Record visibility itself — who may see which Lead or Customer, and how
+access is granted — is defined in Section 162.1. The rows above define
+what a user may **do** with a record they can already access.
 
 In the Sales Team rows above:
 
@@ -7385,12 +8908,24 @@ In the Sales Team rows above:
 > responsibility for the team concerned. It is not granted to the role
 > in general.
 >
-> • **Decision required** means the permission is not yet approved and
-> must not be assumed (Section 163.18).
+> • **Decision required** means the permission is not yet approved. It
+> must never be assumed, and it is denied until approved — see **Least
+> privilege** below (Section 163.18).
 >
-> • The Manager role by itself grants no authority to change
-> Lead-assignment eligibility. A Manager may change it only while acting
-> as the Team Lead of that team (Section 163.5).
+> • The Manager role by itself grants no Sales Team authority at all.
+> Read a Sales Team row as:
+>
+> > **Manager role alone:** Decision required under Section 163.18.
+> >
+> > **Active Team Lead of that team:** permitted, but only for the
+> > confirmed Team Lead capabilities in Section 163.6.
+>
+> • A Manager who is the active Team Lead of a team therefore keeps every
+> confirmed Team Lead capability for that team — the minimum roster, the
+> current eligible pool and empty-pool warning, the own-team Assignment
+> Required warning, and the eligibility controls including their own.
+> Those come from the responsibility, not the role, and never extend to
+> another team (Sections 2, 161 and 163.5).
 >
 > • A Team Lead uses **My Team** (Section 163.6) for their team's
 > eligibility controls. Access to Settings → Sales Teams does not extend
@@ -7399,10 +8934,143 @@ In the Sales Team rows above:
 >
 > • **Otherwise as permitted** means the user receives Leads only if their
 > role is explicitly permitted to (Section 163.8).
+>
+> • Where a row says **accessible**, **permitted** or **assigned to
+> them**, the record-access rules in Section 162.1 apply first. A user
+> may act only on a record they can already access.
+>
+> • **Configurable** means the workspace may enable the capability for
+> that role. Until it is enabled, the capability is denied.
+
+**Least privilege**
+
+A capability marked **Decision required**, or otherwise awaiting client
+confirmation, is **denied in production** until the decision is approved
+and the permission is explicitly configured for the workspace. An
+unapproved capability must never be enabled by default, inferred from a
+role, granted by Sales Team membership or Team Lead responsibility, or
+assumed because a user can reach the screen that offers it.
+
+Every **Decision required** value corresponds to decision 3, 4 or 5 in
+Section 163.18. Decisions 1 and 2 are workflow questions and never
+appear as a permission cell.
+
+> • **Decision 5** — Manager column only: authority the Manager role
+> itself would confer, including Sales Team administration, rule
+> configuration, cross-team assignment and cross-team visibility. Where
+> the cell reads *Team Lead of that team; otherwise Decision required*,
+> the capability is already confirmed for a Manager who is that team's
+> Team Lead; only the role-based case is open.
+>
+> • **Decision 4** — Staff/Sales column: whether a Team Lead may manually
+> assign, resolve, retry or bulk reprocess Leads for their own team.
+>
+> • **Decision 3** — Staff/Sales column: whether a Team Lead may see more
+> than the confirmed My Team set, such as detailed rotation state, team
+> workload or the full assignment audit history.
+
+A confirmed My Team capability (Section 163.6) is never recorded as
+Decision required. Where a row grants *Team Lead of that team only*, the
+capability applies to whoever currently holds the responsibility,
+whatever their workspace role.
 
 Sales Teams, used to scope Lead assignment, are the only team structure
 in V1 (Section 163). Team membership does not grant record access;
-record visibility continues to follow the rows above.
+record visibility follows Section 162.1.
+
+## 162.1 Record Access and Explicit Sharing
+
+This subsection is **authoritative for record visibility**. Where any
+other section says a user may act on a record they are "permitted" or
+"authorized" to access, the access itself is decided here.
+
+**Owner/Admin**
+
+May access all CRM records in their workspace.
+
+**Manager**
+
+The workspace configures the Manager record scope as either:
+
+- **All Records**, or
+- **Own, Assigned and Explicitly Shared Records**
+
+This record-access setting is separate from unresolved client decision 5
+in Section 163.18, which concerns Sales Team administration rather than
+record visibility.
+
+**Staff/Sales**
+
+May access:
+
+- Leads and Customers they own
+- operational items assigned to them, where the related-record
+  permission has been validated
+- Leads and Customers explicitly shared with them
+
+**Team and conversation boundaries**
+
+- Sales Team membership alone grants **no** access to another member's
+  Leads, Customers, Follow-ups, Renewal actions, documents or WhatsApp
+  conversations.
+- Being a Team Lead grants only the minimum My Team roster in Section
+  163.6. Wider visibility requires client decision 3 (Section 163.18)
+  and is denied until approved.
+- WhatsApp conversation assignment grants **no** access to the related
+  Lead or Customer. A user who is assigned a conversation but cannot
+  access the record sees the conversation only, without the record's
+  data.
+- Operational assignment must never be used as a hidden record-sharing
+  mechanism.
+
+**Validating an operational assignment**
+
+Before a Follow-up, Renewal action, WhatsApp conversation or other
+operational item is assigned to a user, the server must verify that the
+assignee can access the related Lead or Customer.
+
+If that access is missing, the operation must either:
+
+- be rejected with an explanation, or
+- require an authorized explicit share to be granted first
+
+**Explicit record share**
+
+An explicit share is a deliberate, recorded grant of access to one Lead
+or Customer. Conceptually it holds:
+
+- workspace
+- the Lead or Customer
+- permitted user
+- granted by
+- granted at
+- revoked by
+- revoked at
+- reason for the share — optional
+
+These are required information, not a database design.
+
+**Who may share**
+
+- **Owner/Admin** may grant or revoke an explicit record share.
+- **Manager** may do so only where the workspace grants that permission,
+  and only for records within the Manager's scope.
+- **Staff/Sales** users, and ordinary Record Owners, must **not** be
+  able to grant or revoke access merely because they own the record.
+
+**Effects**
+
+- Revocation blocks future access. It preserves historical audit entries
+  and the activities legitimately created while the share was valid
+  (Section 163.15).
+- An explicit share does **not** change the Record Owner.
+- An explicit share does **not** add the user to a Sales Team.
+- An explicit share does **not** assign a WhatsApp conversation, a
+  Follow-up or a Renewal action.
+- Every grant and revocation is audited (Section 163.13).
+
+Record access is enforced on the server for every read and every write.
+Hiding a control in the interface is never sufficient (Section 177).
 
 **163. Lead Assignment**
 
@@ -7421,7 +9089,8 @@ Supported V1 methods:
 
 **Manual**
 
-An authorized user selects the Record Owner. See Section 163.10.
+A user holding the manual assignment permission selects the Record
+Owner (Sections 162 and 163.10).
 
 **Round Robin**
 
@@ -7429,6 +9098,19 @@ New Leads are assigned in a repeating sequence to the eligible members
 of **one Sales Team**. Round robin is always team-scoped: it never
 rotates across every salesperson in the workspace, and it never falls
 back to members of another Sales Team.
+
+V1 uses **strict round robin only**. Automatic assignment applies only to
+Leads, and the rotation order does not vary according to how much work a
+member already holds. V1 must not implement:
+
+- workload-based routing
+- capacity-based routing
+- weighted routing
+- performance-based routing
+- AI-based or predictive routing
+
+These methods are outside V1 (Section 180) and require separate approval
+before they may be considered.
 
 Round robin is configured through **Lead assignment rules**. Every Lead
 assignment rule targets exactly one Sales Team. See Sections 163.1 to
@@ -7441,15 +9123,14 @@ member of the same team.
 
 **Batch Size rules**
 
-- Batch Size must be a positive whole number.
+- Batch Size must be an integer from **1 to 100**. A value outside that
+  range must be rejected, both in the interface and on the server.
 - The V1 default Batch Size is **1**.
 - A Batch Size of 1 produces normal one-by-one round robin.
 - Changing Batch Size affects future assignments only. It does not
   rewrite existing Lead ownership or assignment history.
 - If a member is paused during their current batch, that batch ends
   immediately (Section 163.5).
-- Whether Batch Size has a maximum value is a pending decision (Section
-  163.18).
 
 Example — Sales Team **Health Insurance Team**, members Arun, Sneha and
 Joseph, **Batch Size = 10**:
@@ -7529,6 +9210,41 @@ authorized users a team view of that work.
 - Deactivating a team must not silently reassign any existing record.
 - Every active Sales Team must have exactly one active Team Lead. See
   Section 163.3.
+- A Sales Team may be Active with **zero eligible members**. The team,
+  and every Lead assignment rule targeting it, must then show the
+  assignment warning defined in Section 163.5, and new Leads routed to
+  the team enter Assignment Required (Section 163.9).
+
+**Team deactivation**
+
+Deactivating a Sales Team must:
+
+- stop all future automatic Lead assignment through that team
+- deactivate every active Lead assignment rule that targets the team
+  (Section 163.7)
+- end every active membership of the team (Section 163.2)
+- end the current Team Lead responsibility (Section 163.3)
+- leave the team's rotation pool empty (Section 163.8)
+
+Deactivating a team must not change any Lead's Record Owner, reassign
+any existing record, or delete membership history, Team Lead history,
+rule history, stored rotation state, Lead assignment history or the
+failure history of Leads in Assignment Required. Leads already waiting
+in Assignment Required remain waiting (Section 163.9).
+
+**Team reactivation**
+
+Reactivation is a guarded configuration operation, not a single toggle.
+Reactivating a team must not automatically restore previous
+memberships, the previous Team Lead, previous eligibility, previously
+targeted Lead assignment rules, or any previous Lead ownership or
+assignment.
+
+The reactivation workflow is defined in Section 163.12. A team may
+become Active only when it has exactly one active Team Lead and every
+active member is an active workspace user. Reactivating a team must not
+assign Leads already waiting in Assignment Required; those Leads are
+resolved only as described in Section 163.9.
 
 ## 163.2 Sales Team Membership
 
@@ -7563,11 +9279,14 @@ does not change their workspace role.
   attempt to add a user who already has an active membership must be
   refused, or handled as an explicit transfer (Section 163.4).
 - Historical memberships must be retained.
+- An ended membership is permanent history and must never be reopened. A
+  user who rejoins a team receives a **new membership period** with a new
+  joined date, and each earlier period remains visible as history.
 - A deactivated workspace user is automatically ineligible for new
   Leads.
 - Team membership does not grant access to records owned by other team
-  members. Record permissions are still enforced explicitly according to
-  the user's role and the Permission Matrix.
+  members. Record access is governed only by Section 162.1, and being in
+  a team is never a record-access path.
 
 This integrity rule must be enforced by the system, not only by the
 interface. It applies regardless of how the change is made, including
@@ -7606,6 +9325,10 @@ workspace role.
   Team Lead.
 - Former Team Lead responsibility is retained in history and remains
   visible historically.
+- Deactivating a Sales Team ends the current Team Lead responsibility
+  (Section 163.1). Reactivation requires designating exactly one active
+  Team Lead again (Section 163.12). A previous Team Lead is never
+  restored automatically.
 
 ## 163.4 Team Transfer
 
@@ -7616,7 +9339,8 @@ When a transfer is confirmed, the system must:
 1. Verify that the destination team belongs to the same workspace.
 2. Verify that the acting user is permitted to transfer members.
 3. End the salesperson's existing active membership.
-4. Create or reactivate the destination membership.
+4. Create a **new membership period** in the destination team. An ended
+   membership is never reopened (Section 163.2).
 5. Record the transfer as a single atomic change, so the salesperson is
    never left with two active memberships or none because of a partial
    failure.
@@ -7668,18 +9392,53 @@ assignment, Renewal assignment and WhatsApp conversation assignment.
 
 **Who may change eligibility**
 
-- The **Team Lead** may mark any member of their own team — including
-  themselves — as Eligible or Paused, from My Team (Section 163.6).
-- An authorized **Owner/Admin** may override the eligibility of any
-  member of any team in the workspace, from Settings → Sales Teams
-  (Section 163.12). Every override is audited.
+- The **Team Lead** may mark any member of their own active team —
+  including themselves — as Eligible or Paused, from My Team (Section
+  163.6). A Team Lead has no eligibility authority in any other team.
+- An **Owner/Admin** may override the eligibility of any member of any
+  team in the workspace, from Settings → Sales Teams (Section 163.12).
 - An **ordinary team member** cannot change their own eligibility or
   anyone else's.
-- A **Manager** may change Lead-assignment eligibility only while acting
-  as the Team Lead of that team. The Manager role by itself grants no
-  eligibility-changing authority.
+- A **Manager** does not receive the Owner/Admin override. A Manager may
+  change eligibility only while acting as the Team Lead of that team,
+  unless the Manager permission decision in Section 163.18 is later
+  approved and configured (Section 162).
 - Access to Settings → Sales Teams does not, by itself, grant any
-  eligibility-changing authority.
+  eligibility-changing authority. Authority comes only from the
+  Owner/Admin role or the Team Lead responsibility for that team.
+
+**Three distinct authorities**
+
+- **Team Lead eligibility control** — confirmed. The active Team Lead
+  changes eligibility within their own team only, including their own
+  (Section 163.6). It is available whatever their workspace role.
+- **Owner/Admin override** — confirmed. An Owner/Admin changes
+  eligibility in any team in the workspace. A reason is required and the
+  change is audited.
+- **Manager administrative override by role** — not granted. A Manager
+  receives no eligibility authority from the Manager role. A Manager who
+  is that team's Team Lead uses the Team Lead control above. Whether the
+  Manager role itself confers an administrative override is unresolved
+  client decision 5 (Section 163.18) and is denied until approved.
+
+**Owner/Admin override**
+
+An Owner/Admin eligibility override **requires a short reason**. The
+change must be rejected if no reason is supplied.
+
+Each override records an audit entry containing:
+
+- workspace
+- Sales Team
+- affected member
+- previous eligibility
+- new eligibility
+- acting user
+- reason
+- timestamp
+
+The audit entry is retained as history (Section 163.13) and is never
+rewritten by a later change.
 
 **Effect of pausing**
 
@@ -7698,6 +9457,15 @@ A paused Team Lead remains the Team Lead, remains an active team member
 and remains the Record Owner of their existing records. Only their
 future Lead eligibility changes.
 
+A **Paused** member may still receive a **manual** Lead assignment
+(Section 163.10). Pausing restricts automatic assignment only.
+
+V1 has **no scheduled or automatic return from Paused**. A paused member
+becomes eligible again only when the Team Lead, from My Team, or an
+Owner/Admin, by override, explicitly marks them Eligible for Lead
+assignment. The system must not restore eligibility on a date, after a
+period of time, or because the team has no eligible members left.
+
 If a member is paused part-way through a batch, that batch ends
 immediately. The next automatic Lead goes to the next eligible member in
 the rotation, who starts a new batch.
@@ -7714,6 +9482,9 @@ the rotation, who starts a new batch.
 - The rotation proceeds normally from its stored state, and the
   returning member starts a new batch only when the rotation next reaches
   them.
+- Making a member eligible again must not assign any Lead already
+  waiting in Assignment Required. Those Leads are resolved only through
+  the explicit actions in Section 163.9.
 
 **Last eligible member**
 
@@ -7744,39 +9515,64 @@ controls come from the Team Lead responsibility, whatever the user's
 workspace role, and apply to their own active team only — a Manager has
 them only for a team they lead.
 
-**Minimum roster**
+**Confirmed capabilities**
 
-For their own active team, a Team Lead can always see:
+The following are **confirmed** for the active Team Lead of that team,
+whatever their workspace role — Staff/Sales, Manager or Owner/Admin —
+and only for the team they lead. They come from the Team Lead
+responsibility, never from a workspace role.
+
+**Minimum roster.** For their own active team, a Team Lead can always
+see, for each member:
 
 - member name
-- membership status
+- active membership status
 - current Lead-assignment eligibility
 - whether the member is the Team Lead
 
-This roster exists only so the Team Lead can operate the eligibility
-controls. It does not, by itself, give access to other members':
+**Current eligible pool.** Derived from that roster, the Team Lead can
+see who is currently eligible for the team's rotation, and can see that
+the team has **no eligible members** when the pool is empty.
 
-- Leads or Customers
-- Follow-ups
-- Renewal actions
-- WhatsApp conversations
-- performance reports
-- detailed workload
-- assignment audit history
+**Operational Assignment Required detail.** For their own team, the Team
+Lead receives the in-app assignment-failure notification and can see the
+Lead reference, the canonical failure reason, the target team, the time
+of failure and the Lead's current Assignment Required status (Section
+163.9).
 
-Any wider Team Lead visibility is a pending decision (Section 163.18).
-
-**Controls**
+**Eligibility controls.** For their own team, the Team Lead may:
 
 - mark a member **Eligible for Lead assignment**
 - mark a member **Paused from Lead assignment**
 - change their own eligibility
-- see a warning when no eligible members remain
-- see Assignment Required alerts for their team
+
+**Not included in the confirmed set**
+
+The roster exists so the Team Lead can operate the eligibility controls.
+It does not, by itself, give access to:
+
+- other members' Leads or Customers
+- other members' Follow-ups, Renewal actions or WhatsApp conversations
+- team workload or workload per member
+- performance reports
+- the full assignment audit history
+- the **detailed rotation state** — the stored rotation order, the next
+  recipient, batch progress or per-assignment history detail
+- any other team's roster
+- Lead assignment rule configuration
+- authority over any other team
+
+What a Team Lead may see beyond the confirmed set is unresolved client
+decision 3 (Section 163.18). Whether a Team Lead may manually reassign
+or resolve a Lead is unresolved client decision 4. Both are denied until
+approved and configured (Section 162).
 
 My Team follows the desktop and mobile principle in Section 179. If a
-Team Lead is separately authorized to use Settings → Sales Teams, that
-access does not extend their eligibility authority beyond their own team.
+Team Lead also has access to Settings → Sales Teams, that access does not
+extend their eligibility authority beyond their own team.
+
+Team Lead is a responsibility inside one Sales Team, never a fourth
+workspace role (Sections 2, 161 and 163.3).
 
 Being Team Lead does **not**, by itself, allow a user to:
 
@@ -7804,9 +9600,10 @@ receive automatic Leads.
 - Lead trigger or routing condition
 - Target Sales Team — exactly one
 - Assignment method — Round Robin
-- Batch Size — a positive whole number; default 1
+- Batch Size — an integer from 1 to 100; default 1
 - Status — Active or Inactive
-- Rule priority, where more than one rule could apply
+- Rule priority — a unique integer
+- Whether the rule is the workspace catch-all rule
 - Created by, created date, updated by and updated date
 
 **Rules**
@@ -7828,9 +9625,132 @@ The following must **not** be offered:
 - Renewal round robin
 - WhatsApp conversation round robin
 
-How the target team is selected for a new Lead — for example by
-Product/Service, Lead Source, geography, manual team selection or
-ordered routing rules — is a pending decision (Section 163.18).
+**Resolving a rule**
+
+A request for automatic assignment must resolve **exactly one active
+matching Lead assignment rule**. If it cannot, the Lead is kept
+Unassigned in Assignment Required with a canonical failure reason
+(Section 163.9). The Lead must never be discarded.
+
+**Priority and overlapping conditions**
+
+Overlapping rule conditions are **permitted**. Several rules may
+legitimately match the same Lead — for example a broad Product/Service
+rule and a narrower rule for one source within it. Priority exists
+precisely so that such an overlap resolves deterministically.
+
+- Every rule must have an integer priority. A **lower number means
+  higher priority**.
+- Priority must be unique among rules that can match the same Lead. Two
+  rules that can never match the same Lead may hold the same priority.
+- Where several active rules match and one holds a unique highest
+  priority, that rule is used. The overlap is valid and is not an error.
+- Where the highest priority is tied, or resolution is otherwise
+  ambiguous, the system must not choose arbitrarily. It records
+  **Multiple Matching Rules** and places the Lead in Assignment Required
+  (Section 163.9).
+- Changing a priority affects future assignment attempts only. It never
+  rewrites an existing Record Owner or assignment history.
+
+**Overlap validation**
+
+Overlap detection is a **validation aid, not a prohibition on
+overlapping rules**. Configuration must:
+
+- allow an overlap whose priority order is unique, because the result is
+  deterministic
+- block activation only where the overlap could produce an ambiguous
+  result — most commonly two overlapping active rules sharing the same
+  priority
+- explain which rules conflict, and at which priority, so the
+  administrator can correct the priority rather than remove the rule
+- never reject the catch-all rule for overlapping more specific rules,
+  because that overlap is intentional
+
+Configuration validation should normally prevent an ambiguous priority
+from being activated. The runtime must still fail safely, because
+configuration can change while assignment is in progress and a workspace
+may hold historical configuration that predates a validation rule.
+
+**Catch-all rule**
+
+A workspace may have at most **one active catch-all rule**. It must:
+
+- hold the lowest priority in the workspace
+- target exactly one Sales Team
+- be considered only when no active specific rule matches
+
+The catch-all is an **intentional overlap**: it is expected to cover
+Leads that specific rules also cover, and it must never be rejected on
+that basis. It is not a workspace-wide rotation pool — it targets one
+Sales Team like any other rule, and the rotation still runs only among
+that team's eligible members (Section 163.8).
+
+A catch-all rule is optional. Without one, a Lead that matches no active
+specific rule enters Assignment Required with **No Matching Rule** or
+**Matching Rule Inactive**, as defined in the resolution order below.
+
+**Resolution order**
+
+This ordered sequence is the authoritative definition of how one rule is
+selected. No other section repeats it; Sections 163.8 and 163.9 refer to
+it.
+
+1. Confirm that the routing fields the workspace's rules require are
+   present on the Lead. If they are not, stop with **Missing Routing
+   Data**.
+2. Evaluate the specific assignment-rule conditions relevant to the
+   Lead. The catch-all rule is not evaluated at this step.
+3. Keep only the **active** specific rules whose conditions match.
+4. If one or more active specific rules match:
+   - sort them by priority, lowest number first
+   - select the single rule holding the unique highest priority
+   - if the highest priority is tied, or the result is otherwise
+     ambiguous, stop with **Multiple Matching Rules**
+5. If no active specific rule matches, select the active catch-all rule
+   if the workspace has one.
+6. If no rule can be selected:
+   - stop with **Matching Rule Inactive** where applicable rule
+     definitions exist but every one of them is inactive
+   - otherwise stop with **No Matching Rule**
+7. Having selected a rule:
+   - if its target Sales Team is inactive, stop with **Target Team
+     Inactive**
+   - if the target team has no eligible member, stop with **No Eligible
+     Team Member**
+   - otherwise continue with the concurrency-safe team rotation in
+     Section 163.8
+
+**Edge cases**
+
+- An inactive specific rule does not defeat an active catch-all. Step 3
+  keeps only active rules, so an inactive specific rule simply drops out
+  and step 5 may still use the catch-all.
+- If at least one active specific rule matches, the catch-all is not
+  considered at all, whatever its priority.
+- If only inactive specific rules match and an active catch-all exists,
+  the catch-all is used.
+- If only inactive applicable rules exist and there is no active
+  catch-all, the reason is **Matching Rule Inactive**.
+- If no rule definition matches at all and there is no active catch-all,
+  the reason is **No Matching Rule**.
+- Every stop above leaves the Lead Unassigned in Assignment Required
+  with that reason recorded. The Lead is never discarded, never assigned
+  arbitrarily and never passed to another team.
+
+**Rule deactivation**
+
+Deactivating a Lead assignment rule must:
+
+- stop all future automatic assignment through that rule
+- preserve the rule, its configuration and its audit history
+- preserve the stored rotation state and assignment history
+- leave every existing Lead's Record Owner unchanged
+- never activate another rule automatically
+- never create a workspace-wide or cross-team fallback
+
+Which Lead field, or combination of fields, selects the routing rule is
+unresolved client decision 1 (Section 163.18).
 
 ## 163.8 Rotation Pool and Assignment Algorithm
 
@@ -7858,15 +9778,40 @@ Lead is therefore always in their own team's pool. The Team Lead
 responsibility never places anyone in another team's pool.
 
 The pool is evaluated at the moment each Lead is assigned. Members are
-taken in the team's stable rotation order. How a newly added member is
-placed in that order is a pending decision (Section 163.18).
+taken in the team's **stable rotation order**.
+
+A member who becomes eligible — a newly added member, a transferred
+member or a member the Team Lead or an Owner/Admin marks Eligible again
+— **joins at the end of that stable rotation order**. Becoming eligible
+never moves a member ahead of anyone already in the order, and never
+grants a backlog, compensation or priority (Section 163.5).
+
+**Rotation state after a team is reactivated**
+
+A reactivated team resumes its **preserved rotation state**; it does not
+restart from the beginning.
+
+- If the stored next member is currently an eligible member of the team,
+  the next automatic Lead goes to them.
+- If the stored next member is not currently eligible — for example
+  because their membership ended when the team was deactivated — the
+  rotation continues to the next eligible member in the current stable
+  order.
+- If no rotation state was ever stored for that workspace, team and
+  rule, assignment starts with the first eligible member in the current
+  stable order.
+- Reactivating a team must not assign any Lead already waiting in
+  Assignment Required (Section 163.9).
 
 **Assignment steps**
 
 Automatic Lead assignment is performed on the server:
 
 1. Receive or create the Lead.
-2. Determine the applicable Lead assignment rule.
+2. Resolve exactly one active matching Lead assignment rule by applying
+   the resolution order in Section 163.7. If that order stops at any
+   step, follow Section 163.9 and record the canonical failure reason it
+   produced.
 3. Resolve exactly one target Sales Team.
 4. Load the active, eligible members of that team only.
 5. Exclude paused, inactive, deactivated and transferred members.
@@ -7913,47 +9858,173 @@ any mechanism that provides the same guarantees.
 
 ## 163.9 Assignment Required
 
-A Lead is in **Assignment Required** when a Lead assignment rule applied
-but no eligible member of the target team could be selected — for
-example because every member is paused or inactive, or the team is
-inactive.
+A Lead is in **Assignment Required** when automatic assignment was
+attempted and could not be completed — because no single active rule
+could be resolved, or because the resolved rule's target team could not
+supply an eligible member.
 
 When this happens the system must:
 
 - keep the Lead, with no Record Owner, in the explicit **Assignment
   Required** state
-- record the rule, the target team and the failure reason
-- surface an alert to the target team's Team Lead and to authorized
-  Owner/Admin users
-- allow an authorized user to assign the Lead manually
+- record the rule where one was resolved, the target team where one was
+  resolved, and the canonical failure reason
+- notify the users listed under **Assignment-failure notifications**
+- allow a permitted user to resolve the Lead (Section 162)
 - not assign the Lead to a member of another Sales Team
 - not assign the Lead from a workspace-wide pool
 - not reject, discard or lose the Lead because assignment failed
+
+**Canonical failure reasons**
+
+The resolution order in Section 163.7 decides which reason applies.
+Every failure records exactly one of:
+
+- **Missing Routing Data** — the Lead lacks the routing fields the
+  workspace's rules require
+- **No Matching Rule** — no rule definition matched the Lead and no
+  active catch-all rule exists
+- **Multiple Matching Rules** — more than one active rule matched and no
+  unique highest priority resolved it
+- **Matching Rule Inactive** — applicable rule definitions exist but
+  every one of them is inactive, and no active catch-all rule exists
+- **Target Team Inactive** — the selected rule targets an inactive Sales
+  Team
+- **No Eligible Team Member** — the target team is active but its
+  rotation pool is empty
 
 **Unassigned** continues to mean any Lead without a Record Owner.
 Assignment Required is the subset of Unassigned Leads for which an
 automatic assignment was attempted and could not be completed.
 
-Once an Assignment Required Lead is assigned manually, the alert is
-resolved and the resolution is recorded in its assignment history.
+**Eligibility returning does not assign waiting Leads**
+
+Leads waiting in Assignment Required must never be assigned
+automatically because a member became eligible, a team was reactivated,
+a rule was activated or a user was added to a team. Waiting Leads are
+resolved only by the explicit actions below.
+
+**Seeing the warning is not resolving it**
+
+Two capabilities are deliberately separate.
+
+**Confirmed.** The active Team Lead of the target team receives the
+in-app assignment-failure notification for their own team and may view
+the operational detail needed to act on it:
+
+- the Lead reference
+- the canonical failure reason
+- the target Sales Team
+- the time of the failure
+- the Lead's current Assignment Required status
+
+This is confirmed for the Team Lead of that team whatever their
+workspace role, and it grants no access to the Lead's record content,
+to team workload, to performance reporting or to the full assignment
+audit history (Sections 162.1 and 163.6). Broader visibility remains
+unresolved client decision 3 (Section 163.18).
+
+**Not confirmed.** Whether a Team Lead may manually assign, retry or
+bulk reprocess the affected Lead is unresolved client decision 4
+(Section 163.18) and is denied until approved. An Owner/Admin may always
+resolve a waiting Lead. A Manager may resolve one only where that
+permission is separately enabled and only within their record and team
+scope. An ordinary Staff/Sales user may not resolve a waiting Lead
+merely because other operational work is visible to them (Section 162).
+
+**Resolving a waiting Lead**
+
+For a Lead in Assignment Required, a permitted user may:
+
+- manually select an active workspace user as Record Owner (Section
+  163.10)
+- correct the Lead's routing data and retry automatic assignment
+- explicitly re-run the current rule for that Lead
+- select several waiting Leads for explicit bulk reprocessing
+- leave the Lead waiting
+
+**Bulk reprocessing**
+
+Bulk reprocessing is always an explicit, user-initiated action. It must:
+
+- process the selected Leads **oldest first**
+- revalidate the Lead, the rule, the target team and the eligible pool
+  at execution time rather than reusing the earlier evaluation
+- use the same concurrency-safe assignment transaction as interactive
+  assignment (Section 163.8)
+- guarantee that a Lead cannot be assigned twice, including under retry,
+  refresh or repeated background execution
+- audit every attempt, successful or not
+- preserve the original failure reason and every previous failed attempt
+
+**Effect of a successful resolution**
+
+A successful manual resolution must:
+
+- set the selected user as Record Owner
+- resolve the active assignment warning for that Lead
+- retain the original failure history
+- create an assignment-history entry recording the manual method
+  (Section 163.13)
+- not advance the rotation
+- not create or alter any Sales Team membership or eligibility
+
+A successful automatic retry uses the normal team-scoped round-robin
+state and advances it exactly once.
+
+**Assignment-failure notifications**
+
+When automatic assignment fails, the system sends an **in-app**
+notification (Section 175) to:
+
+- the target team's active Team Lead, where a target team was resolved
+- active Owner/Admin users
+
+Where no target team could be resolved, only active Owner/Admin users
+are notified. V1 must not send assignment-failure notifications by
+WhatsApp, email, SMS or push notification.
 
 ## 163.10 Manual Lead Assignment
 
 Manual Lead assignment is separate from round robin.
 
-- Only authorized users may assign or reassign a Lead manually, and only
-  to users they are permitted to assign to.
-- Manual assignment does not change anyone's team membership.
+**Who may assign manually**
+
+- An **Owner/Admin** may manually assign a Lead to any active workspace
+  user.
+- A **Manager** may manually assign only where that permission is
+  enabled, and only within the Manager's permitted records and teams
+  (Sections 162 and 162.1).
+- **Staff/Sales** users cannot manually reassign Leads by default.
+- **Cross-team** manual assignment is Owner/Admin only, unless a later
+  client decision explicitly grants a narrower capability.
+
+**Who may receive a manual assignment**
+
+- A **Paused** member may receive a manual assignment. Pausing restricts
+  automatic assignment only (Section 163.5).
+- An active user who belongs to **no Sales Team** may receive a manual
+  assignment, but never enters automatic team rotation (Section 163.8).
+- The assignee must be an active workspace user. The server validates
+  the assignee and never accepts it from the browser alone.
+
+**Effects**
+
+- Manual assignment **must not** advance or otherwise alter the stored
+  round-robin rotation state for any workspace, team or rule.
+- Manual assignment never creates, ends or changes a Sales Team
+  membership.
+- Manual assignment never changes anyone's Lead-assignment eligibility.
 - Manual assignment does not change the Lead's Follow-ups, Renewal
   actions, Customers or conversations.
 - Every manual assignment records the acting user, previous Record
-  Owner, new Record Owner, Sales Team and timestamp.
-- Manual assignment should not silently advance the round-robin
-  rotation.
+  Owner, new Record Owner, Sales Team where applicable, and timestamp
+  (Section 163.13).
 
-Whether manual assignment advances the rotation, whether a Team Lead may
-reassign Leads within their own team, and who may assign Leads across
-teams are pending decisions (Section 163.18).
+Whether a Team Lead may manually reassign Leads within their own team is
+unresolved client decision 4 (Section 163.18). Until it is approved and
+configured, a Team Lead has no manual reassignment capability beyond
+what their workspace role already grants (Section 162).
 
 ## 163.11 Assignments Outside Round Robin
 
@@ -7980,10 +10051,12 @@ Navigation:
 
 Settings → Sales Teams
 
-This is the administrative control surface. It is for Owner/Admin and
-any user separately authorized for Sales Team administration (Section
-162). It is not the Team Lead's control surface; Team Leads use My Team
-(Section 163.6).
+This is the administrative control surface. It is for Owner/Admin, and
+for a Manager only where the workspace has enabled Sales Team
+administration under unresolved client decision 5 (Sections 162 and
+163.18). It is not the Team Lead's control surface; Team Leads use My
+Team (Section 163.6), and a Manager who is a Team Lead uses My Team for
+that team like anyone else holding the responsibility.
 
 Authorized users can:
 
@@ -8000,6 +10073,36 @@ Authorized users can:
 - view assignment failures and Assignment Required Leads
 - view administrative audit information, including assignment audit
   history
+- resolve or bulk reprocess Leads in Assignment Required, where
+  permitted (Sections 162 and 163.9)
+
+**Reactivating a Sales Team**
+
+Reactivation is a guarded configuration workflow, not a single toggle
+(Section 163.1). The Owner/Admin workflow is:
+
+1. Prepare the team for reactivation.
+2. Add or restore members, each as a **new membership period** (Section
+   163.2).
+3. Designate exactly one active Team Lead (Section 163.3).
+4. Review each member's Lead-assignment eligibility (Section 163.5).
+5. Select which Lead assignment rules to reactivate (Section 163.7).
+   None is reactivated automatically.
+6. Activate the team only after the required validations pass.
+
+A team may become **Active** only when it has exactly one active Team
+Lead and every active member is an active workspace user. The
+configuration may be collected over several interface steps, but
+activation must be validated and applied **atomically**, so the team is
+never exposed as Active without exactly one active Team Lead.
+
+A team may be activated with **zero eligible members**. The interface
+must then warn, before the change is saved, that:
+
+- the team's rotation pool is empty
+- Leads matched to this team will enter Assignment Required (Section
+  163.9)
+- no other Sales Team and no workspace-wide pool will be used instead
 
 Show for each team:
 
@@ -8031,10 +10134,17 @@ The system records:
 - Team Lead designation and replacement
 - a member being made Eligible for Lead assignment
 - a member being Paused from Lead assignment
-- every Owner/Admin eligibility override
+- every Owner/Admin eligibility override, with its required reason
+  (Section 163.5)
 - automatic Lead assignment
 - manual Lead assignment and reassignment
-- assignment failure
+- assignment failure, with its canonical reason (Section 163.9)
+- every explicit retry and every bulk reprocessing attempt, successful
+  or not (Section 163.9)
+- team deactivation and reactivation, including which rules were
+  reactivated (Sections 163.1 and 163.12)
+- every grant and revocation of an explicit record share (Section
+  162.1)
 - Lead assignment rule creation, change and deactivation, including
   Batch Size changes
 
@@ -8053,9 +10163,11 @@ The system records:
 - Timestamp
 - Failure reason, where applicable
 
-Eligibility and membership audit entries record the acting user, the
-affected member, the team, the old and new value, the timestamp and any
-reason provided.
+Eligibility and membership audit entries record the workspace, the Sales
+Team, the affected member, the previous value, the new value, the acting
+user, the timestamp and the reason. An Owner/Admin eligibility override
+must carry a reason; the change is rejected without one (Section
+163.5).
 
 ## 163.14 Sales Team Entities and Relationships
 
@@ -8096,6 +10208,18 @@ required information, not a database design.
 - Existing activity continues to show the original user and team.
 - Deactivated users' and teams' names remain visible in historical
   activity.
+- Deactivating a Sales Team preserves Lead ownership, membership
+  history, Team Lead history, rule history, stored rotation state, Lead
+  assignment history and the failure history of Leads waiting in
+  Assignment Required (Section 163.1).
+- An ended membership stays ended. A user who rejoins a team receives a
+  new membership period rather than a reopened one (Section 163.2).
+- Reactivating a team restores no membership, Team Lead, eligibility,
+  rule or assignment by itself (Sections 163.1 and 163.12).
+- Resolving a Lead in Assignment Required preserves its original failure
+  reason and every earlier failed attempt (Section 163.9).
+- Revoking an explicit record share preserves the activities and audit
+  entries created while the share was valid (Section 162.1).
 
 ## 163.16 Sales Team Mobile Behaviour
 
@@ -8139,7 +10263,8 @@ Before this capability is accepted, the following must be demonstrated:
   position twice.
 - A failed assignment does not advance the rotation, and a retry does not
   duplicate assignment history.
-- Batch Size accepts only positive whole numbers and defaults to 1.
+- Batch Size accepts only an integer from 1 to 100 and defaults to 1; a
+  value outside that range is rejected on the server.
 - With Batch Size greater than 1, concurrent assignments never overfill
   or split a batch, and pausing the batch holder ends the batch at once.
 - A member made eligible again does not resume an unfinished batch.
@@ -8151,46 +10276,72 @@ Before this capability is accepted, the following must be demonstrated:
 - Imported Leads follow Section 124 and Section 134.
 - Teams, memberships, rules and rotation state are isolated between
   workspaces.
+- Automatic assignment resolves exactly one active matching rule, and
+  each of the six canonical failure reasons can be produced and is
+  recorded (Sections 163.7 and 163.9).
+- A rule that would match ambiguously at the same priority cannot be
+  activated, and a workspace cannot hold two active catch-all rules.
+- Manual assignment never advances or alters stored rotation state, and
+  never creates a membership or changes eligibility.
+- An Owner/Admin eligibility override without a reason is rejected, and
+  a successful override records every audited field (Section 163.5).
+- A paused member receives no automatic Lead but can still receive a
+  manual assignment, and nothing restores eligibility automatically.
+- Deactivating a team ends its memberships and Team Lead responsibility,
+  deactivates its rules, empties its pool and preserves all history.
+- A team cannot become Active without exactly one active Team Lead, and
+  activation is atomic.
+- A reactivated team resumes its stored rotation state, skipping a
+  stored next member who is no longer eligible, and assigns no Lead that
+  is already waiting in Assignment Required.
+- A returning member receives a new membership period rather than a
+  reopened one.
+- Leads waiting in Assignment Required are never assigned automatically
+  when eligibility returns, and bulk reprocessing is oldest first,
+  revalidated and unable to assign a Lead twice.
+- Sales Team membership, Team Lead responsibility and WhatsApp
+  conversation assignment grant no record access (Section 162.1).
+- An operational item cannot be assigned to a user who cannot access the
+  related Lead or Customer.
+- A revoked explicit share blocks future access while preserving the
+  activity and audit entries created while it was valid.
+- A capability whose client decision is still open is denied (Sections
+  162 and 163.18).
 
 ## 163.18 Decisions Required
 
-The following are not yet approved. Until they are, the product must
-not assume an answer.
+The following five client decisions are not yet approved. They are the
+only unresolved questions in this section.
 
-1. How is the target Sales Team selected for a new Lead — by
-   Product/Service, Lead Source, geography, manual team selection or
-   ordered routing rules?
-2. Should imported Leads without a valid mapped Record Owner
-   automatically enter team round robin?
-3. Does manual Lead assignment advance the rotation position?
-4. Beyond the minimum roster in Section 163.6, which team-level records,
-   workload and audit history may a Team Lead view?
-5. May a Team Lead manually reassign Leads within their own team?
-6. Which team-management permissions do Managers receive for team
-   configuration, membership changes and cross-team visibility?
-   (Eligibility changes are settled in Section 163.5.)
-7. Must an Owner/Admin give a reason when overriding eligibility?
-8. Is strict rotation always used, or will workload- or capacity-based
-   routing be supported later?
-9. Where is a new member placed in an existing rotation order?
-10. Should a paused member support a scheduled date for becoming
-    eligible again?
-11. Which users receive assignment-failure notifications, beyond the
-    in-app alert to the team's Team Lead and authorized Owner/Admin?
-12. When a deactivated team is reactivated, does its rotation resume
-    from its former position or start again?
-13. Is there a maximum Batch Size for validation, and if so, what is it?
+Until a decision is approved and configured for the workspace, the
+capability it describes is **denied in production** (Section 162). The
+product must not assume an answer, and no interface may present an
+unapproved capability as available.
 
-**Recommended V1 defaults — not approved**
+1. **Target team selection.** How is the target Sales Team selected for
+   a new Lead — by Product/Service, Lead Source, geography, manual team
+   selection or ordered routing rules? Section 163.7 already defines how
+   exactly one rule must be resolved, prioritised and detected as
+   overlapping once the matching field or fields are agreed.
+2. **Imported Leads without a valid Record Owner.** Do imported Leads
+   whose mapped owner is missing or invalid enter team-scoped round
+   robin, or do they remain Unassigned for manual handling (Sections 124
+   and 134)?
+3. **Team Lead visibility.** What team-level records, workload
+   information and assignment history may a Team Lead see beyond the
+   minimum My Team roster defined in Section 163.6?
+4. **Team Lead reassignment.** May a Team Lead manually reassign Leads
+   within their own team (Section 163.10)?
+5. **Manager Sales Team permissions.** What Sales Team management and
+   cross-team permissions do Managers receive — team configuration,
+   membership changes, Team Lead designation, rule configuration,
+   rotation preview, assignment audit history, workload visibility and
+   cross-team manual assignment (Section 162)? Manager record visibility
+   is a separate workspace setting defined in Section 162.1, and Manager
+   eligibility authority is already settled by Section 163.5.
 
-These are suggestions for discussion only:
-
-- Manual assignment does not advance the automatic rotation.
-- New members join at the end of the current rotation order.
-- Ownerless imported Leads remain Unassigned unless the import is
-  explicitly confirmed to use a Lead assignment rule.
-- Owner/Admin overrides record an optional reason.
-- A reactivated team starts its rotation from the beginning.
+Each **Decision required** value in the Permission Matrix (Section 162)
+corresponds to one of these five decisions and is denied until approved.
 
 **164. Lead Sources**
 
@@ -8365,10 +10516,16 @@ For each reminder, select:
 >
 > • Email
 
-These defaults apply when new reminder schedules are created.
+Owner/Admin may also configure one workspace-wide **default reminder
+time**, which is **9:00 AM in the workspace time zone** unless changed
+(Sections 158 and 67.1).
 
-Authorized users may override them for an individual Customer
-Product/Service.
+These defaults apply when new reminder schedules are created. Changing a
+default must not alter the send instant of a reminder instance that is
+already scheduled.
+
+A user holding the reminder permissions in Section 162 may override the
+schedule for an individual Customer Product/Service.
 
 Changing the default should not silently modify reminder schedules
 already created for existing records.
@@ -8420,7 +10577,10 @@ Actions:
 > • Disconnect
 
 Disconnecting WhatsApp requires confirmation and does not delete
-existing conversation history.
+existing conversation history. Queued messages not yet submitted are
+cancelled, while provider-accepted messages keep their final status and
+their delivery events continue to be processed (Sections 81.1 and
+172.1). Reconnecting never resends a cancelled or failed message.
 
 **170. WhatsApp Templates**
 
@@ -8446,9 +10606,10 @@ Statuses may include:
 
 Only eligible templates may be used.
 
-V1 template management means **viewing/syncing available templates and
-using them inside the CRM**. It does not reproduce the complete WhatsApp
-template creation and approval system.
+V1 template management means **viewing and synchronizing available
+templates and using them inside the CRM**. Creating a template,
+submitting it for approval and changing its approval state happen in the
+provider's own administration, never in the CRM (Sections 91 and 81.1).
 
 ## 170.1 Email Settings
 
@@ -8484,7 +10645,7 @@ Actions:
 
 Disabling Email requires confirmation and does not delete existing Email activity or template history.
 
-Email service credentials and secrets must never be exposed to client-side code.
+Email service credentials and secrets must never be exposed to client-side code. Sending, delivery events, bounce and complaint handling follow the adapter contract in Section 116.19.
 
 ## 170.2 Email Templates
 
@@ -8574,7 +10735,11 @@ Example:
 **Renewal**
 
 Disabling a module hides its normal navigation and entry points but does
-not delete existing data.
+not delete existing data. Disabling and re-enabling a module are
+Owner/Admin actions (Section 162), are audited, and require a
+confirmation that describes the queued and scheduled work affected
+(Section 172.1). Historical screens remain available in read-only form
+to users permitted to see them (Section 162.1).
 
 Disabling Email prevents future Email sending and hides normal Email actions. It does not delete Email templates, configuration history or previously recorded Email activity.
 
@@ -8662,8 +10827,92 @@ Disabling a module:
 >
 > • does not silently disable another module without informing the user
 
-If the module is re-enabled later, retained data should become
-accessible again according to user permissions.
+If the module is re-enabled later, retained data becomes accessible
+again according to user permissions. Re-enabling must not automatically
+resume, recreate or retry work that was cancelled while the module was
+disabled (Section 172.1).
+
+## 172.1 In-Flight Work When a Module Is Disabled
+
+This subsection is authoritative for work that is already under way when
+a module is disabled, disconnected or a related record is archived. It
+applies to Sections 50, 78, 171 and 172, and to the WhatsApp, Email,
+Renewals and Import modules.
+
+The governing distinction is whether a provider has already accepted the
+operation.
+
+**Work not yet submitted externally**
+
+Scheduled or queued work that has **not** been submitted to a provider
+is cancelled with the reason `Module Disabled`. This applies to queued
+outbound WhatsApp messages, queued Email messages and reminder instances
+that have not yet been submitted (Section 67.1).
+
+**Provider-accepted work**
+
+Where a provider has already accepted the operation, the CRM must:
+
+> • not report it as cancelled
+>
+> • continue to receive and process its verified delivery-status
+> callbacks
+>
+> • retain its final delivery status
+>
+> • retain every attempt
+>
+> • never submit a duplicate when the module is re-enabled
+
+**Imports already in progress**
+
+An import already in **Processing** may continue to completion when the
+Import module is disabled. A user holding the import permission in
+Section 162 may cancel it explicitly. Disabling the module must:
+
+> • prevent new imports from being started
+>
+> • prevent queued imports from starting
+>
+> • not corrupt an import that is already processing
+>
+> • preserve row-level results and idempotency (Section 134)
+
+**Renewals and Reminders**
+
+Disabling Renewals & Reminders must prevent new Renewal actions and
+reminder schedules, cancel pending reminders that have not been
+submitted externally, and retain Customer Product/Service and renewal
+history. Re-enabling makes the underlying records visible again but must
+not recreate cancelled reminders.
+
+**WhatsApp**
+
+Disabling or disconnecting WhatsApp must prevent new outbound sends,
+prevent queued unsubmitted sends from being submitted, leave
+conversation and message history readable, safely process verified
+webhooks already received or in flight, preserve provider-accepted
+messages and their final statuses, and prevent automatic retry while
+disconnected. Reconnecting must not resend a cancelled or failed
+message.
+
+**Email**
+
+Disabling Email must prevent new sends, cancel queued messages not yet
+submitted to the provider, retain message history, and continue
+processing delivery events for provider-accepted messages. Re-enabling
+must not resend cancelled or failed email.
+
+**Restoring an archived record**
+
+The same distinction applies when a Lead or Customer is archived: queued
+unsubmitted work is cancelled with the archive reason, while
+provider-accepted work completes and keeps its final status. Restoring
+the record recreates none of it (Section 29.1).
+
+Inbound provider events continue to be accepted, verified and retained
+for archived records and for disabled modules. They create no
+operational work (Sections 81.1, 88 and 116.19).
 
 **173. Data Import / Export**
 
@@ -8706,6 +10955,11 @@ Significant administrative actions require confirmation, including:
 > • disable Email
 >
 > • change or remove the verified Email sender
+
+Every confirmation for disabling a module must describe the queued and
+scheduled work that will be cancelled, and must distinguish it from work
+a provider has already accepted, which continues and keeps its final
+status (Section 172.1).
 
 Configuration changes should stop or affect **future use without
 deleting historical CRM data** unless explicitly stated otherwise.
@@ -8811,16 +11065,21 @@ Show:
 
 Actions:
 
-> • Upload
+> • Upload — for a permitted Customer (Sections 162 and 162.1)
 >
 > • View
 >
 > • Download
 >
-> • Delete / Archive, based on permission
+> • Archive — Manager or Owner/Admin only
+>
+> • Restore — Manager or Owner/Admin only
 
-Documents should remain available when a Customer or Product/Service is
-archived.
+Documents remain available when a Customer or Product/Service is
+archived, subject to the archived-record visibility rules (Sections 78
+and 162.1). A document is archived and restored on its own, through the
+document permissions in Section 162; restoring a Customer does not
+restore a separately archived document (Section 29.1).
 
 V1 does not include:
 
@@ -8838,6 +11097,92 @@ For V1, Documents should belong to **Customers only**, not Leads.
 
 If a document relates to a specific Customer Product/Service, the user
 can optionally link it to that record.
+
+## 176.1 Document Storage and Access Security
+
+This subsection is authoritative for Customer document validation,
+storage, access and lifecycle. Sections 77, 116.7 and 176 refer to it.
+
+**Permitted file types in V1**
+
+> • PDF
+>
+> • JPG / JPEG
+>
+> • PNG
+>
+> • DOCX
+>
+> • XLSX
+
+The following are rejected: executable files, scripts, HTML capable of
+active content, macro-enabled Office files, password-protected or
+encrypted Office files, any file whose extension, MIME type and
+signature disagree, and any file larger than **10 MB**.
+
+**Upload lifecycle**
+
+A document holds exactly one of these states:
+
+> • **Uploading** — bytes are being received
+>
+> • **Scanning** — validation and malware scanning are running
+>
+> • **Available** — usable and downloadable by permitted users
+>
+> • **Rejected** — refused by validation or scanning
+>
+> • **Archived** — withdrawn from active lists, retained privately
+
+A file must not become **Available** before server-side signature and
+MIME validation, size validation, a successful malware scan, and
+validation of the user's permission on the related Customer.
+
+A scanner that fails or is unavailable must **fail closed**: the file
+stays unavailable and is never treated as clean.
+
+A **Rejected** file retains safe audit metadata and its rejection
+reason, and must not be downloadable by ordinary users.
+
+**Storage and download**
+
+> • encrypted, private object storage
+>
+> • no public bucket and no permanent public URL
+>
+> • unpredictable object identifiers
+>
+> • sanitized display file names
+>
+> • a permission check on **every** view or download (Sections 162 and
+> 162.1)
+>
+> • a signed download link valid for no more than **five minutes**
+>
+> • downloads served with a safe content disposition
+>
+> • strict workspace and Customer isolation
+>
+> • access logging for every view and download
+
+**Archive, restore and deletion**
+
+Archiving a document removes it from active lists, preserves its
+metadata, history and the stored private object, and never permanently
+deletes it. Archiving and restoring are restricted to Manager and
+Owner/Admin (Section 162), and restoring never bypasses Customer access
+(Section 162.1). A document is archived and restored independently of
+its Customer (Section 29.1).
+
+Permanent retention and deletion periods require CTO and legal approval
+(Section 180.1). They are not client workflow decisions.
+
+**Audit**
+
+Each document records: upload initiation, validation and scan result,
+availability, every view, every download, archive, restore, the handling
+of a rejected upload, and any later permanent deletion carried out under
+an approved retention policy.
 
 **177. System-Wide Behaviour**
 
@@ -8875,9 +11220,28 @@ Product/Service, Custom Field or Module is deactivated or disabled:
 **Permissions**
 
 Users should only see records and actions they are permitted to access.
+Record access is defined in Section 162.1 and the available actions in
+Section 162.
 
 Permissions must be enforced by the system, not only by hiding UI
 controls.
+
+**Workspace isolation and defence in depth**
+
+Every stored business entity belongs to exactly one workspace, and every
+read and write is scoped to the acting user's workspace. Isolation must
+be enforced **both** in server-side authorization and independently at
+the database layer through row-level security, so that a fault in
+application code cannot expose another workspace's data. Neither layer
+replaces the other, and server-side authorization remains required even
+where database enforcement exists.
+
+Provider connections identify their own workspace (Sections 81.1 and
+116.19). Customer contact information — a phone number or email address
+— must never determine workspace identity.
+
+A capability whose client decision is still open is denied until it is
+approved and explicitly configured (Sections 162 and 163.18).
 
 **Significant Actions**
 
@@ -9189,8 +11553,18 @@ Do not introduce:
 > • departments, organizational hierarchies or team structures beyond
 > the Sales Teams used for Lead assignment in Section 163
 >
-> • automatic Lead routing other than the team-scoped round robin in
-> Section 163
+> • automatic Lead routing other than the team-scoped strict round robin
+> in Section 163, specifically excluding workload-based, capacity-based,
+> weighted, performance-based and AI or predictive routing
+>
+> • scheduled or automatic return from Paused Lead-assignment
+> eligibility (Section 163.5)
+>
+> • creating, submitting or approving a WhatsApp template inside the CRM
+> (Sections 81.1 and 91)
+>
+> • permanent deletion of a Customer Document without an approved
+> retention policy (Sections 176.1 and 180.1)
 >
 > • shared Email inbox
 >
@@ -9235,3 +11609,50 @@ predictive or power dialling. Section 27.5 is the authoritative list.
 
 If a feature is not defined in the specification, it should not be
 assumed to exist.
+
+## 180.1 Deployment Decisions Requiring CTO Approval
+
+The following are **deployment and operational decisions**, marked
+`CTO approval required`. They are deliberately separate from the five
+client product decisions in Section 163.18, and must never be counted as
+open client decisions or presented to a workspace as configuration.
+
+> • WhatsApp provider
+>
+> • Email provider
+>
+> • private object-storage provider
+>
+> • backup retention
+>
+> • monitoring and alerting platform
+>
+> • on-call and incident process
+>
+> • support SLA
+>
+> • recovery time objective (RTO)
+>
+> • recovery point objective (RPO)
+>
+> • legal data-retention and deletion policy
+>
+> • final production import limits, after load testing (Section 119.1)
+>
+> • final WhatsApp bulk limit, after load testing and provider-policy
+> review (Section 81.1)
+>
+> • final Email bulk limit, after load testing (Section 116.19)
+>
+> • provider-specific webhook and retry configuration, where provider
+> policy requires an adjustment to the defaults in Sections 81.1 and
+> 116.19
+
+The specification itself remains **provider-agnostic**. Until a provider
+is approved, work proceeds against the documented adapter contract,
+using local or test doubles, and no provider-specific assumption is
+placed in domain logic.
+
+The V1 defaults stated elsewhere in this specification apply until a CTO
+decision changes them, and a configured value must never exceed a safe
+deployment limit.
