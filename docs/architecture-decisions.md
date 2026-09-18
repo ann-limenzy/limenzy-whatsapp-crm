@@ -4,40 +4,124 @@ Decisions that govern how Limenzy CRM is built. Each is approved unless marked
 otherwise. Superseding one requires an explicit decision recorded here.
 
 The product specification (`docs/CRM_SaaS_Product_Spec_V1.md`, 180 numbered
-sections) is the authority on functionality. This file records _engineering_
-decisions and the approved _interpretations_ of ambiguous specification points.
+sections plus decimal sub-sections) is the authority on functionality. This file
+records _engineering_ decisions and the approved _interpretations_ of ambiguous
+specification points.
+
+**Specification baseline.** The current implementation baseline is checkpoint
+`4c633b3` — _docs: finalize production-ready CRM specification_.
+
+- `docs/CRM_SaaS_Product_Spec_V1.md` is **authoritative**.
+- `docs/CRM_SaaS_Product_Spec_V1.docx` is its **synchronized client-readable
+  counterpart**, not a second source of truth. If the two are ever read
+  differently, the Markdown governs.
+- Wireframes and screenshots are **presentation artefacts**. They illustrate
+  layout and flow; they do not define production behaviour. Where an older
+  wireframe conflicts with the specification, the specification governs and the
+  wireframe is treated as out of date.
+- A decision recorded here may refine _how_ something is built. It must never
+  contradict, weaken, replace or silently expand what the specification
+  requires.
 
 ---
 
 ## 1. Fixed platform decisions (CTO)
 
-| Decision                                                | Note                                                            |
-| ------------------------------------------------------- | --------------------------------------------------------------- |
-| Next.js App Router for frontend and backend             | No separate Express/Nest application                            |
-| PostgreSQL                                              | Via Supabase managed Postgres                                   |
-| Supabase                                                | Auth, managed Postgres, document storage                        |
-| Drizzle ORM                                             | Schema, queries, migrations                                     |
-| Tailwind CSS · shadcn/ui · Radix · Lucide · next-themes | UI stack                                                        |
-| Zod · React Hook Form                                   | Validation and complex forms                                    |
-| Vitest · React Testing Library · Playwright             | Testing                                                         |
-| Vercel                                                  | Provisional deployment target, pending a different CTO decision |
+| Decision                                                | Note                                                                                                                                         |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Next.js App Router for frontend and backend             | No separate Express/Nest application                                                                                                         |
+| PostgreSQL                                              | Via Supabase managed Postgres                                                                                                                |
+| Supabase                                                | Auth and managed Postgres (selected foundation). Object storage is the leading implementation choice but **not** finally approved — see §1.1 |
+| Drizzle ORM                                             | Schema, queries, migrations                                                                                                                  |
+| Tailwind CSS · shadcn/ui · Radix · Lucide · next-themes | UI stack                                                                                                                                     |
+| Zod · React Hook Form                                   | Validation and complex forms                                                                                                                 |
+| Vitest · React Testing Library · Playwright             | Testing                                                                                                                                      |
+| Vercel                                                  | Provisional deployment target, not a finally approved production platform (§180.1)                                                           |
+
+### 1.1 Provider choices that are not yet final
+
+Spec §180.1 keeps a defined set of deployment decisions open under
+`CTO approval required`. Until each is approved:
+
+- **PostgreSQL and Supabase Auth** remain the selected application foundation.
+- **Object storage** must satisfy the provider-neutral requirements of §176.1 —
+  private encrypted storage, unpredictable object identifiers, no public bucket
+  and no permanent public URL, a permission check on every view or download, and
+  signed links valid for no more than five minutes. Supabase Storage is the
+  leading, provisional implementation and must not be described as approved.
+- **WhatsApp, Email, monitoring/alerting and backup** providers stay behind the
+  adapter contracts in §81.1, §116.19 and §177. Work proceeds against the
+  documented contract using local or test doubles.
+- **Vercel** remains a provisional deployment target.
+
+A provider choice must never leak into product behaviour. Domain logic carries
+no provider-specific assumption, and replacing a provider must not change what
+the specification says the product does. No provider is swapped without a
+decision recorded here.
 
 ## 2. Approved product and security decisions
 
-| #   | Decision                                                                                                                                                                 |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| D1  | A user may belong to **multiple workspaces**.                                                                                                                            |
-| D2  | V1 authentication is **email + password with email verification**.                                                                                                       |
-| D3  | **Self-service signup** is allowed and creates a workspace through onboarding (spec §7).                                                                                 |
-| D4  | Additional users join by **invitation** (spec §11, §159). Owners never create or handle user passwords.                                                                  |
-| D5  | "Configurable" permissions (spec §162) are **workspace-level settings for the three fixed roles**. No custom roles, no per-user permissions, no field-level permissions. |
-| D6  | Manager **"Own Records"** means records personally owned by that Manager. No team hierarchy in V1.                                                                       |
-| D7  | **Staff** see records they own, plus the minimum related record information needed for work explicitly assigned to them.                                                 |
-| D8  | **Staff cannot import or export** (spec §162 is authoritative over §141's "by default").                                                                                 |
-| D9  | Custom field values use **typed storage**, not one unrestricted JSONB blob. Documented now, implemented later.                                                           |
-| D10 | GUC-based PostgreSQL RLS is the intended defence-in-depth strategy, but is **unproven until the Milestone 1C proof passes** (see §5).                                    |
-| D11 | Notifications are **in-app only** in V1 (spec §175).                                                                                                                     |
-| D12 | Deferred until their own milestones: WhatsApp provider, document limits, import limits, background-job provider.                                                         |
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | A user may belong to **multiple workspaces**.                                                                                                                                                                                                                                                                                                                                                                                              |
+| D2  | V1 authentication is **email + password with email verification**.                                                                                                                                                                                                                                                                                                                                                                         |
+| D3  | **Self-service signup** is allowed and creates a workspace through onboarding (spec §7).                                                                                                                                                                                                                                                                                                                                                   |
+| D4  | Additional users join by **invitation** (spec §11, §159). Owners never create or handle user passwords.                                                                                                                                                                                                                                                                                                                                    |
+| D5  | "Configurable" permissions (spec §162) are **workspace-level settings for the three fixed roles**. No custom roles, no per-user permissions, no field-level permissions.                                                                                                                                                                                                                                                                   |
+| D6  | Manager **"Own Records"** means records personally owned by that Manager. No team hierarchy in V1.                                                                                                                                                                                                                                                                                                                                         |
+| D7  | **Staff** see records they own, plus the minimum related record information needed for work explicitly assigned to them.                                                                                                                                                                                                                                                                                                                   |
+| D8  | **Staff cannot import or export.** §162 and §162.1 are the permission authorities; §141 now states the same denial explicitly, so there is no longer a documented conflict to resolve. Permissions are **denied unless explicitly granted or configured**, and this denial is not one a workspace may relax.                                                                                                                               |
+| D9  | Custom field values use **typed storage**, not one unrestricted JSONB blob. Documented now, implemented later.                                                                                                                                                                                                                                                                                                                             |
+| D10 | §177 requires tenant isolation in **both** server-side authorization and, independently, the database layer. GUC-based PostgreSQL RLS is the intended database-layer implementation and remains **unproven until the Milestone 1C gate passes** (see §6.1).                                                                                                                                                                                |
+| D11 | Notifications are **in-app only** in V1 (spec §175).                                                                                                                                                                                                                                                                                                                                                                                       |
+| D12 | **Partly settled, not wholly deferred.** Import limits (§119.1) and document limits (§176.1) now have specification-approved V1 defaults — see §2.1. Still open: the WhatsApp provider, the Email provider, the private object-storage provider, the background-job mechanism, and the final production/retention values listed in §180.1. Implementation defaults must match the specification until an approved change is recorded here. |
+
+### 2.1 Specification-approved V1 defaults (import and documents)
+
+These are no longer open questions. The specification states them, so the
+implementation's **default configuration must match these values**. They belong
+in configuration rather than scattered hard-coded constants, but a configured
+value may differ from the specification only after an approved change is
+recorded here.
+
+**Import — spec §119.1**
+
+| Default                           | Value                          |
+| --------------------------------- | ------------------------------ |
+| Maximum uploaded file size        | 10 MB                          |
+| Maximum data rows                 | 10,000                         |
+| Maximum columns                   | 200                            |
+| Accepted formats                  | UTF-8 CSV and `.xlsx`          |
+| Worksheets imported per job       | Exactly one, chosen explicitly |
+| Original upload retention         | 24 hours                       |
+| Result and error-report retention | 30 days                        |
+
+§119.1 also requires extension, MIME and file-signature validation with the
+browser-supplied MIME type treated as untrusted, rejection of macros, embedded
+executables and password-protected files, formulas never executed, private
+temporary storage, and a malware scan before parsing.
+
+**Customer Documents — spec §176.1**
+
+| Default              | Value                                                |
+| -------------------- | ---------------------------------------------------- |
+| Maximum file size    | 10 MB per document                                   |
+| Permitted types      | PDF, JPG/JPEG, PNG, DOCX, XLSX                       |
+| Storage              | Private, encrypted object storage — no public bucket |
+| Validation           | Extension, MIME **and** signature must agree         |
+| Malware scanning     | Required, and **fails closed**                       |
+| Signed download link | Expires in no more than five minutes                 |
+| Permission check     | On every view and download (§162, §162.1)            |
+
+**No per-workspace storage quota is defined.** The specification does not state
+one, so the implementation must not invent one. A production quota, and any
+permanent retention or deletion period, require CTO and legal approval under
+§180.1 and §176.1.
+
+**Still requiring CTO approval (§180.1):** final production import limits after
+load testing, the private object-storage provider, backup retention, and the
+legal data-retention and deletion policy. Until each is approved, the V1
+defaults above apply.
 
 ## 3. Approved interpretations of ambiguous specification points
 
@@ -129,6 +213,20 @@ Verified against supabase.com/docs/guides/auth/server-side/nextjs on 2026-09-11.
 
 ## 6. Tenant isolation (planned — Milestone 1C/1D)
 
+**The product requirement (spec §177).** Every application read and write is
+scoped to the acting user's workspace. Isolation must be enforced in
+server-side authorization **and**, independently, at the database layer through
+row-level security, so a fault in one layer does not expose another workspace's
+data. **Neither layer replaces the other**, and server-side authorization
+remains required even where database enforcement exists.
+
+**The engineering gate (Milestone 1C).** The requirement above is settled. What
+is _not_ settled is whether the specific mechanism below — GUC-based RLS over a
+pooled Drizzle connection — holds up. That must be proved by the gate in §6.1
+before tenant data is introduced. If the session-context mechanism cannot be
+demonstrated safe, the answer is to choose another safe design, never to weaken
+or drop the requirement.
+
 Two independent layers.
 
 **Layer 1 — application.** Every repository function takes a branded
@@ -147,7 +245,7 @@ carries no JWT. Every tenant query runs inside a transaction that issues
 > connection — a cross-tenant data leak, and the single most dangerous mistake
 > available in this architecture.
 
-### 5.1 RLS proof gate (blocking for Milestone 1C)
+### 6.1 RLS proof gate (blocking for Milestone 1C)
 
 The pattern must **not** be propagated across the schema until a focused
 integration test demonstrates all of the following against the real Supabase
@@ -415,3 +513,35 @@ required — the pinned set is fully stable and mutually compatible on Node 20.
   The publishable key is the only Supabase key that may carry a
   `NEXT_PUBLIC_` prefix; `src/lib/env.ts` rejects an `sb_secret_` value in
   that variable rather than inlining it into the browser bundle.
+
+## 10. Open decisions — client (§163.18) versus CTO (§180.1)
+
+Two separate groups. A client decision is never moved into the CTO list, and a
+CTO decision is never presented to a workspace as configuration. None of them is
+resolved here.
+
+**Client product decisions — the five still open in §163.18**
+
+1. How the target Sales Team is selected for a new Lead.
+2. Whether imported Leads without a valid Record Owner enter team-scoped round
+   robin.
+3. What a Team Lead may see beyond the minimum My Team roster (§163.6).
+4. Whether a Team Lead may manually reassign Leads within their own team
+   (§163.10).
+5. What Sales Team management and cross-team permissions Managers receive.
+
+**CTO / deployment decisions — §180.1**
+
+WhatsApp provider · Email provider · private object-storage provider · backup
+retention · monitoring and alerting platform · on-call and incident process ·
+support SLA · RTO · RPO · legal data-retention and deletion policy · final
+production import limits after load testing · final WhatsApp and Email bulk
+limits · provider-specific webhook and retry configuration.
+
+**The rule while they stay open.** A capability that depends on an unresolved
+decision **defaults to denied** (§162, §163.18): it is never enabled by default,
+inferred from a role, granted by Sales Team membership or Team Lead
+responsibility, or assumed because a user can reach the screen that offers it.
+Unresolved decisions must not block unrelated foundation work — the schema,
+tenant isolation, permissions plumbing, and every module that does not depend on
+one of them proceeds normally.
