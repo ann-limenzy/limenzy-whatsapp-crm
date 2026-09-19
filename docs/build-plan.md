@@ -90,6 +90,24 @@ No authentication, no database, no permissions, no business modules.
   kept genuinely separate.
 - Foundation schema: `user_profiles`, `workspaces`, `workspace_memberships`,
   `workspace_invitations`, `workspace_modules`, `workspace_role_permissions`.
+
+Progress:
+
+- **1C-A — local Supabase and Drizzle tooling: done.** Pinned CLI and Drizzle,
+  `supabase/config.toml`, the single migration history, safe seed, `db:*`
+  scripts and [local-development.md](./local-development.md).
+- **1C-B — multi-tenant foundation schema: done.** `workspaces`,
+  `user_profiles` and `workspace_memberships`, with the three specification
+  roles (§2, §159), Active/Inactive membership status (§159), deactivate-never-
+  delete foreign keys (§159, §160), and RLS enabled with **no policies** so the
+  tables are deny-by-default. `workspace_invitations`, `workspace_modules` and
+  `workspace_role_permissions` are deliberately **not** in 1C-B: invitations
+  belong with the Settings → Users flow, and module and permission tables with
+  Milestone 1D's gating work.
+- **1C-C — tenant isolation: not started.** Owns the real workspace policies,
+  the session-context mechanism, `requireWorkspaceContext()`, and the §6.1
+  proof gate. Until it lands, no application code reads these tables and
+  nothing here may be described as tenant isolation.
 - `WorkspaceContext` (branded type) and `requireWorkspaceContext()`, which
   re-verifies active membership on every request.
 - `withTenant()` transaction helper issuing `set_config(..., true)`.

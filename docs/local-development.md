@@ -30,13 +30,14 @@ npm install
 
 ## Daily commands
 
-| Command              | What it does                                                  |
-| -------------------- | ------------------------------------------------------------- |
-| `npm run db:start`   | Starts the local Supabase stack                               |
-| `npm run db:status`  | Shows service status and local URLs and keys                  |
-| `npm run db:stop`    | Stops the stack, preserving local data                        |
-| `npm run db:reset`   | **Destroys local data**, replays migrations, re-runs the seed |
-| `npm run db:migrate` | Applies pending migrations to the local database              |
+| Command              | What it does                                                     |
+| -------------------- | ---------------------------------------------------------------- |
+| `npm run db:start`   | Starts the local Supabase stack                                  |
+| `npm run db:status`  | Shows service status and local URLs and keys                     |
+| `npm run db:stop`    | Stops the stack, preserving local data                           |
+| `npm run db:reset`   | **Destroys local data**, replays migrations, re-runs the seed    |
+| `npm run db:migrate` | Applies pending migrations to the local database                 |
+| `npm run test:db`    | Runs the live schema tests; fails if the database is unavailable |
 
 Local endpoints:
 
@@ -111,10 +112,41 @@ Two things must never happen, because both create a second, divergent history:
   database without leaving a reviewable, replayable file. There is deliberately
   no npm script for it.
 
-`supabase/migrations/` currently contains only a `.gitkeep`, because Milestone
-1C-A is tooling only — the first real migration arrives with the workspace
-tables in 1C-B. The CLI prints `Skipping migration .gitkeep…` on start and
-reset; that message is expected and harmless.
+The CLI prints `Skipping migration .gitkeep…` on start and reset — the
+placeholder that keeps the directory tracked. That message is expected and
+harmless.
+
+### Verifying the schema against a real database
+
+`src/server/db/schema.test.ts` checks the schema against the **real** local
+database: it creates rows, violates constraints on purpose, and switches to the
+`anon` and `authenticated` roles to confirm access is denied. It reads the
+connection string from `DRIZZLE_TOOLING_DATABASE_URL` in `.env.local`.
+
+Run the full verification with:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run test:db
+npm run db:stop
+```
+
+**`npm test` does not replace `npm run test:db`.** With the stack stopped the
+schema tests **skip themselves** and print a note, so the ordinary suite stays
+green on a machine that has never started the database — which also means a
+green `npm test` is no evidence that the schema was checked at all.
+
+`npm run test:db` removes that tolerance. It runs only the schema suite, and
+fails with a clear message and a non-zero exit when:
+
+- `DRIZZLE_TOOLING_DATABASE_URL` is unavailable;
+- PostgreSQL cannot be reached;
+- the schema tests would otherwise have skipped;
+- zero database tests executed, or any test was skipped or failed.
+
+It never prints the connection string. Use it before committing a schema
+change, and treat it — not `npm test` — as the schema's verification gate.
 
 ---
 

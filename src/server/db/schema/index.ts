@@ -1,16 +1,19 @@
 /**
- * Application schema barrel.
+ * Application schema barrel — the entry point `drizzle.config.ts` reads.
  *
- * Milestone 1C-A establishes tooling only, so there are deliberately no tables
- * here yet. Workspaces, memberships and every other tenant entity arrive in
- * 1C-B, and their row-level security policies in 1C-C.
+ * Milestone 1C-B adds the multi-tenant foundation only: workspaces, the people
+ * who use them, and the membership that ties the two together. Business
+ * entities (Leads, Customers, Sales Teams and the rest) arrive in their own
+ * milestones, and the row-level security policies that enforce tenant
+ * isolation arrive in 1C-C — the tables below are created with RLS enabled and
+ * **no policies**, so nothing reaches them until those policies exist.
  *
- * When tables are added, export them from this file: it is the entry point
- * `drizzle.config.ts` reads, and the single place the typed schema is assembled.
- *
- * Reminder on process (see `docs/local-development.md`): Drizzle may *generate*
+ * Process reminder (see `docs/local-development.md`): Drizzle may *generate*
  * candidate SQL from these definitions, but the reviewed SQL must land in
  * `supabase/migrations/`, which is the one authoritative applied history.
  */
 
-export {};
+export * from "./enums";
+export * from "./user-profiles";
+export * from "./workspace-memberships";
+export * from "./workspaces";

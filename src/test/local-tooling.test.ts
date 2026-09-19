@@ -128,6 +128,188 @@ describe("one applied migration history", () => {
   });
 });
 
+describe("dedicated live-database verification", () => {
+  it("exposes a database-only test command", async () => {
+    const { scripts } = await packageJson();
+    expect(scripts["test:db"]).toBeDefined();
+    expect(scripts["test:db"]).toContain("scripts/test-db.mjs");
+  });
+
+  it("runs only the database suite", async () => {
+    const runner = await readRepoFile("scripts/test-db.mjs");
+    expect(runner).toContain("src/server/db/schema.test.ts");
+    // It must not fall back to the whole suite, which would hide a skip.
+    expect(runner).not.toMatch(/vitest[^\n]*run['"\s,\]]*$/m);
+  });
+
+  it("cannot report success when the database suite skips", async () => {
+    const runner = await readRepoFile("scripts/test-db.mjs");
+    // Every one of these is a documented failure mode of the command.
+    expect(runner).toContain("REQUIRE_DATABASE_TESTS");
+    expect(runner).toMatch(/numPendingTests/);
+    expect(runner).toMatch(/total === 0/);
+    expect(runner).toMatch(/pending > 0/);
+    // ...and each one exits non-zero.
+    expect(runner).toContain("process.exit(1)");
+  });
+
+  it("makes the suite throw rather than skip when verification is required", async () => {
+    const suite = await readRepoFile("src/server/db/schema.test.ts");
+    expect(suite).toContain('process.env.REQUIRE_DATABASE_TESTS === "1"');
+    // The throw must happen at module load, so the file cannot collect green.
+    expect(suite).toMatch(/if \(REQUIRED\) \{[\s\S]{0,400}throw new Error/);
+  });
+
+  it("never prints the connection string", async () => {
+    const runner = await readRepoFile("scripts/test-db.mjs");
+    // No log or error path may interpolate the value.
+    for (const line of runner.split("\n")) {
+      if (!/console\.(log|error|warn)|fail\(/.test(line)) continue;
+      expect(line).not.toMatch(/\$\{url\}/);
+      expect(line).not.toMatch(/\$\{connectionString/);
+    }
+    expect(runner).not.toMatch(/console\.\w+\([^)]*\burl\b/);
+  });
+
+  it("keeps the ordinary suite usable without a database", async () => {
+    const { scripts } = await packageJson();
+    // `npm test` stays plain vitest: no REQUIRE_DATABASE_TESTS, so the schema
+    // suite skips instead of failing on a machine with no local stack.
+    expect(scripts.test).toBe("vitest run");
+    expect(scripts.test).not.toContain("REQUIRE_DATABASE_TESTS");
+  });
+});
+
+describe("the 1C-B migration file", () => {
+  const readMigrations = async () => {
+    const names = (await readdir("supabase/migrations")).filter((n) =>
+      n.endsWith(".sql"),
+    );
+    const files = await Promise.all(
+      names.map(async (name) => ({
+        name,
+        sql: await readRepoFile(`supabase/migrations/${name}`),
+      })),
+    );
+    return files;
+  };
+
+  it("is timestamped and descriptively named", async () => {
+    const files = await readMigrations();
+    expect(files.length).toBeGreaterThan(0);
+    for (const { name } of files) {
+      expect(name).toMatch(/^\d{14}_[a-z0-9_]+\.sql$/);
+    }
+  });
+
+  it("is the only applied migration history", async () => {
+    // A second history under drizzle/ would diverge silently; the directory is
+    // git-ignored scratch output and must never be committed.
+    const tracked = await readdir(".");
+    expect(tracked).toContain("supabase");
+    const gitignore = await readRepoFile(".gitignore");
+    expect(gitignore).toContain("/drizzle/");
+  });
+
+  it("creates only the approved 1C-B objects", async () => {
+    const sql = (await readMigrations()).map((f) => f.sql).join("\n");
+    const created = [
+      ...sql.matchAll(/create table (?:if not exists )?public\.(\w+)/gi),
+    ]
+      .map((m) => m[1])
+      .sort();
+    expect(created).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+      "workspaces",
+    ]);
+  });
+
+  it("creates no out-of-scope business table", async () => {
+    const sql = (await readMigrations())
+      .map((f) => f.sql)
+      .join("\n")
+      .toLowerCase();
+    for (const forbidden of [
+      "sales_team",
+      "lead_assignment",
+      "create table public.leads",
+      "create table public.customers",
+      "follow_up",
+      "renewal",
+      "whatsapp",
+      "workspace_invitations",
+      "workspace_modules",
+      "workspace_role_permissions",
+    ]) {
+      expect(sql).not.toContain(forbidden);
+    }
+  });
+
+  it("enables row level security on every table it creates", async () => {
+    const sql = (await readMigrations()).map((f) => f.sql).join("\n");
+    for (const table of [
+      "workspaces",
+      "user_profiles",
+      "workspace_memberships",
+    ]) {
+      expect(sql).toMatch(
+        new RegExp(
+          `alter table public\\.${table}\\s+enable row level security`,
+          "i",
+        ),
+      );
+    }
+  });
+
+  it("defines no permissive policy", async () => {
+    const sql = (await readMigrations())
+      .map((f) => f.sql)
+      .join("\n")
+      .toLowerCase();
+    expect(sql).not.toContain("create policy");
+    expect(sql).not.toContain("using (true)");
+  });
+
+  it("avoids destructive statements", async () => {
+    const sql = (await readMigrations())
+      .map((f) => f.sql)
+      .join("\n")
+      .toLowerCase();
+    for (const destructive of [
+      "drop table",
+      "drop schema",
+      "truncate",
+      "delete from",
+      "drop database",
+    ]) {
+      expect(sql).not.toContain(destructive);
+    }
+  });
+
+  it("does not touch Supabase's own schemas", async () => {
+    const sql = (await readMigrations())
+      .map((f) => f.sql)
+      .join("\n")
+      .toLowerCase();
+    // Referencing auth.users with a foreign key is fine; altering it is not.
+    expect(sql).not.toMatch(/create table auth\./);
+    expect(sql).not.toMatch(/alter table auth\./);
+    expect(sql).not.toMatch(/(create|alter|drop) schema (auth|storage)/);
+  });
+
+  it("carries no credential, environment identifier or client data", async () => {
+    for (const { sql } of await readMigrations()) {
+      expect(sql).not.toMatch(/sb_(secret|publishable)_[A-Za-z0-9_-]+/);
+      expect(sql).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}\./);
+      expect(sql).not.toMatch(/postgres(ql)?:\/\/[^\s]+/);
+      expect(sql.toLowerCase()).not.toContain("fincare");
+      // No hard-coded row identifiers: the migration creates structure only.
+      expect(sql).not.toMatch(/insert into public\./i);
+    }
+  });
+});
+
 describe("local secrets stay out of the repository", () => {
   it("ignores environment and Supabase local state files", async () => {
     const gitignore = await readRepoFile(".gitignore");
