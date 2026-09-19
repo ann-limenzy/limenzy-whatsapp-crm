@@ -21,8 +21,9 @@ import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SUITE = "src/server/db/schema.test.ts";
+const SUITES = ["src/server/db/schema.test.ts", "src/server/db/roles.test.ts"];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
+const RUNTIME_VARIABLE = "DATABASE_URL";
 
 const fail = (message, hint) => {
   console.error(`\n✗ test:db — ${message}`);
@@ -31,16 +32,16 @@ const fail = (message, hint) => {
   process.exit(1);
 };
 
-/** Read the connection string without ever echoing it. */
-function connectionString() {
-  if (process.env[VARIABLE]) return process.env[VARIABLE];
+/** Read a connection string without ever echoing it. */
+function connectionString(variable = VARIABLE) {
+  if (process.env[variable]) return process.env[variable];
   try {
     for (const line of readFileSync(".env.local", "utf8").split("\n")) {
       const trimmed = line.trim();
       if (trimmed.startsWith("#")) continue;
       const separator = trimmed.indexOf("=");
       if (separator === -1) continue;
-      if (trimmed.slice(0, separator) !== VARIABLE) continue;
+      if (trimmed.slice(0, separator) !== variable) continue;
       const value = trimmed.slice(separator + 1).trim();
       if (value) return value;
     }
@@ -73,13 +74,38 @@ try {
   await probe.end({ timeout: 2 }).catch(() => {});
 }
 
+// The runtime role must exist too: a database suite that silently ran without
+// it would be testing only half the design.
+const runtimeUrl = connectionString(RUNTIME_VARIABLE);
+if (!runtimeUrl) {
+  fail(
+    `${RUNTIME_VARIABLE} is not available.`,
+    `Run "npm run db:role:local" to provision the runtime role after a reset.`,
+  );
+}
+const runtimeProbe = postgres(runtimeUrl, {
+  max: 1,
+  connect_timeout: 5,
+  onnotice: () => {},
+});
+try {
+  await runtimeProbe`select 1`;
+} catch {
+  fail(
+    "the runtime role could not connect.",
+    `Run "npm run db:reset" then "npm run db:role:local".`,
+  );
+} finally {
+  await runtimeProbe.end({ timeout: 2 }).catch(() => {});
+}
+
 const report = join(tmpdir(), `limenzy-test-db-${process.pid}.json`);
 const result = spawnSync(
   "npx",
   [
     "vitest",
     "run",
-    SUITE,
+    ...SUITES,
     "--reporter=default",
     "--reporter=json",
     `--outputFile=${report}`,
@@ -88,7 +114,12 @@ const result = spawnSync(
     stdio: "inherit",
     // The suite turns an unreachable database into a thrown error rather than
     // a skip when this is set.
-    env: { ...process.env, [VARIABLE]: url, REQUIRE_DATABASE_TESTS: "1" },
+    env: {
+      ...process.env,
+      [VARIABLE]: url,
+      [RUNTIME_VARIABLE]: runtimeUrl,
+      REQUIRE_DATABASE_TESTS: "1",
+    },
   },
 );
 
@@ -113,7 +144,7 @@ if (result.status !== 0 || failed > 0) {
 if (total === 0) {
   fail(
     "zero database tests executed.",
-    `Expected ${SUITE} to contribute tests; a filter or collection error would explain this.`,
+    `Expected ${SUITES.join(" and ")} to contribute tests; a filter or collection error would explain this.`,
   );
 }
 if (pending > 0 || todo > 0) {

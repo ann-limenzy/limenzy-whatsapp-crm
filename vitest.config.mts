@@ -5,8 +5,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 /**
- * Read one value out of `.env.local` for the schema tests that need a live
- * local database.
+ * Read one value out of `.env.local` for the tests that need a live local
+ * database.
  *
  * Only that single variable is taken. The rest of the file is deliberately
  * left alone: `src/lib/env.test.ts` asserts on an *unconfigured* environment,
@@ -14,7 +14,7 @@ import { defineConfig } from "vitest/config";
  * tests. When the file or the value is absent — or the local stack is stopped
  * — the schema tests skip themselves.
  */
-function localDatabaseUrl(): string {
+function localEnvValue(key: string): string {
   try {
     const file = readFileSync(
       resolve(import.meta.dirname, ".env.local"),
@@ -25,8 +25,7 @@ function localDatabaseUrl(): string {
       if (trimmed.startsWith("#")) continue;
       const separator = trimmed.indexOf("=");
       if (separator === -1) continue;
-      if (trimmed.slice(0, separator) !== "DRIZZLE_TOOLING_DATABASE_URL")
-        continue;
+      if (trimmed.slice(0, separator) !== key) continue;
       return trimmed.slice(separator + 1).trim();
     }
   } catch {
@@ -53,7 +52,9 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     env: {
       DRIZZLE_TOOLING_DATABASE_URL:
-        process.env.DRIZZLE_TOOLING_DATABASE_URL ?? localDatabaseUrl(),
+        process.env.DRIZZLE_TOOLING_DATABASE_URL ??
+        localEnvValue("DRIZZLE_TOOLING_DATABASE_URL"),
+      DATABASE_URL: process.env.DATABASE_URL ?? localEnvValue("DATABASE_URL"),
     },
     include: ["src/**/*.test.{ts,tsx}"],
     css: false,

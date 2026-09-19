@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   EnvConfigurationError,
-  isSupabaseConfigured,
   OPTIONAL_ENV,
-  publicEnv,
   REQUIRED_PUBLIC_ENV,
+  databaseEnv,
+  isSupabaseConfigured,
+  publicEnv,
   resetEnvCacheForTests,
   serverEnv,
 } from "@/lib/env";
@@ -266,5 +267,98 @@ describe("documented variable names", () => {
     // empty secret invites someone to fill it in on the browser-safe side.
     expect(example).toMatch(/#\s*SUPABASE_SECRET_KEY=/);
     expect(example).not.toMatch(/^SUPABASE_SECRET_KEY=.+$/m);
+  });
+});
+
+describe("databaseEnv", () => {
+  // Fixtures only. No real password or host appears in this file.
+  const url = (user: string, scheme = "postgresql") =>
+    `${scheme}://${user}:FixturePasswordNotReal@127.0.0.1:54322/postgres`;
+
+  beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.DRIZZLE_TOOLING_DATABASE_URL;
+  });
+
+  it("is not required by the rest of the configuration", () => {
+    // Lazy on purpose: build, lint, typecheck and the ordinary unit suite must
+    // work on a machine with no database and no .env.local.
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+    expect(isSupabaseConfigured()).toBe(true);
+    expect(() => publicEnv()).not.toThrow();
+    expect(() => serverEnv()).not.toThrow();
+  });
+
+  it("throws only when the database is actually used", () => {
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it.each(["postgres", "postgresql"])("accepts the %s:// scheme", (scheme) => {
+    process.env.DATABASE_URL = url("limenzy_app", scheme);
+    expect(databaseEnv().DATABASE_URL).toBe(url("limenzy_app", scheme));
+  });
+
+  it.each(["mysql", "http", "https", "postgres+ssh", "file"])(
+    "rejects the %s:// scheme",
+    (scheme) => {
+      process.env.DATABASE_URL = url("limenzy_app", scheme);
+      expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+    },
+  );
+
+  it.each([
+    "postgres",
+    "supabase_admin",
+    "limenzy_owner",
+    "limenzy_bootstrap",
+    "service_role",
+    "authenticated",
+    "anon",
+    "limenzy_app2",
+    "LIMENZY_APP",
+  ])("rejects the %s role", (user) => {
+    process.env.DATABASE_URL = url(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects an empty username", () => {
+    process.env.DATABASE_URL =
+      "postgresql://:FixturePasswordNotReal@127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+    process.env.DATABASE_URL = "postgresql://127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts a percent-encoded form of the approved role", () => {
+    process.env.DATABASE_URL =
+      "postgresql://limenzy%5Fapp:FixturePasswordNotReal@127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  it("rejects a value that is not a URL at all", () => {
+    process.env.DATABASE_URL = "not a connection string";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("never falls back to the tooling connection", () => {
+    process.env.DRIZZLE_TOOLING_DATABASE_URL = url("postgres");
+    // Tooling set, runtime absent: must still fail rather than borrow it.
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("names the variable in errors without echoing its value", () => {
+    const secretish = url("postgres");
+    process.env.DATABASE_URL = secretish;
+    try {
+      databaseEnv();
+      expect.unreachable("databaseEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("DATABASE_URL");
+      expect(message).not.toContain(secretish);
+      expect(message).not.toContain("FixturePasswordNotReal");
+      expect(message).not.toContain("127.0.0.1");
+    }
   });
 });

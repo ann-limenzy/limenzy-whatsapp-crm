@@ -37,9 +37,12 @@ describe("database package scripts", () => {
     expect(devDependencies.supabase).toBeDefined();
     for (const [name, command] of Object.entries(scripts)) {
       if (!name.startsWith("db:")) continue;
-      expect(command).toMatch(/^supabase /);
-      // An absolute path would tie the script to one machine; npx --no-install
-      // would bypass the pinned resolution this repository relies on.
+      // Two permitted shapes and no others: the pinned Supabase CLI, or a
+      // repository-local Node runner. A global binary, an absolute path or npx
+      // is rejected.
+      const pinnedCli = /^supabase /.test(command);
+      const localRunner = /^node scripts\/[a-z0-9-]+\.mjs$/.test(command);
+      expect(`${name}: ${pinnedCli || localRunner}`).toBe(`${name}: true`);
       expect(command).not.toMatch(/^\//);
       expect(command).not.toContain("npx");
     }
@@ -83,6 +86,50 @@ describe("database package scripts", () => {
   it("offers no standalone seed command, because reset seeds", async () => {
     const { scripts } = await packageJson();
     expect(scripts["db:seed"]).toBeUndefined();
+  });
+});
+
+describe("local runtime-role provisioning", () => {
+  it("exposes a dedicated npm script using the pinned Node runner", async () => {
+    const { scripts } = await packageJson();
+    expect(scripts["db:role:local"]).toBe("node scripts/db-role-local.mjs");
+  });
+
+  it("does not chain provisioning into db:reset", async () => {
+    // Kept separate and explicit: a hidden credential rotation inside a reset
+    // would be surprising, and nesting npm scripts invites recursion.
+    const { scripts } = await packageJson();
+    expect(scripts["db:reset"]).not.toContain("db:role:local");
+    expect(scripts["db:reset"]).not.toContain("npm run");
+  });
+
+  it("keeps the documented reset sequence in the developer guide", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    const order = [
+      "npm run db:start",
+      "npm run db:reset",
+      "npm run db:role:local",
+      "npm run test:db",
+      "npm run db:stop",
+    ];
+    let cursor = -1;
+    for (const step of order) {
+      const at = guide.indexOf(step, cursor + 1);
+      expect(at, `${step} must appear, in order`).toBeGreaterThan(cursor);
+      cursor = at;
+    }
+  });
+
+  it("adds no MIGRATION_DATABASE_URL credential", async () => {
+    const example = await readRepoFile(".env.example");
+    expect(example).not.toMatch(/^MIGRATION_DATABASE_URL=/m);
+    expect(example).not.toMatch(/^#\s*MIGRATION_DATABASE_URL=/m);
+  });
+
+  it("documents DATABASE_URL as an empty server-only entry", async () => {
+    const example = await readRepoFile(".env.example");
+    expect(example).toMatch(/^DATABASE_URL=$/m);
+    expect(example).not.toMatch(/^NEXT_PUBLIC_DATABASE_URL/m);
   });
 });
 

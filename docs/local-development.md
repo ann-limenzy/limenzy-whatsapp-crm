@@ -30,14 +30,15 @@ npm install
 
 ## Daily commands
 
-| Command              | What it does                                                     |
-| -------------------- | ---------------------------------------------------------------- |
-| `npm run db:start`   | Starts the local Supabase stack                                  |
-| `npm run db:status`  | Shows service status and local URLs and keys                     |
-| `npm run db:stop`    | Stops the stack, preserving local data                           |
-| `npm run db:reset`   | **Destroys local data**, replays migrations, re-runs the seed    |
-| `npm run db:migrate` | Applies pending migrations to the local database                 |
-| `npm run test:db`    | Runs the live schema tests; fails if the database is unavailable |
+| Command                 | What it does                                                              |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `npm run db:start`      | Starts the local Supabase stack                                           |
+| `npm run db:status`     | Shows service status and local URLs and keys                              |
+| `npm run db:stop`       | Stops the stack, preserving local data                                    |
+| `npm run db:reset`      | **Destroys local data**, replays migrations, re-runs the seed             |
+| `npm run db:migrate`    | Applies pending migrations to the local database                          |
+| `npm run db:role:local` | Enables the `limenzy_app` runtime login locally and writes `DATABASE_URL` |
+| `npm run test:db`       | Runs the live schema tests; fails if the database is unavailable          |
 
 Local endpoints:
 
@@ -128,9 +129,38 @@ Run the full verification with:
 ```bash
 npm run db:start
 npm run db:reset
+npm run db:role:local
 npm run test:db
 npm run db:stop
 ```
+
+### Why `db:role:local` is a separate step
+
+The application connects as **`limenzy_app`** — a non-owner role with
+`NOBYPASSRLS`, so row-level security applies to it in full. The migration
+creates that role as `NOLOGIN` and gives it no password, because a password must
+never live in a migration or in Git.
+
+`npm run db:role:local` generates a local-only password, enables the login and
+writes `DATABASE_URL` into `.env.local`. It prints nothing identifying, and the
+file is rewritten atomically with mode `0600`, preserving every other entry.
+
+**`npm run db:reset` returns the role to `NOLOGIN`** — verified, not assumed —
+so provisioning must follow every reset. It is a separate step rather than being
+chained into `db:reset` for two reasons: a reset should not silently rotate a
+credential, and nesting npm scripts inside one another invites recursion. If you
+forget it, `npm run test:db` fails immediately with a message naming the command
+to run; nothing skips.
+
+Re-running is always safe. If the database password is changed but the file
+write then fails, the two disagree and the application cannot connect — the
+recovery is simply to run `npm run db:role:local` again, which generates a fresh
+password and rewrites the file. No manual database repair is ever needed.
+
+The tooling connection (`DRIZZLE_TOOLING_DATABASE_URL`) is a superuser that
+**bypasses RLS**. It is for `drizzle-kit` and test fixtures only, and runtime
+code never falls back to it: `src/lib/env.ts` rejects a `DATABASE_URL` that
+names a superuser or owner account.
 
 **`npm test` does not replace `npm run test:db`.** With the stack stopped the
 schema tests **skip themselves** and print a note, so the ordinary suite stays

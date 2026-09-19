@@ -21,6 +21,7 @@
     "db:stop": "supabase stop",
     "db:status": "supabase status",
     "db:reset": "supabase db reset --local",
+    "db:role:local": "node scripts/db-role-local.mjs",
     "db:migrate": "supabase migration up --local",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },

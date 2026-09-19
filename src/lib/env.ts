@@ -87,6 +87,82 @@ const serverSchema = z.object({
     .optional(),
 });
 
+/**
+ * The application's runtime database connection (Milestone 1C-C).
+ *
+ * Deliberately NOT part of `serverEnv()`: it is validated only when database
+ * functionality is actually invoked, so `next build`, lint, typecheck and the
+ * ordinary unit suite keep working on a machine with no local database.
+ *
+ * There is no fallback: this reads `DATABASE_URL` and nothing else. The local
+ * tooling connection is a superuser that bypasses row-level security, so using
+ * it at runtime would silently delete the database half of tenant isolation.
+ *
+ * Production code deliberately does not even read the tooling variable's name —
+ * comparing against it here would be ineffective anyway, since that variable
+ * does not exist in production. Instead the refinement below rejects a
+ * superuser/owner account outright, and the live suite asserts that the two
+ * connection strings resolve to genuinely different authorities.
+ */
+/**
+ * The one role the application is permitted to connect as, and the only
+ * protocols this project uses.
+ *
+ * An allow-list, not a deny-list: there is exactly one approved runtime role,
+ * so enumerating forbidden ones would be both longer and weaker — a role added
+ * later would pass by default.
+ */
+const RUNTIME_ROLE = "limenzy_app";
+const RUNTIME_PROTOCOLS = new Set(["postgres:", "postgresql:"]);
+
+/** Parse without ever surfacing the value. Returns null when unparseable. */
+function parseConnectionUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+const databaseSchema = z.object({
+  DATABASE_URL: z
+    .string()
+    .min(1, "must be set")
+    .refine((value) => parseConnectionUrl(value) !== null, {
+      message: "must be a valid connection URL",
+    })
+    .refine(
+      (value) => {
+        const url = parseConnectionUrl(value);
+        return url !== null && RUNTIME_PROTOCOLS.has(url.protocol);
+      },
+      {
+        message: "must use the postgres:// or postgresql:// scheme",
+      },
+    )
+    .refine(
+      (value) => {
+        const url = parseConnectionUrl(value);
+        if (url === null) return false;
+        let username: string;
+        try {
+          username = decodeURIComponent(url.username);
+        } catch {
+          return false;
+        }
+        return username === RUNTIME_ROLE;
+      },
+      {
+        message:
+          `must connect as the ${RUNTIME_ROLE} runtime role — not a ` +
+          "superuser, the schema owner, or any other account. Run " +
+          "`npm run db:role:local` to provision it.",
+      },
+    ),
+});
+
+export type DatabaseEnv = z.infer<typeof databaseSchema>;
+
 export type PublicEnv = z.infer<typeof publicSchema>;
 export type ServerEnv = z.infer<typeof serverSchema>;
 
@@ -152,6 +228,26 @@ export function serverEnv(): ServerEnv {
   return serverCache;
 }
 
+let databaseCache: DatabaseEnv | null = null;
+
+/**
+ * Read the runtime database configuration.
+ *
+ * Called only by the server-side database client, so nothing that does not
+ * touch the database ever requires it to be set.
+ */
+export function databaseEnv(): DatabaseEnv {
+  if (databaseCache) return databaseCache;
+  const parsed = databaseSchema.safeParse({
+    DATABASE_URL: process.env.DATABASE_URL,
+  });
+  if (!parsed.success) {
+    throw new EnvConfigurationError(describeIssues(parsed.error));
+  }
+  databaseCache = parsed.data;
+  return databaseCache;
+}
+
 /**
  * Non-throwing check.
  *
@@ -175,4 +271,5 @@ export const OPTIONAL_ENV = ["NEXT_PUBLIC_SITE_URL"] as const;
 export function resetEnvCacheForTests(): void {
   publicCache = null;
   serverCache = null;
+  databaseCache = null;
 }
