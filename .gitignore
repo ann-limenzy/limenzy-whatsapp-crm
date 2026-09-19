@@ -48,11 +48,23 @@ yarn-error.log*
 .env*
 !.env.example
 
-# secrets and credentials (Supabase service-role keys, database URLs, etc.)
+# secrets and credentials (Supabase secret keys, database URLs, etc.)
 .supabase/
 supabase/.branches/
 supabase/.temp/
 supabase/.env
+
+# Drizzle Kit candidate output. Scratch SQL generated for review only — never
+# an applied migration history. Reviewed SQL belongs in supabase/migrations/,
+# which stays tracked. See docs/local-development.md.
+/drizzle/
+
+# local database dumps and generated state (never committed).
+# Note: *.sql is deliberately NOT ignored — supabase/migrations/*.sql and
+# supabase/seed.sql are reviewed source and must stay tracked.
+*.dump
+*.backup
+/supabase/dumps/
 **/service-role*
 *.key
 *.p12

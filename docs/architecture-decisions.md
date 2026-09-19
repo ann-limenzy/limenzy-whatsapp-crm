@@ -123,6 +123,23 @@ load testing, the private object-storage provider, backup retention, and the
 legal data-retention and deletion policy. Until each is approved, the V1
 defaults above apply.
 
+### 2.2 One applied migration history (Milestone 1C-A)
+
+`supabase/migrations/` is the **single authoritative applied migration
+history**. The Supabase CLI applies and resets from it; nothing else applies SQL
+to a shared environment.
+
+Drizzle's role is narrower: `src/server/db/schema/` holds the typed schema, and
+`drizzle-kit generate` may produce **candidate** SQL into the git-ignored
+`./drizzle` directory for review. Reviewed SQL is then committed into
+`supabase/migrations/`.
+
+Consequently `drizzle-kit migrate` is never run against a database the Supabase
+CLI migrates, and `drizzle-kit push` is not a migration mechanism — it mutates a
+database without leaving a reviewable, replayable file. Neither has an npm
+script. The reasoning and the day-to-day commands are in
+[local-development.md](./local-development.md).
+
 ## 3. Approved interpretations of ambiguous specification points
 
 ### 3.1 Follow-ups module gating (spec §43, §171, §172, §25)

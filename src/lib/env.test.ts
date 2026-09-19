@@ -190,6 +190,48 @@ describe("the legacy key model is not supported", () => {
     expect(() => publicEnv()).toThrow(EnvConfigurationError);
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   });
+
+  // The local Supabase stack prints legacy anon/service_role JWTs alongside
+  // the current keys, so pasting the wrong one is an easy mistake. A JWT here
+  // must fail loudly rather than appear to work under a different trust model.
+  // Structurally shaped fake — not a real token from anywhere.
+  const FAKE_LEGACY_JWT =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ZmFrZS1wYXlsb2FkLW5vdC1hLXJlYWwta2V5.ZmFrZS1zaWduYXR1cmU";
+
+  it("rejects a legacy JWT in the publishable-key variable", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = FAKE_LEGACY_JWT;
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("names the variable and explains why, without echoing the value", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = FAKE_LEGACY_JWT;
+    try {
+      publicEnv();
+      expect.unreachable("publicEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+      expect(message).toContain("legacy");
+      expect(message).not.toContain(FAKE_LEGACY_JWT);
+    }
+  });
+
+  it("rejects a malformed value that is neither form", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "not-a-supabase-key";
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts the current publishable form", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+    expect(isSupabaseConfigured()).toBe(true);
+    expect(() => publicEnv()).not.toThrow();
+  });
 });
 
 describe("documented variable names", () => {

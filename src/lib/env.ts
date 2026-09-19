@@ -21,6 +21,14 @@ import { z } from "zod";
  * echoed, or included in an error message.
  */
 
+/**
+ * A legacy Supabase `anon` / `service_role` key is a JWT: three
+ * base64url segments separated by dots, starting with the `{"alg":` header.
+ * Matched structurally rather than decoded — the point is to refuse it, not
+ * to read it.
+ */
+const LEGACY_JWT = /^eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
+
 const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z
     .string()
@@ -45,6 +53,25 @@ const publicSchema = z.object({
       message:
         "looks like a SECRET key — that must never be exposed to the browser; " +
         "use the publishable key (sb_publishable_...)",
+    })
+    /**
+     * Reject the legacy `anon` JWT outright.
+     *
+     * The legacy key model is not supported under any variable name. A JWT
+     * accepted here would appear to work while carrying a different trust
+     * model from the one the rest of the application assumes, and the local
+     * Supabase stack still prints legacy keys alongside the current ones —
+     * so this is a mistake that is genuinely easy to make by copy-and-paste.
+     */
+    .refine((value) => !LEGACY_JWT.test(value), {
+      message:
+        "looks like a legacy anon/service_role JWT — that key model is not " +
+        "supported; use the current publishable key (sb_publishable_...)",
+    })
+    .refine((value) => value.startsWith("sb_publishable_"), {
+      message:
+        "must be a current Supabase publishable key beginning with " +
+        "'sb_publishable_'",
     }),
 });
 

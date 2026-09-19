@@ -41,7 +41,11 @@ is not a reason to stall the foundation.
 - **Never invent production credentials**, and never commit one.
 - **Never place a service-role or secret key in a browser-exposed variable.**
   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` is the only Supabase key that may carry
-  the prefix; `src/lib/env.ts` rejects an `sb_secret_` value there.
+  the prefix; `src/lib/env.ts` rejects an `sb_secret_` value there, and also
+  rejects a legacy `anon`/`service_role` JWT.
+
+Setup, daily commands and troubleshooting live in
+[local-development.md](./local-development.md).
 
 **Local emulation proves the code, not the deployment.** Passing locally does
 not demonstrate that production provider configuration is correct. A separate
