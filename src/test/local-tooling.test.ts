@@ -226,6 +226,7 @@ describe("dedicated live-database verification", () => {
     // A live suite that the runner does not know about would skip silently
     // under `npm test` and never be verified at all.
     expect(runner).toContain("src/server/db/identity.test.ts");
+    expect(runner).toContain("src/server/auth/workspace-context.db.test.ts");
     // It must not fall back to the whole suite, which would hide a skip.
     expect(runner).not.toMatch(/vitest[^\n]*run['"\s,\]]*$/m);
   });
@@ -473,6 +474,10 @@ describe("the tenant gateway import boundary", () => {
     "src/server/db/tenant.ts": ["the runtime pool", "the context constructor"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
+    // Workspace selection: the one module that may mint a tenant context,
+    // because it is the one that validates the choice against memberships read
+    // under row-level security. It never touches the pool.
+    "src/server/auth/workspace-context.ts": ["the context constructor"],
   };
 
   const productionFiles = productionSources;
@@ -514,9 +519,10 @@ describe("the tenant gateway import boundary", () => {
     expect(dbLayer).toContain("src/server/db/tenant.ts");
   });
 
-  it("allows exactly three files, each only for what it needs", async () => {
+  it("allows exactly four files, each only for what it needs", async () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
+      "src/server/auth/workspace-context.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
       "src/server/db/tenant.ts",
@@ -524,6 +530,11 @@ describe("the tenant gateway import boundary", () => {
     // Identity resolution gets the pool and nothing else: it must not be able
     // to import the driver or mint a tenant context.
     expect(ALLOWED["src/server/db/identity.ts"]).toEqual(["the runtime pool"]);
+    // Workspace selection is the mirror image: the constructor, and no path to
+    // the database of its own.
+    expect(ALLOWED["src/server/auth/workspace-context.ts"]).toEqual([
+      "the context constructor",
+    ]);
     // Every exemption must name a pattern that actually exists.
     const labels = FORBIDDEN.map((entry) => entry.label);
     for (const exemptions of Object.values(ALLOWED)) {
@@ -612,8 +623,9 @@ describe("the tenant gateway import boundary", () => {
     ]) {
       expect(config).toContain(restricted);
     }
-    // The directory-wide exemption must not come back.
+    // The directory-wide exemption must not come back — in either directory.
     expect(config).not.toContain('"src/server/db/**"');
+    expect(config).not.toContain('"src/server/auth/**"');
   });
 
   it("keeps the runtime client server-only and off the tooling connection", async () => {
@@ -622,6 +634,138 @@ describe("the tenant gateway import boundary", () => {
     expect(client).toContain("prepare: false");
     expect(client).not.toContain("DRIZZLE_TOOLING_DATABASE_URL");
     expect(client).toContain("databaseEnv");
+  });
+});
+
+describe("workspace selection treats the candidate as a preference", () => {
+  const MODULE = "src/server/auth/workspace-context.ts";
+
+  const selectionSource = () => readSourceWithoutComments(MODULE);
+
+  it("exposes one resolver whose only parameter is the candidate", async () => {
+    const source = await selectionSource();
+    const exportedFunctions = [
+      ...source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g),
+    ].map((match) => match[1]);
+    expect(exportedFunctions.sort()).toEqual(["resolveWorkspaceContext"]);
+    // Typed `unknown` precisely because it is expected to arrive from a cookie
+    // or a URL one day: nothing about it is trusted.
+    expect(source).toMatch(
+      /export\s+async\s+function\s+resolveWorkspaceContext\s*\(\s*candidate\?:\s*unknown,?\s*\)/,
+    );
+    expect(source).not.toMatch(/export\s+const\s+\w+\s*=\s*(async\s*)?\(/);
+  });
+
+  it("accepts no identity, role, pool, client or transaction", async () => {
+    const source = await selectionSource();
+    for (const forbidden of [
+      /export[^\n]*\bauthUserId\s*[:?]/,
+      /export[^\n]*\buserProfileId\s*[:?]/,
+      /export[^\n]*\brole\s*[:?]\s*(string|WorkspaceRole)/,
+      /export[^\n]*\(\s*sql\s*:/i,
+      /export[^\n]*\(\s*tx\s*:/i,
+      /export[^\n]*:\s*Runtime(Sql|Tx)/,
+      /export[^\n]*:\s*TenantTx/,
+    ]) {
+      expect(source).not.toMatch(forbidden);
+    }
+  });
+
+  it("reaches the database only through Phase 4A", async () => {
+    const source = await selectionSource();
+    expect(source).toContain('import "server-only"');
+    expect(source).toContain("resolveVerifiedIdentity");
+    for (const forbidden of [
+      'from "postgres"',
+      "drizzle-orm/postgres-js",
+      "server/db/client",
+      "runtimeSql",
+      "DRIZZLE_TOOLING_DATABASE_URL",
+      "service_role",
+      "SERVICE_ROLE",
+      "set_config",
+      "public.workspaces",
+      "public.workspace_memberships",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("reads no request and performs no navigation", async () => {
+    const source = await selectionSource();
+    for (const forbidden of [
+      "cookies(",
+      "headers(",
+      "redirect(",
+      "NextRequest",
+      "NextResponse",
+      "next/navigation",
+      "next/headers",
+      "searchParams",
+      "formData",
+      "revalidatePath",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+    // Nor anything from the UI or the route tree.
+    expect(source).not.toMatch(/from\s+["']@\/(app|components)\//);
+  });
+
+  it("mints the context only through the reviewed constructor", async () => {
+    const source = await selectionSource();
+    expect(source).toContain("createTenantContext");
+    // Exactly one construction site, and it is not building the object itself.
+    expect((source.match(/createTenantContext\(/g) ?? []).length).toBe(1);
+    expect(source).not.toMatch(/as\s+unknown\s+as\s+TenantContext/);
+    expect(source).not.toMatch(/as\s+TenantContext\b/);
+    // Its three values are named fields, not a spread of caller input.
+    expect(source).toMatch(/createTenantContext\(\{[\s\S]{0,400}authUserId:/);
+    expect(source).not.toMatch(/createTenantContext\(\s*\.\.\./);
+  });
+
+  it("keeps no selected workspace, role or membership between requests", async () => {
+    const source = await selectionSource();
+    // Module-level bindings are `const` only; the frozen results are values,
+    // not state.
+    const moduleLevel = source
+      .split("\n")
+      .filter((line) => /^(let|var)\s+\w/.test(line));
+    expect(moduleLevel).toEqual([]);
+    for (const forbidden of [
+      "unstable_cache",
+      "globalThis",
+      "AsyncLocalStorage",
+      "new Map(",
+      "WeakMap",
+      "process.env",
+      "ForTest",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("adds no migration to the applied history", async () => {
+    const migrations = (await readdir("supabase/migrations")).filter((name) =>
+      name.endsWith(".sql"),
+    );
+    // Phase 4B is application code over the Phase 2 policies, exactly as 4A was.
+    expect(migrations.sort()).toEqual([
+      "20260919045005_workspace_foundation.sql",
+      "20260919073002_tenant_roles.sql",
+      "20260921025321_tenant_rls.sql",
+    ]);
+  });
+
+  it("is explained where a developer will look for it", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    expect(guide).toContain("resolveWorkspaceContext");
+    for (const phrase of [
+      "access_unavailable",
+      "workspace_selection_required",
+      "a preference, never authorization",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
   });
 });
 

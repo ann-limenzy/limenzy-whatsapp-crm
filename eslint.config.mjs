@@ -12,7 +12,7 @@ import nextTs from "eslint-config-next/typescript";
  *
  * The allow-list below is by exact file, not by directory. A future repository
  * or service placed inside `src/server/db/` is production code and is policed
- * exactly like anything under `src/app` or `src/lib`; only the two files that
+ * exactly like anything under `src/app` or `src/lib`; only the few files that
  * genuinely implement the gateway are exempt, and each only for what it needs.
  */
 
@@ -86,6 +86,11 @@ const GATEWAY_FILES = {
   tenant: "src/server/db/tenant.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
+  /**
+   * The workspace-context resolver: the one caller of createTenantContext().
+   * It never touches the pool — it works from what Phase 4A already read.
+   */
+  workspaceContext: "src/server/auth/workspace-context.ts",
 };
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}", "src/test/**"];
@@ -113,6 +118,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.client,
       GATEWAY_FILES.tenant,
       GATEWAY_FILES.identity,
+      GATEWAY_FILES.workspaceContext,
     ],
     rules: {
       "no-restricted-imports": [
@@ -160,6 +166,23 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         { paths: DRIVER_IMPORTS, patterns: [CONTEXT_PATTERNS] },
+      ],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * The workspace-context resolver. It is the one production module allowed
+     * to mint a tenant context, because it is the one that validates a chosen
+     * workspace against memberships read under row-level security. It still may
+     * not import the driver, reach the pool directly, or name the tooling
+     * connection: everything it knows comes from Phase 4A.
+     */
+    files: [GATEWAY_FILES.workspaceContext],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { paths: DRIVER_IMPORTS, patterns: [RAW_CLIENT_PATTERNS] },
       ],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
     },

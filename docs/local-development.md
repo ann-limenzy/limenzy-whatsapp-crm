@@ -212,6 +212,69 @@ What it deliberately does not do:
   a stable order, with no "current" or "default" among them; choosing is not
   this function's job.
 
+### Workspace selection
+
+`resolveWorkspaceContext()` (`src/server/auth/workspace-context.ts`) is the
+other half of the bridge. It calls Phase 4A, validates an **optional** workspace
+against the memberships that came back, and only then mints the `TenantContext`
+that `withTenant()` requires.
+
+```ts
+const resolution = await resolveWorkspaceContext(candidate);
+// { kind: "unauthenticated" }
+// { kind: "onboarding_required" }
+// { kind: "access_unavailable" }
+// { kind: "workspace_selection_required", choices: [{ workspaceId, role }] }
+// { kind: "forbidden" }
+// { kind: "ok", context, role }
+```
+
+**The candidate is a preference, never authorization.** It is typed `unknown`
+because one day it will arrive from a cookie, a URL or a form, and holding a
+workspace UUID must grant nothing. Every candidate is matched against
+memberships that were read under row-level security as the signed-in user:
+
+| Membership state     | Candidate                              | Result                         |
+| -------------------- | -------------------------------------- | ------------------------------ |
+| no verified identity | any                                    | `unauthenticated`              |
+| verified, no profile | any                                    | `onboarding_required`          |
+| profile, zero active | any                                    | `access_unavailable`           |
+| exactly one active   | absent                                 | selected automatically         |
+| exactly one active   | matching                               | selected                       |
+| exactly one active   | malformed / stale / foreign / inactive | `forbidden`                    |
+| several active       | absent                                 | `workspace_selection_required` |
+| several active       | matching                               | selected                       |
+| several active       | malformed / stale / foreign / inactive | `forbidden`                    |
+
+Only `undefined` means "no candidate supplied". `null`, `""`, whitespace, an
+upper-case or padded UUID, a number or an object is a _supplied but invalid_
+candidate and is refused — never repaired, and never quietly replaced by the one
+workspace the caller does have. All four refusal reasons return the same frozen
+`forbidden` value, down to object identity, so nothing reveals whether the
+workspace exists.
+
+**`onboarding_required` and `access_unavailable` are different problems.** The
+first is a verified user with no profile row — Phase 4C creates the first
+profile and workspace. The second is a profile whose memberships are all
+inactive, which is what being removed from every workspace looks like (§159,
+§160); sending that person to create a workspace would answer a question they
+did not ask.
+
+The role in a successful result comes from the matched membership row and is a
+request-scoped snapshot for rendering decisions. It is never cached, and it is
+never what protects a row: the policies re-check the membership on every
+statement, so deactivating a membership or demoting a role takes effect
+immediately even for a context that was minted a moment earlier. Both are
+proven live in `src/server/auth/workspace-context.db.test.ts`.
+
+**No cookies, redirects or UI exist yet.** This layer reads no request and
+performs no navigation — it returns a value and stops. Persisting a choice,
+redirecting on `workspace_selection_required`, and building a workspace
+picker or switcher are later concerns, and the picker deliberately gets no
+workspace _names_ here: reading a name requires a selected workspace, which is
+the very thing that has not happened yet, and the policy is not being weakened
+to work around that.
+
 Nested `withTenant()` calls with the same context reuse the outer transaction
 (no second `BEGIN`, no second `set_config`). A nested call with a _different_
 context throws `TenantContextConflict` before any statement runs.
@@ -231,15 +294,17 @@ remains unverified until company Supabase access.
 
 ### What is proven locally
 
-146 database tests run against the real local database on every `npm run test:db`
+154 database tests run against the real local database on every `npm run test:db`
 and none may skip. They cover absent, empty and malformed context; identity
 resolution end to end through `resolveVerifiedIdentity()` — including that it
 leaves no context behind on a reused pooled connection after either commit or
 rollback, that concurrent users cannot see each other, and that it never
 acquires a transaction ID and so writes nothing; cross-tenant attempts;
 inactive membership; role-gated updates; column-level refusals; the browser
-roles; the owner under FORCE; and a catalogue-based proof that the policy
-dependency graph
+roles; the owner under FORCE; the Phase 4A → Phase 4B → `withTenant()` chain,
+including that deactivating a membership or changing a role after a context has
+been minted is enforced by the database anyway; and a catalogue-based proof that
+the policy dependency graph
 (`workspaces → workspace_memberships → user_profiles → context readers`) is
 acyclic and references nothing outside those three tables.
 
@@ -247,9 +312,10 @@ acyclic and references nothing outside those three tables.
 
 - **No route, layout or page calls any of this yet.** The gateway and the
   identity resolver exist and are proven, but nothing above them uses them.
-- **No workspace is ever selected.** `app.workspace_id` is set only by
-  `withTenant()`, and nothing yet produces the context it requires — **Phase 4B**
-  validates a selection against the resolved memberships and mints it.
+- **Nothing persists or offers a choice.** `resolveWorkspaceContext()` can
+  select a workspace and mint a context, but no cookie remembers the choice, no
+  redirect acts on `workspace_selection_required`, and no picker or switcher
+  exists to make one.
 - **The initial workspace cannot be created.** `limenzy_app` has no `INSERT`
   grant or policy on any of the three tables, so signing up currently reaches
   `onboarding_required` and stops. **Phase 4C** owns that routine; `/setup` and
