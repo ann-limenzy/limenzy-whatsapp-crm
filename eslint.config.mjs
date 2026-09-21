@@ -91,6 +91,12 @@ const GATEWAY_FILES = {
    * It never touches the pool — it works from what Phase 4A already read.
    */
   workspaceContext: "src/server/auth/workspace-context.ts",
+  /**
+   * The initial-workspace operation: the one caller of the Phase 4C-1
+   * bootstrap routine. It needs the pool to open a single transaction, and
+   * nothing else — it mints no context and reads no table itself.
+   */
+  createInitialWorkspace: "src/server/auth/create-initial-workspace.ts",
 };
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}", "src/test/**"];
@@ -119,6 +125,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.tenant,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
+      GATEWAY_FILES.createInitialWorkspace,
     ],
     rules: {
       "no-restricted-imports": [
@@ -183,6 +190,22 @@ const eslintConfig = defineConfig([
       "no-restricted-imports": [
         "error",
         { paths: DRIVER_IMPORTS, patterns: [RAW_CLIENT_PATTERNS] },
+      ],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * The initial-workspace operation. It may consume the pool, because it
+     * opens its own single transaction around the bootstrap routine, but it
+     * must not import the driver, mint a tenant context, or name the tooling
+     * connection. Everything privileged lives in the database routine.
+     */
+    files: [GATEWAY_FILES.createInitialWorkspace],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { paths: DRIVER_IMPORTS, patterns: [CONTEXT_PATTERNS] },
       ],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
     },

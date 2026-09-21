@@ -228,6 +228,9 @@ describe("dedicated live-database verification", () => {
     expect(runner).toContain("src/server/db/identity.test.ts");
     expect(runner).toContain("src/server/auth/workspace-context.db.test.ts");
     expect(runner).toContain("src/server/db/bootstrap.test.ts");
+    expect(runner).toContain(
+      "src/server/auth/create-initial-workspace.db.test.ts",
+    );
     // It must not fall back to the whole suite, which would hide a skip.
     expect(runner).not.toMatch(/vitest[^\n]*run['"\s,\]]*$/m);
   });
@@ -502,6 +505,9 @@ describe("the tenant gateway import boundary", () => {
     "src/server/db/tenant.ts": ["the runtime pool", "the context constructor"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
+    // The initial-workspace operation: consumes the pool for one transaction
+    // around the bootstrap routine, and nothing else.
+    "src/server/auth/create-initial-workspace.ts": ["the runtime pool"],
     // Workspace selection: the one module that may mint a tenant context,
     // because it is the one that validates the choice against memberships read
     // under row-level security. It never touches the pool.
@@ -547,13 +553,19 @@ describe("the tenant gateway import boundary", () => {
     expect(dbLayer).toContain("src/server/db/tenant.ts");
   });
 
-  it("allows exactly four files, each only for what it needs", async () => {
+  it("allows exactly five files, each only for what it needs", async () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
+      "src/server/auth/create-initial-workspace.ts",
       "src/server/auth/workspace-context.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
       "src/server/db/tenant.ts",
+    ]);
+    // The bootstrap operation gets the pool and nothing else: it must not be
+    // able to mint a tenant context.
+    expect(ALLOWED["src/server/auth/create-initial-workspace.ts"]).toEqual([
+      "the runtime pool",
     ]);
     // Identity resolution gets the pool and nothing else: it must not be able
     // to import the driver or mint a tenant context.
@@ -662,6 +674,296 @@ describe("the tenant gateway import boundary", () => {
     expect(client).toContain("prepare: false");
     expect(client).not.toContain("DRIZZLE_TOOLING_DATABASE_URL");
     expect(client).toContain("databaseEnv");
+  });
+});
+
+describe("the initial-workspace operation", () => {
+  const MODULE = "src/server/auth/create-initial-workspace.ts";
+  const VALIDATION = "src/lib/validation/workspace-setup.ts";
+
+  const operationSource = () => readSourceWithoutComments(MODULE);
+
+  it("exposes exactly one function, whose only parameter is unknown", async () => {
+    const source = await operationSource();
+    const exportedFunctions = [
+      ...source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g),
+    ].map((match) => match[1]);
+    expect(exportedFunctions.sort()).toEqual(["createInitialWorkspace"]);
+
+    expect(source).toMatch(
+      /export\s+async\s+function\s+createInitialWorkspace\(\s*input:\s*unknown,?\s*\)/,
+    );
+    // No const arrow function standing in for a second entry point.
+    expect(source).not.toMatch(/export\s+const\s+\w+\s*=\s*(async\s*)?\(/);
+    // The only other export is the error class.
+    const exportedClasses = [...source.matchAll(/export\s+class\s+(\w+)/g)].map(
+      (match) => match[1],
+    );
+    expect(exportedClasses).toEqual(["BootstrapError"]);
+  });
+
+  it("accepts no identity, role, id, pool, client or transaction", async () => {
+    const source = await operationSource();
+    for (const forbidden of [
+      /export[^\n]*\bauthUserId\s*[:?]/,
+      /export[^\n]*\buserProfileId\s*[:?]/,
+      /export[^\n]*\bworkspaceId\s*[:?]/,
+      /export[^\n]*\bclaims\s*[:?]/,
+      /export[^\n]*\brole\s*[:?]\s*(string|WorkspaceRole)/,
+      /export[^\n]*\(\s*sql\s*:/i,
+      /export[^\n]*\(\s*tx\s*:/i,
+      /export[^\n]*:\s*Runtime(Sql|Tx)/,
+      /export[^\n]*:\s*TenantTx/,
+    ]) {
+      expect(source).not.toMatch(forbidden);
+    }
+  });
+
+  it("reads identity only from the verified-claims utility", async () => {
+    const source = await operationSource();
+    expect(source).toContain("getAuthenticatedUser");
+    for (const forbidden of [
+      "cookies(",
+      "headers(",
+      "searchParams",
+      "NextRequest",
+      "NextResponse",
+      "FormData",
+      "formData",
+      "params",
+      "redirect(",
+      "next/navigation",
+      "next/headers",
+      "revalidatePath",
+      "getSession",
+      "getUser(",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+    // Nothing from the route tree or the UI.
+    expect(source).not.toMatch(/from\s+["']@\/(app|components)\//);
+  });
+
+  it("mints no tenant context and resolves nothing itself", async () => {
+    const source = await operationSource();
+    for (const forbidden of [
+      "createTenantContext",
+      "withTenant",
+      "resolveWorkspaceContext",
+      "resolveVerifiedIdentity",
+      "tenant-context",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("uses only the runtime connection, with no elevation", async () => {
+    const source = await operationSource();
+    expect(source).toContain('import "server-only"');
+    for (const forbidden of [
+      "DRIZZLE_TOOLING_DATABASE_URL",
+      "SERVICE_ROLE",
+      "service_role",
+      "createClient(",
+      "limenzy_bootstrap",
+      "limenzy_owner",
+      "security definer",
+      "set role",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("sets only app.auth_user_id and calls only the bootstrap routine", async () => {
+    const source = await operationSource();
+    const statements = [...source.matchAll(/tx(?:<[^`]*?>)?`([\s\S]*?)`/g)].map(
+      (match) => (match[1] ?? "").replace(/\s+/g, " ").trim(),
+    );
+    expect(statements).toHaveLength(2);
+    for (const statement of statements) {
+      expect(statement).toMatch(/^select\b/i);
+      expect(statement).not.toMatch(
+        /\b(insert|update|delete|merge|truncate|copy|alter|drop|grant)\b/i,
+      );
+      expect(statement).not.toMatch(/from\s+public\./);
+    }
+    expect(statements[0]).toContain("set_config");
+    expect(statements[0]).toMatch(/true\)/);
+    expect(statements[1]).toContain("app.create_initial_workspace");
+
+    // Exactly one setting name, and it is the auth one.
+    const settings = [...source.matchAll(/"(app\.[a-z_]+)"/g)].map((m) => m[1]);
+    expect([...new Set(settings)]).toEqual(["app.auth_user_id"]);
+  });
+
+  it("maps the three database outcomes exhaustively and returns no identifier", async () => {
+    const source = await operationSource();
+    for (const outcome of [
+      "created",
+      "already_onboarded",
+      "access_unavailable",
+    ]) {
+      expect(source).toContain(outcome);
+    }
+    // An unrecognised answer is a failure, not a fourth kind.
+    expect(source).toMatch(/BootstrapError\("unexpected"\)/);
+    // Results are frozen, and none of them carries an identifier.
+    expect(source).toMatch(/Object\.freeze\(\{\s*kind: "created"/);
+    expect(source).not.toMatch(
+      /kind: "(created|already_onboarded|access_unavailable)"[^}]*Id/,
+    );
+  });
+
+  it("never wraps a driver error, and keeps no cause", async () => {
+    const source = await operationSource();
+    expect(source).toMatch(/class BootstrapError extends Error/);
+    // No `cause` is ever attached: the driver's cause can carry the SQL.
+    expect(source).not.toMatch(/cause:/);
+    expect(source).not.toMatch(/new BootstrapError\([^)]*,\s*\{/);
+    // The driver message is never reused as the user-facing message.
+    expect(source).not.toMatch(/super\([^)]*error[^)]*\)/);
+  });
+
+  it("keeps no request state or cross-request cache", async () => {
+    const source = await operationSource();
+    const moduleLevel = source
+      .split("\n")
+      .filter((line) => /^(let|var)\s+\w/.test(line));
+    expect(moduleLevel).toEqual([]);
+    for (const forbidden of [
+      "unstable_cache",
+      "globalThis",
+      "AsyncLocalStorage",
+      "new Map(",
+      "WeakMap",
+      "process.env",
+      "ForTest",
+      "revalidate",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("keeps the validation rules shared, deterministic and dependency-free", async () => {
+    const source = await readSourceWithoutComments(VALIDATION);
+    // No server-only marker: the Phase 4C-3 form will import these same rules.
+    expect(source).not.toContain('import "server-only"');
+    // Frozen, immutable lists rather than per-request computation.
+    for (const list of ["COUNTRY_CODES", "CURRENCY_CODES", "TIME_ZONES"]) {
+      expect(source).toMatch(
+        new RegExp(`export const ${list}[^=]*=\\s*Object\\.freeze\\(\\[`),
+      );
+    }
+    // Unknown keys are rejected, not stripped.
+    expect(source).toContain("z.strictObject");
+    // No new dependency was introduced for any of this.
+    const pkg = await packageJson();
+    for (const forbidden of [
+      "i18n-iso-countries",
+      "currency-codes",
+      "countries-list",
+      "iso-4217",
+      "@vvo/tzdb",
+    ]) {
+      expect(Object.keys(pkg.dependencies)).not.toContain(forbidden);
+      expect(Object.keys(pkg.devDependencies)).not.toContain(forbidden);
+    }
+  });
+
+  it("can be imported by browser code: no runtime Intl lookup and no server API", async () => {
+    const source = await readSourceWithoutComments(VALIDATION);
+
+    // `Intl.supportedValuesOf` reached Safari only in 15.4, so calling it as
+    // the module initialises would throw on an older iPhone and stop the
+    // Phase 4C-3 form rendering. It is referenced only in comments explaining
+    // why it is absent, which is why this reads the comment-stripped source.
+    expect(source).not.toContain("Intl.");
+    expect(source).not.toMatch(/\bIntl\b/);
+
+    // Nothing server-only, nothing from Node, nothing that touches a database.
+    for (const forbidden of [
+      'from "node:',
+      'from "fs"',
+      'from "postgres"',
+      "drizzle-orm",
+      "server/db",
+      "server-only",
+      "next/headers",
+      "next/navigation",
+      "process.env",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+
+    // Validation stays synchronous: a form cannot await a field check.
+    expect(source).not.toMatch(/export\s+async\s+function/);
+    expect(source).not.toContain("await ");
+
+    // The lists are literals, so the answer cannot vary by runtime.
+    const currencies = source.match(
+      /CURRENCY_CODES[^=]*=\s*Object\.freeze\(\[([\s\S]*?)\]\)/,
+    );
+    expect(currencies).not.toBeNull();
+    const codes = (currencies?.[1] ?? "")
+      .split(",")
+      .map((code) => code.trim().replace(/"/g, ""))
+      .filter(Boolean);
+    expect(codes).toHaveLength(162);
+    expect(new Set(codes).size).toBe(codes.length);
+    for (const code of ["INR", "USD", "AED", "AUD", "EUR", "GBP"]) {
+      expect(codes).toContain(code);
+    }
+    for (const code of ["ZZZ", "XXX", "XAU"]) {
+      expect(codes).not.toContain(code);
+    }
+  });
+
+  it("adds no migration, route, page or component", async () => {
+    const migrations = (await readdir("supabase/migrations")).filter((name) =>
+      name.endsWith(".sql"),
+    );
+    // Phase 4C-2 is application code over the Phase 4C-1 routine.
+    expect(migrations.sort()).toEqual([
+      "20260919045005_workspace_foundation.sql",
+      "20260919073002_tenant_roles.sql",
+      "20260921025321_tenant_rls.sql",
+      "20260921064437_workspace_bootstrap.sql",
+    ]);
+
+    // Nothing under the route tree or the component tree calls the operation
+    // yet: the form and the Server Action are Phase 4C-3.
+    const callers: string[] = [];
+    for (const file of await productionSources()) {
+      if (file === MODULE) continue;
+      if ((await readRepoFile(file)).includes("createInitialWorkspace")) {
+        callers.push(file);
+      }
+    }
+    expect(callers).toEqual([]);
+  });
+
+  it("is explained where a developer will look for it", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    expect(guide).toContain("createInitialWorkspace");
+    for (const phrase of [
+      "invalid_input",
+      "BootstrapError",
+      "ISO 3166-1 alpha-2",
+      "ISO 4217",
+      "Phase 4C-3",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
   });
 });
 
@@ -925,16 +1227,17 @@ describe("the initial-workspace bootstrap migration", () => {
     expect(raw).not.toMatch(/password\s*[:=]/i);
   });
 
-  it("adds no TypeScript caller, route, component or context path in this phase", async () => {
-    // Phase 4C-1 is the database only. The server operation is 4C-2 and the
-    // form is 4C-3, so nothing in the production tree may reference the
-    // routine yet — which also means no production test seam was introduced.
-    const offenders: string[] = [];
+  it("has exactly one TypeScript caller, and no route, component or context path", async () => {
+    // Phase 4C-1 added the routine; Phase 4C-2 added its single caller. Naming
+    // that one file is stronger than the previous "nothing calls it": a second
+    // caller, anywhere in the production tree, fails here — and the form and
+    // Server Action (4C-3) must not appear yet.
+    const callers: string[] = [];
     for (const file of await productionSources()) {
       const source = await readRepoFile(file);
-      if (source.includes("create_initial_workspace")) offenders.push(file);
+      if (source.includes("create_initial_workspace")) callers.push(file);
     }
-    expect(offenders).toEqual([]);
+    expect(callers).toEqual(["src/server/auth/create-initial-workspace.ts"]);
 
     // And the context-constructor allow-list is unchanged: no new module may
     // mint a tenant context as part of this phase.

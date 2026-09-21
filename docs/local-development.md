@@ -6,6 +6,19 @@ with no company Supabase credentials and no hosted project.
 Everything here is local. Nothing in this guide connects to a hosted
 environment, and no command in `package.json` can target one.
 
+> **This file is temporary and personal to the feature branch.**
+>
+> It exists to keep the 1C-C work reviewable while it is in progress, and it is
+> **not** the permanent authority for any production security decision — the
+> migrations, the tests and `docs/architecture-decisions.md` are.
+>
+> - It must be **deleted before integration**.
+> - This branch must **not** be fast-forwarded or normally merged into `main`.
+> - Final integration will remove this file and **squash-merge** the net
+>   production changes, so it never enters `main`.
+> - It contains no credential and no machine-specific secret, and must not
+>   acquire one.
+
 ---
 
 ## Prerequisites
@@ -360,10 +373,87 @@ BYPASSRLS and blanket table privileges; putting that credential in the runtime
 would defeat every layer above. The bootstrap path needs no new credential at
 all — it reuses the same `DATABASE_URL` connection and gains one EXECUTE grant.
 
-**This phase adds no route and no UI.** `/setup` is untouched and still says the
-form is not built. **Phase 4C-2** adds the server-only operation that calls this
-routine; **Phase 4C-3** adds the `/setup` form and Server Action; **Phase 4D**
-owns persisted workspace selection and request routing.
+### Calling it: the server-only operation
+
+`createInitialWorkspace()` (`src/server/auth/create-initial-workspace.ts`) is
+the **only** TypeScript caller of that routine, and the only thing in the
+application that can create a tenancy.
+
+```ts
+const result = await createInitialWorkspace(submission);
+// { kind: "unauthenticated" }
+// { kind: "invalid_input", issues: [{ field, message }] }
+// { kind: "created" } | { kind: "already_onboarded" } | { kind: "access_unavailable" }
+```
+
+It takes exactly one argument — the untrusted submission, typed `unknown`
+because it will arrive from a form. Identity is **not** a parameter: it comes
+from `getAuthenticatedUser()` and therefore from the signature-verified access
+token. A submission carrying `authUserId`, `workspaceId`, `role` or `status` is
+**rejected**, not ignored, because whoever sent it believed those fields would
+be honoured.
+
+The order matters: the submission is validated, then identity is checked, and
+only then is a connection opened. An invalid submission, an unauthenticated
+caller, an unverified email address or a non-canonical `sub` all return before
+any connection exists.
+
+Inside one transaction it issues exactly two statements — `set_config` for
+`app.auth_user_id` (transaction-local) and the routine call — and nothing else.
+It sets neither `app.user_profile_id` nor `app.workspace_id`.
+
+**It mints no `TenantContext`.** A successful result is the single word
+`created`: no profile id, no workspace id, no role. The next request resolves
+its context through **Phase 4A then Phase 4B**, exactly as any other request
+does — that is the only path that re-reads the membership under row-level
+security, and the only one permitted to issue a context. A live test performs
+that re-resolution end to end and then reads the new workspace through
+`withTenant()`.
+
+**Validation and normalization** live in `src/lib/validation/workspace-setup.ts`,
+shared so the Phase 4C-3 form can use the same rules for inline feedback:
+
+| Field           | Rule                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fullName`      | the existing signup `fullNameSchema` (trimmed, 2–120), plus no control characters. Display data only — never identity                             |
+| `workspaceName` | trimmed, 2–160, no control characters, **not** unique, no slug                                                                                    |
+| `businessType`  | optional free text, trimmed, ≤120; absent, empty or whitespace-only becomes `null`; **not** restricted to the eight §7 suggestions                |
+| `country`       | **ISO 3166-1 alpha-2**, trimmed and upper-cased; checked against an immutable 249-code list; `ZZ` is refused                                      |
+| `currency`      | **ISO 4217**, trimmed and upper-cased; checked against an immutable 162-code list; `ZZZ` is refused                                               |
+| `timeZone`      | exact, case-sensitive membership of a 554-entry list generated from PostgreSQL's own `pg_timezone_names`; `+05:30` and `Mars/Olympus` are refused |
+
+All three lists are literals in the module, and that is deliberate: this file
+is shared with the Phase 4C-3 form, so it must initialise in a browser.
+`Intl.supportedValuesOf` reached Safari only in 15.4 - calling it as the module
+loads would throw on an older iPhone and the setup form would not render at
+all. A literal also makes validation identical everywhere rather than varying
+with the visitor's browser or the bundled ICU data, and changes to any list are
+reviewed deliberately instead of inherited silently from a runtime upgrade.
+
+The time-zone list needs one more word of explanation, because two obvious
+implementations are actively wrong.
+`Intl.supportedValuesOf("timeZone")` omits `UTC`, every `Etc/*` zone and
+every modern rename on this runtime — including `Asia/Kolkata`, the identifier
+§158 uses as its own example — so it would reject the canonical answer.
+`Intl.DateTimeFormat` accepts a zone but is **case-insensitive**, so
+`asia/kolkata` would pass validation and then fail against the trigger, which
+compares `pg_timezone_names.name` exactly; that turns a fixable form mistake
+into an internal error. Hence the explicit list, with a live test asserting
+every entry still exists in `pg_timezone_names` so the two cannot drift.
+
+No new dependency was added for any of this.
+
+**Errors carry nothing.** A failure throws `BootstrapError` with a reason of
+`database_unavailable` or `unexpected`. The driver's error is _replaced, never
+wrapped_: its message can contain the connection string and its `cause` can
+carry the failing SQL, so no `cause` is attached and the driver message is never
+shown. Validation issues name a field and a safe message and **never echo the
+submitted value**.
+
+**There is still no setup form, redirect, cookie or picker.** `/setup` is
+untouched and still says the form is not built. **Phase 4C-3** adds the form and
+its Server Action; **Phase 4D** owns persisted workspace selection and request
+routing.
 
 The contract those phases inherit: country is ISO 3166-1 alpha-2, currency is
 ISO 4217, Business Type stays optional free text with UI suggestions rather than
