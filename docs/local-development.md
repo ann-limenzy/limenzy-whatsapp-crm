@@ -93,6 +93,69 @@ Rules that the code enforces, not just convention:
 
 ---
 
+## Tenant security: what exists today
+
+The database enforces tenant scoping for the application's runtime role. This is
+the second of the two layers spec §177 requires — it does **not** replace
+server-side authorization, and it is **not** finished.
+
+**Roles.** `limenzy_owner` owns the objects and never logs in.
+`limenzy_bootstrap` is reserved for a later phase and owns nothing.
+**`limenzy_app`** is the application's only connection: a non-owner,
+non-superuser, `NOBYPASSRLS` role, so row-level security applies to it in full.
+
+**Context readers** (`app.current_auth_user_id()`,
+`app.current_user_profile_id()`, `app.current_workspace_id()`) each read one
+transaction setting — `app.auth_user_id`, `app.user_profile_id`,
+`app.workspace_id` — and return `uuid` or NULL. They are `STABLE`,
+`SECURITY INVOKER`, own no privilege, touch no table, and are executable only by
+`limenzy_owner` and `limenzy_app`. An unset setting yields NULL, so every policy
+comparison yields NULL and nothing is visible: **the resting state is deny**. A
+malformed value raises rather than resolving to some other identity.
+
+**Policies**, all scoped `TO limenzy_app`:
+
+| Table                   | SELECT                                                                            | UPDATE                    | INSERT / DELETE |
+| ----------------------- | --------------------------------------------------------------------------------- | ------------------------- | --------------- |
+| `user_profiles`         | own profile, keyed on the auth setting                                            | —                         | none            |
+| `workspace_memberships` | own rows, and the profile setting must match the auth setting against stored data | —                         | none            |
+| `workspaces`            | the selected workspace, with an active membership                                 | active `owner_admin` only | none            |
+
+Column privileges are an independent second layer: `limenzy_app` may update only
+`name`, `business_type`, `country`, `currency` and `time_zone`. It holds no grant
+on `id`, `created_at` or `updated_at`, so those cannot be written even if a
+policy were wrong. `updated_at` is maintained by its trigger.
+
+**`FORCE ROW LEVEL SECURITY`** is enabled on all three tables, so the owner is
+subject to the policies too. Stated accurately: FORCE does **not** constrain a
+superuser or a `BYPASSRLS` role — locally `postgres` holds `BYPASSRLS` and still
+sees everything, which is what lets migrations and tooling work.
+
+### What is proven locally
+
+101 database tests run against the real local database on every `npm run test:db`
+and none may skip. They cover absent, empty and malformed context; identity
+resolution; cross-tenant attempts; inactive membership; role-gated updates;
+column-level refusals; the browser roles; the owner under FORCE; and a
+catalogue-based proof that the policy dependency graph
+(`workspaces → workspace_memberships → user_profiles → context readers`) is
+acyclic and references nothing outside those three tables.
+
+### What is not done yet
+
+- **Nothing in the application sets the context settings.** `withTenant()` —
+  which will issue transaction-local `set_config(..., true)` — is a later phase,
+  as are the database client and the workspace-context resolver.
+- The initial-workspace routine, `/setup` and workspace selection do not exist.
+- **Tenant isolation is therefore not complete.** What exists is a correct,
+  tested database layer with no application integration above it.
+
+### Still pending on hosted Supabase
+
+Hosted role creation and ownership transfer, transaction-pooler behaviour with
+the Drizzle driver, and genuinely separate hosted credentials. None of these can
+be established locally, and no hosted compatibility is claimed.
+
 ## Migration source of truth
 
 **`supabase/migrations/` is the single authoritative applied migration

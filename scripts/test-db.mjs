@@ -21,7 +21,11 @@ import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const SUITES = ["src/server/db/schema.test.ts", "src/server/db/roles.test.ts"];
+const SUITES = [
+  "src/server/db/schema.test.ts",
+  "src/server/db/roles.test.ts",
+  "src/server/db/rls.test.ts",
+];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";
 

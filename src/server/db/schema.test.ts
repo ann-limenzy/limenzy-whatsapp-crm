@@ -475,10 +475,17 @@ describe.skipIf(!reachable)("1C-B schema", () => {
       }
     });
 
-    it("defines no policy at all — 1C-C owns the real ones", async () => {
-      const rows = await db()`
-        select policyname from pg_policies where schemaname = 'public'`;
-      expect(rows).toHaveLength(0);
+    it("carries exactly the policies 1C-C Phase 2 introduced", async () => {
+      // 1C-B created none. Phase 2 adds four, all scoped to the runtime role.
+      const rows = await db()<{ policyname: string }[]>`
+        select policyname from pg_policies where schemaname = 'public'
+         order by policyname`;
+      expect(rows.map((r) => r.policyname)).toEqual([
+        "user_profiles_self_select",
+        "workspace_memberships_self_select",
+        "workspaces_member_select",
+        "workspaces_owner_admin_update",
+      ]);
     });
 
     it("grants the Data API roles nothing", async () => {

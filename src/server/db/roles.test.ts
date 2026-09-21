@@ -238,20 +238,37 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       expect(`${row.relname}:${row.rls}`).toBe(`${row.relname}:true`);
   });
 
-  it("does not enable FORCE ROW LEVEL SECURITY yet (Phase 2)", async () => {
+  it("enables FORCE ROW LEVEL SECURITY (Phase 2)", async () => {
+    // Phase 1 deliberately left this off; Phase 2 turns it on so the table
+    // owner is constrained too. Asserted as `true`, not merely "absent".
     const rows = await db()<{ relname: string; force: boolean }[]>`
       select c.relname, c.relforcerowsecurity as force
         from pg_catalog.pg_class c
         join pg_catalog.pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r'`;
+    expect(rows).toHaveLength(TABLES.length);
     for (const row of rows)
-      expect(`${row.relname}:${row.force}`).toBe(`${row.relname}:false`);
+      expect(`${row.relname}:${row.force}`).toBe(`${row.relname}:true`);
   });
 
-  it("still defines zero policies", async () => {
-    const rows =
-      await db()`select policyname from pg_policies where schemaname = 'public'`;
-    expect(rows).toHaveLength(0);
+  it("defines exactly the four approved Phase-2 policies", async () => {
+    // Phase 1 had none. Phase 2 adds precisely these and nothing else, each
+    // scoped to the runtime role only.
+    const rows = await db()<{ policyname: string; roles: string }[]>`
+      select policyname, roles::text as roles
+        from pg_policies where schemaname = 'public' order by policyname`;
+    expect(rows.map((r) => r.policyname)).toEqual([
+      "user_profiles_self_select",
+      "workspace_memberships_self_select",
+      "workspaces_member_select",
+      "workspaces_owner_admin_update",
+    ]);
+    for (const row of rows) {
+      expect(`${row.policyname}:${row.roles}`).toBe(
+        `${row.policyname}:{limenzy_app}`,
+      );
+    }
+    expect(rows.some((r) => r.roles.includes("limenzy_bootstrap"))).toBe(false);
   });
 
   it("grants anon and authenticated nothing", async () => {
@@ -262,13 +279,56 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("grants neither application role any table privilege in Phase 1", async () => {
-    const rows = await db()`
+  it("grants limenzy_bootstrap nothing, and limenzy_app only SELECT", async () => {
+    const rows = await db()<
+      { grantee: string; table_name: string; privilege_type: string }[]
+    >`
       select grantee, table_name, privilege_type
         from information_schema.role_table_grants
        where table_schema = 'public'
-         and grantee in ('limenzy_app', 'limenzy_bootstrap')`;
-    expect(rows).toHaveLength(0);
+         and grantee in ('limenzy_app', 'limenzy_bootstrap')
+       order by grantee, table_name, privilege_type`;
+
+    // Phase 3 owns the bootstrap routine; it receives nothing here.
+    expect(rows.filter((r) => r.grantee === "limenzy_bootstrap")).toHaveLength(
+      0,
+    );
+
+    // The runtime role reads all three tables and holds no table-wide write.
+    const runtimeGrants = rows.filter((r) => r.grantee === "limenzy_app");
+    expect(
+      runtimeGrants.map((r) => `${r.table_name}:${r.privilege_type}`).sort(),
+    ).toEqual([
+      "user_profiles:SELECT",
+      "workspace_memberships:SELECT",
+      "workspaces:SELECT",
+    ]);
+    for (const forbidden of [
+      "INSERT",
+      "DELETE",
+      "TRUNCATE",
+      "REFERENCES",
+      "TRIGGER",
+    ]) {
+      expect(runtimeGrants.some((r) => r.privilege_type === forbidden)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("grants column UPDATE only on the approved workspace settings", async () => {
+    const rows = await db()<{ column_name: string }[]>`
+      select column_name from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'workspaces'
+         and grantee = 'limenzy_app' and privilege_type = 'UPDATE'
+       order by column_name`;
+    expect(rows.map((r) => r.column_name)).toEqual([
+      "business_type",
+      "country",
+      "currency",
+      "name",
+      "time_zone",
+    ]);
   });
 
   it("grants no UPDATE on updated_at to any application role", async () => {
@@ -282,11 +342,10 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("keeps the app schema unreachable from every non-owner role", async () => {
+  it("keeps the app schema closed to browser roles and to bootstrap", async () => {
     for (const role of [
       "anon",
       "authenticated",
-      "limenzy_app",
       "limenzy_bootstrap",
     ] as const) {
       const row = first(
@@ -296,6 +355,21 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       );
       expect(`${role}:${row.usage}`).toBe(`${role}:false`);
     }
+  });
+
+  it("gives limenzy_app USAGE on app but never CREATE", async () => {
+    const row = first(
+      await db()<
+        { usage: boolean; create_app: boolean; create_public: boolean }[]
+      >`
+        select pg_catalog.has_schema_privilege('limenzy_app', 'app', 'USAGE') as usage,
+               pg_catalog.has_schema_privilege('limenzy_app', 'app', 'CREATE') as create_app,
+               pg_catalog.has_schema_privilege('limenzy_app', 'public', 'CREATE') as create_public`,
+      "app schema privileges",
+    );
+    expect(row.usage).toBe(true);
+    expect(row.create_app).toBe(false);
+    expect(row.create_public).toBe(false);
   });
 
   it("defines default privileges with valid separate statements", async () => {
@@ -409,18 +483,35 @@ describe.skipIf(!reachable || !runtime)("the runtime connection", () => {
     expect(row.owned).toBe(0);
   });
 
-  it("is denied on every foundation table in Phase 1", async () => {
+  it("may read the foundation tables but sees nothing without context", async () => {
+    // Phase 2 replaces the privilege-layer denial with a policy-layer one: the
+    // SELECT is now permitted and returns zero rows because no context is set.
     for (const table of TABLES) {
-      await expect(
-        app().unsafe(`select count(*) from public.${table}`),
-      ).rejects.toThrow(/permission denied/i);
+      const rows = await app().unsafe(
+        `select count(*)::int as n from public.${table}`,
+      );
+      const row = first(rows as unknown as { n: number }[], `${table} count`);
+      expect(`${table}=${row.n}`).toBe(`${table}=0`);
     }
   });
 
-  it("cannot reach the app schema", async () => {
+  it("still cannot write to any foundation table", async () => {
+    for (const table of TABLES) {
+      await expect(app().unsafe(`delete from public.${table}`)).rejects.toThrow(
+        /permission denied/i,
+      );
+    }
+  });
+
+  it("can resolve the app schema but cannot create in it", async () => {
+    // USAGE was granted for the context readers; CREATE was not, so a missing
+    // object reports "does not exist" rather than leaking a permission error.
     await expect(app().unsafe("select 1 from app.nothing")).rejects.toThrow(
-      /permission denied for schema app/i,
+      /relation "app.nothing" does not exist/i,
     );
+    await expect(
+      app().unsafe("create table app.should_not_exist(id int)"),
+    ).rejects.toThrow(/permission denied/i);
   });
 
   it("is a different authority from the tooling connection", async () => {

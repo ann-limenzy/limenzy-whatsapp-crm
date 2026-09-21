@@ -241,6 +241,24 @@ describe("the 1C-B migration file", () => {
     return files;
   };
 
+  /**
+   * Migration SQL with `--` comments removed.
+   *
+   * Structural assertions must read the statements, not the prose: a comment
+   * that names a forbidden pattern in order to explain why it is absent should
+   * not fail the check. Credential scanning deliberately still reads the whole
+   * file, comments included.
+   */
+  const readMigrationSql = async () =>
+    (await readMigrations())
+      .map((f) =>
+        f.sql
+          .split("\n")
+          .map((line) => line.replace(/--.*$/, ""))
+          .join("\n"),
+      )
+      .join("\n");
+
   it("is timestamped and descriptively named", async () => {
     const files = await readMigrations();
     expect(files.length).toBeGreaterThan(0);
@@ -273,10 +291,7 @@ describe("the 1C-B migration file", () => {
   });
 
   it("creates no out-of-scope business table", async () => {
-    const sql = (await readMigrations())
-      .map((f) => f.sql)
-      .join("\n")
-      .toLowerCase();
+    const sql = (await readMigrationSql()).toLowerCase();
     for (const forbidden of [
       "sales_team",
       "lead_assignment",
@@ -310,19 +325,25 @@ describe("the 1C-B migration file", () => {
   });
 
   it("defines no permissive policy", async () => {
-    const sql = (await readMigrations())
-      .map((f) => f.sql)
-      .join("\n")
-      .toLowerCase();
-    expect(sql).not.toContain("create policy");
-    expect(sql).not.toContain("using (true)");
+    // Phase 2 legitimately adds policies, so the invariant is not "no policy"
+    // but "no policy that waves everything through": no USING (true), no
+    // WITH CHECK (true), and every policy scoped to a named role.
+    const sql = (await readMigrationSql()).toLowerCase();
+    expect(sql).not.toMatch(/using\s*\(\s*true\s*\)/);
+    expect(sql).not.toMatch(/with\s+check\s*\(\s*true\s*\)/);
+
+    const policies = [...sql.matchAll(/create policy\s+(\S+)[\s\S]*?;/g)];
+    for (const [statement, name] of policies) {
+      expect(
+        `${name} is role-scoped: ${/\bto\s+limenzy_\w+/.test(statement)}`,
+      ).toBe(`${name} is role-scoped: true`);
+      // Phase 2 grants the runtime role only; bootstrap policies are Phase 3.
+      expect(statement).not.toContain("to limenzy_bootstrap");
+    }
   });
 
   it("avoids destructive statements", async () => {
-    const sql = (await readMigrations())
-      .map((f) => f.sql)
-      .join("\n")
-      .toLowerCase();
+    const sql = (await readMigrationSql()).toLowerCase();
     for (const destructive of [
       "drop table",
       "drop schema",
@@ -335,10 +356,7 @@ describe("the 1C-B migration file", () => {
   });
 
   it("does not touch Supabase's own schemas", async () => {
-    const sql = (await readMigrations())
-      .map((f) => f.sql)
-      .join("\n")
-      .toLowerCase();
+    const sql = (await readMigrationSql()).toLowerCase();
     // Referencing auth.users with a foreign key is fine; altering it is not.
     expect(sql).not.toMatch(/create table auth\./);
     expect(sql).not.toMatch(/alter table auth\./);
