@@ -16,6 +16,19 @@ import { describe, expect, it } from "vitest";
 
 const readRepoFile = (path: string) => readFile(path, "utf8");
 
+/**
+ * A TypeScript file with its comments removed.
+ *
+ * Structural assertions must read the code, not the prose. A comment that names
+ * a forbidden identifier in order to explain why it is forbidden is documentation
+ * working as intended, and failing the build for it would push people towards
+ * writing vaguer comments. Credential scanning still reads whole files.
+ */
+const readSourceWithoutComments = async (path: string) =>
+  (await readRepoFile(path))
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+
 const packageJson = async () =>
   JSON.parse(await readRepoFile("package.json")) as {
     scripts: Record<string, string>;
@@ -416,6 +429,177 @@ describe("local secrets stay out of the repository", () => {
   });
 });
 
+describe("the tenant gateway import boundary", () => {
+  /**
+   * The exact files allowed to reach the raw pool or the driver, and why.
+   * Everything else under `src/` is production code — including any future
+   * repository or service placed inside `src/server/db/`, which is deliberately
+   * NOT exempt as a directory.
+   */
+  const ALLOWED = {
+    "src/server/db/client.ts":
+      "creates the pool; the one place the driver lives",
+    "src/server/db/tenant.ts":
+      "the gateway; consumes the pool and context marker",
+  } as const;
+
+  const isTest = (path: string) =>
+    /\.test\.tsx?$/.test(path) || path.startsWith("src/test/");
+
+  /** The complete production tree: every src file that is not a test. */
+  const productionFiles = async (): Promise<string[]> => {
+    const walk = async (dir: string): Promise<string[]> => {
+      const entries = await readdir(dir, { withFileTypes: true });
+      const nested = await Promise.all(
+        entries.map(async (entry) => {
+          const path = `${dir}/${entry.name}`;
+          if (entry.isDirectory()) return walk(path);
+          if (!/\.tsx?$/.test(entry.name)) return [];
+          return isTest(path) ? [] : [path];
+        }),
+      );
+      return nested.flat();
+    };
+    return walk("src");
+  };
+
+  /** Production files that are not on the allow-list. */
+  const restrictedFiles = async () =>
+    (await productionFiles()).filter((path) => !(path in ALLOWED));
+
+  const FORBIDDEN = [
+    { label: "the postgres driver", pattern: /from\s+["']postgres["']/ },
+    {
+      label: "a Drizzle client",
+      pattern: /from\s+["']drizzle-orm\/postgres-js["']/,
+    },
+    {
+      label: "the runtime pool",
+      pattern: /from\s+["'][^"']*\bclient["']/,
+    },
+    {
+      label: "the context constructor",
+      pattern: /from\s+["'][^"']*\btenant-context["']/,
+    },
+    {
+      label: "the tooling connection",
+      pattern: /DRIZZLE_TOOLING_DATABASE_URL/,
+    },
+  ];
+
+  it("scans the whole production tree, excluding only tests", async () => {
+    const files = await productionFiles();
+    expect(files.length).toBeGreaterThan(10);
+    // The database layer is scanned, not skipped: that is the point of the
+    // exact allow-list replacing the old directory-wide exclusion.
+    const dbLayer = files.filter((f) => f.startsWith("src/server/db/"));
+    expect(dbLayer.length).toBeGreaterThan(0);
+    expect(dbLayer).toContain("src/server/db/client.ts");
+    expect(dbLayer).toContain("src/server/db/tenant.ts");
+  });
+
+  it("allows exactly two files to reach the pool or driver", async () => {
+    const allowed = Object.keys(ALLOWED).sort();
+    expect(allowed).toEqual([
+      "src/server/db/client.ts",
+      "src/server/db/tenant.ts",
+    ]);
+    // Every allow-listed path must actually exist, or the list is stale.
+    for (const path of allowed) {
+      await expect(readRepoFile(path)).resolves.toBeTruthy();
+    }
+  });
+
+  it.each(FORBIDDEN)(
+    "keeps $label out of every non-allow-listed production file",
+    async ({ pattern }) => {
+      const offenders: string[] = [];
+      for (const file of await restrictedFiles()) {
+        const contents = await readSourceWithoutComments(file);
+        if (pattern.test(contents)) offenders.push(file);
+      }
+      expect(offenders).toEqual([]);
+    },
+  );
+
+  it("detects an unauthorized file placed inside src/server/db", async () => {
+    // A fixture rather than a real file: proves the scan would catch a future
+    // repository added to the database directory, without leaving one behind.
+    const hypothetical =
+      'import postgres from "postgres";\nexport const x = postgres;';
+    const path = "src/server/db/repositories/workspaces.ts";
+    expect(path in ALLOWED).toBe(false);
+    expect(isTest(path)).toBe(false);
+    const driverRule = FORBIDDEN[0];
+    expect(driverRule).toBeDefined();
+    expect(driverRule!.pattern.test(hypothetical)).toBe(true);
+  });
+
+  it("exposes exactly one gateway and no alternate pool entry point", async () => {
+    const gateway = await readSourceWithoutComments("src/server/db/tenant.ts");
+    expect(gateway).toContain("export async function withTenant");
+    // There must be no second function accepting an arbitrary pool/client.
+    expect(gateway).not.toContain("runWithTenantOn");
+    // The exported function surface is exactly this — enumerated rather than
+    // pattern-matched, so a second gateway cannot slip in under a new name.
+    const exportedFunctions = [
+      ...gateway.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g),
+    ].map((match) => match[1]);
+    expect(exportedFunctions.sort()).toEqual(["withTenant"]);
+    // No exported function may take a pool or client as a parameter.
+    expect(gateway).not.toMatch(/export[^\n]*\(\s*sql\s*:/i);
+    expect(gateway).not.toMatch(/export[^\n]*:\s*RuntimeSql/);
+    // Transaction-local, never session-global; no bypass of any kind.
+    expect(gateway).toMatch(/set_config\([^)]*true\)/);
+    expect(gateway).not.toMatch(/\bSET\s+app\./i);
+    expect(gateway).not.toMatch(/security\s+definer/i);
+    expect(gateway).not.toContain("service_role");
+  });
+
+  it("has no runWithTenantOn anywhere in production source", async () => {
+    const offenders: string[] = [];
+    for (const file of await productionFiles()) {
+      if ((await readRepoFile(file)).includes("runWithTenantOn")) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("exports no test-only pool setter from a production module", async () => {
+    for (const path of Object.keys(ALLOWED)) {
+      const source = await readSourceWithoutComments(path);
+      expect(source).not.toMatch(/export[^\n]*\bset\w*Pool\w*\b/i);
+      expect(source).not.toMatch(/export[^\n]*\bForTests?\b/);
+    }
+  });
+
+  it("enforces the boundary through ESLint as well as by convention", async () => {
+    const config = await readRepoFile("eslint.config.mjs");
+    expect(config).toContain("no-restricted-imports");
+    expect(config).toContain("no-restricted-syntax");
+    for (const restricted of [
+      '"postgres"',
+      '"drizzle-orm/postgres-js"',
+      "server/db/client",
+      "server/db/tenant-context",
+      "DRIZZLE_TOOLING_DATABASE_URL",
+    ]) {
+      expect(config).toContain(restricted);
+    }
+    // The directory-wide exemption must not come back.
+    expect(config).not.toContain('"src/server/db/**"');
+  });
+
+  it("keeps the runtime client server-only and off the tooling connection", async () => {
+    const client = await readSourceWithoutComments("src/server/db/client.ts");
+    expect(client).toContain('import "server-only"');
+    expect(client).toContain("prepare: false");
+    expect(client).not.toContain("DRIZZLE_TOOLING_DATABASE_URL");
+    expect(client).toContain("databaseEnv");
+  });
+});
+
 describe("production code does not use tooling credentials", () => {
   const TOOLING_ONLY = [
     "DRIZZLE_TOOLING_DATABASE_URL",
@@ -441,7 +625,7 @@ describe("production code does not use tooling credentials", () => {
     const files = await collect("src");
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
-      const contents = await readRepoFile(file);
+      const contents = await readSourceWithoutComments(file);
       for (const name of TOOLING_ONLY) {
         expect(contents, `${file} must not read ${name}`).not.toContain(name);
       }

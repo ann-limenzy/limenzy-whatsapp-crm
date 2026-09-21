@@ -131,6 +131,63 @@ subject to the policies too. Stated accurately: FORCE does **not** constrain a
 superuser or a `BYPASSRLS` role — locally `postgres` holds `BYPASSRLS` and still
 sees everything, which is what lets migrations and tooling work.
 
+### The runtime gateway
+
+Two database connections exist, and they are not interchangeable:
+
+| Connection                     | Role            | Bypasses RLS? | Used by                                  |
+| ------------------------------ | --------------- | ------------- | ---------------------------------------- |
+| `DATABASE_URL`                 | `limenzy_app`   | **no**        | the application, through `withTenant()`  |
+| `DRIZZLE_TOOLING_DATABASE_URL` | local superuser | **yes**       | `drizzle-kit`, migrations, test fixtures |
+
+**Every tenant query must go through `withTenant()`** (`src/server/db/tenant.ts`):
+
+```ts
+await withTenant(context, async (tx) => {
+  // every protected statement uses `tx`
+});
+```
+
+It opens one transaction on the runtime pool and sets `app.auth_user_id`,
+`app.user_profile_id` and `app.workspace_id` with
+`set_config(name, value, true)` — the third argument makes each setting
+**transaction-local**. A session-scoped `SET` would survive the transaction and
+leak the tenant to whichever request borrowed the same pooled connection next.
+The settings are gone at COMMIT and at ROLLBACK alike.
+
+A query run outside the gateway sees no context, so the policies match nothing
+and it returns zero rows. That is fail-closed, but it reads like an empty
+database rather than like a mistake — which is why an ESLint rule and contract
+tests stop application code importing the pool, the `postgres` driver, a Drizzle
+client, or the context constructor.
+
+A context is minted by `createTenantContext()`, which validates three UUIDs,
+freezes the object and records it; `withTenant()` accepts nothing else. That
+rejects accidental fabrication — a plain object built from request data, or a
+copy that lost its provenance — but it is **not** a defence against deliberately
+malicious server code, which could import the constructor directly. What closes
+that gap is the import boundary, code review of the few modules allowed to call
+it, and Phase 4's resolver, which will derive every value from verified Supabase
+claims and a live membership read. Phase 3 reads no request, so no browser input
+is authoritative anywhere in it.
+
+Nested `withTenant()` calls with the same context reuse the outer transaction
+(no second `BEGIN`, no second `set_config`). A nested call with a _different_
+context throws `TenantContextConflict` before any statement runs.
+
+To run the gateway's live proof:
+
+```bash
+npm run db:start && npm run db:reset && npm run db:role:local
+npm run test:db
+```
+
+**What this does not prove.** The local stack runs a direct PostgreSQL
+connection, not Supabase's hosted transaction pooler (`db.pooler` is disabled in
+`supabase/config.toml`). The driver is configured with `prepare: false` in
+anticipation of it, but hosted pooler compatibility — §6.1 gate check 9 —
+remains unverified until company Supabase access.
+
 ### What is proven locally
 
 101 database tests run against the real local database on every `npm run test:db`
