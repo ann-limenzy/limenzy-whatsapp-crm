@@ -74,12 +74,18 @@ const NO_TOOLING_CONNECTION = [
   },
 ];
 
-/** Exempt from the whole-tree rule, each for a stated reason. */
+/**
+ * Exempt from the whole-tree rule — by exact file, and only for what each one
+ * genuinely needs. No directory is exempt, so a future repository or service
+ * placed under `src/server/db/` is policed exactly like anything else.
+ */
 const GATEWAY_FILES = {
   /** Creates the pool: the one place the driver may be imported. */
   client: "src/server/db/client.ts",
   /** Consumes the pool and the context marker: the gateway itself. */
   tenant: "src/server/db/tenant.ts",
+  /** Consumes the pool for identity-scoped resolution; nothing else. */
+  identity: "src/server/db/identity.ts",
 };
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}", "src/test/**"];
@@ -102,7 +108,12 @@ const eslintConfig = defineConfig([
      * excluded because they must reach the pool to prove the boundary holds.
      */
     files: ["src/**/*.{ts,tsx}"],
-    ignores: [...TEST_FILES, GATEWAY_FILES.client, GATEWAY_FILES.tenant],
+    ignores: [
+      ...TEST_FILES,
+      GATEWAY_FILES.client,
+      GATEWAY_FILES.tenant,
+      GATEWAY_FILES.identity,
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -135,6 +146,21 @@ const eslintConfig = defineConfig([
     files: [GATEWAY_FILES.tenant],
     rules: {
       "no-restricted-imports": ["error", { paths: DRIVER_IMPORTS }],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * Identity-scoped resolution. It may consume the pool, because it opens its
+     * own narrow transaction, but it must not import the driver and must not
+     * mint a tenant context — choosing a workspace is Phase 4B's job, not its.
+     */
+    files: [GATEWAY_FILES.identity],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { paths: DRIVER_IMPORTS, patterns: [CONTEXT_PATTERNS] },
+      ],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
     },
   },

@@ -171,6 +171,47 @@ it, and Phase 4's resolver, which will derive every value from verified Supabase
 claims and a live membership read. Phase 3 reads no request, so no browser input
 is authoritative anywhere in it.
 
+### Identity resolution
+
+`resolveVerifiedIdentity()` (`src/server/db/identity.ts`) answers the question
+that has to be settled _before_ a tenant context can exist: **who is signed in,
+and which workspaces are they an active member of?**
+
+```ts
+const identity = await resolveVerifiedIdentity();
+// { kind: "unauthenticated" }
+// { kind: "onboarding_required", authUserId }
+// { kind: "resolved", authUserId, userProfileId, memberships: [{ workspaceId, role }] }
+```
+
+**It takes no arguments, and that is the security property.** The user comes
+from `getAuthenticatedUser()`, which reads the signature-verified access token
+via `getClaims()`. There is no parameter, no options object and no overload, so
+no caller — and therefore no browser — can ask it to resolve somebody else. A
+`sub` that is not a canonical lower-case UUID, or an address that has not been
+verified, resolves to `unauthenticated` rather than being repaired.
+
+Inside one transaction on the runtime pool it sets `app.auth_user_id` only,
+reads the caller's `user_profiles` row **through row-level security** (the query
+carries no `WHERE` clause — the policy is what narrows it), sets
+`app.user_profile_id` from the ID the database returned, and then reads active
+memberships. Roles and workspace IDs are reported exactly as stored.
+
+What it deliberately does not do:
+
+- **It does not select a workspace.** It never sets `app.workspace_id`, so for
+  the whole of that transaction the workspace policy matches nothing and **no
+  business data is readable** — the only tables it touches are `user_profiles`
+  and `workspace_memberships`. Validating a selection and minting a
+  `TenantContext` is **Phase 4B**.
+- **It does not create anything.** It performs no `INSERT`, `UPDATE` or
+  `DELETE`; a verified user with no profile returns `onboarding_required` and
+  nothing is written. Creating the first workspace and profile is **Phase 4C**,
+  which needs privileges this resolver does not have.
+- It returns a plain, frozen result. Several memberships come back as a list in
+  a stable order, with no "current" or "default" among them; choosing is not
+  this function's job.
+
 Nested `withTenant()` calls with the same context reuse the outer transaction
 (no second `BEGIN`, no second `set_config`). A nested call with a _different_
 context throws `TenantContextConflict` before any statement runs.
@@ -190,22 +231,32 @@ remains unverified until company Supabase access.
 
 ### What is proven locally
 
-101 database tests run against the real local database on every `npm run test:db`
+146 database tests run against the real local database on every `npm run test:db`
 and none may skip. They cover absent, empty and malformed context; identity
-resolution; cross-tenant attempts; inactive membership; role-gated updates;
-column-level refusals; the browser roles; the owner under FORCE; and a
-catalogue-based proof that the policy dependency graph
+resolution end to end through `resolveVerifiedIdentity()` — including that it
+leaves no context behind on a reused pooled connection after either commit or
+rollback, that concurrent users cannot see each other, and that it never
+acquires a transaction ID and so writes nothing; cross-tenant attempts;
+inactive membership; role-gated updates; column-level refusals; the browser
+roles; the owner under FORCE; and a catalogue-based proof that the policy
+dependency graph
 (`workspaces → workspace_memberships → user_profiles → context readers`) is
 acyclic and references nothing outside those three tables.
 
 ### What is not done yet
 
-- **Nothing in the application sets the context settings.** `withTenant()` —
-  which will issue transaction-local `set_config(..., true)` — is a later phase,
-  as are the database client and the workspace-context resolver.
-- The initial-workspace routine, `/setup` and workspace selection do not exist.
+- **No route, layout or page calls any of this yet.** The gateway and the
+  identity resolver exist and are proven, but nothing above them uses them.
+- **No workspace is ever selected.** `app.workspace_id` is set only by
+  `withTenant()`, and nothing yet produces the context it requires — **Phase 4B**
+  validates a selection against the resolved memberships and mints it.
+- **The initial workspace cannot be created.** `limenzy_app` has no `INSERT`
+  grant or policy on any of the three tables, so signing up currently reaches
+  `onboarding_required` and stops. **Phase 4C** owns that routine; `/setup` and
+  workspace selection do not exist yet.
 - **Tenant isolation is therefore not complete.** What exists is a correct,
-  tested database layer with no application integration above it.
+  tested database layer and the server-side resolution above it — not a
+  finished request path.
 
 ### Still pending on hosted Supabase
 

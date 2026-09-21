@@ -26,6 +26,7 @@ const SUITES = [
   "src/server/db/roles.test.ts",
   "src/server/db/rls.test.ts",
   "src/server/db/tenant.test.ts",
+  "src/server/db/identity.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";

@@ -29,6 +29,31 @@ const readSourceWithoutComments = async (path: string) =>
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 
+const isTestFile = (path: string) =>
+  /\.test\.tsx?$/.test(path) || path.startsWith("src/test/");
+
+/**
+ * The complete production tree: every file under `src/` that is not a test.
+ *
+ * Shared by every contract below, so a rule about "production code" always
+ * means the same set of files and no directory can quietly fall out of scope.
+ */
+const productionSources = async (): Promise<string[]> => {
+  const walk = async (dir: string): Promise<string[]> => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    const nested = await Promise.all(
+      entries.map(async (entry) => {
+        const path = `${dir}/${entry.name}`;
+        if (entry.isDirectory()) return walk(path);
+        if (!/\.tsx?$/.test(entry.name)) return [];
+        return isTestFile(path) ? [] : [path];
+      }),
+    );
+    return nested.flat();
+  };
+  return walk("src");
+};
+
 const packageJson = async () =>
   JSON.parse(await readRepoFile("package.json")) as {
     scripts: Record<string, string>;
@@ -198,6 +223,9 @@ describe("dedicated live-database verification", () => {
   it("runs only the database suite", async () => {
     const runner = await readRepoFile("scripts/test-db.mjs");
     expect(runner).toContain("src/server/db/schema.test.ts");
+    // A live suite that the runner does not know about would skip silently
+    // under `npm test` and never be verified at all.
+    expect(runner).toContain("src/server/db/identity.test.ts");
     // It must not fall back to the whole suite, which would hide a skip.
     expect(runner).not.toMatch(/vitest[^\n]*run['"\s,\]]*$/m);
   });
@@ -431,41 +459,29 @@ describe("local secrets stay out of the repository", () => {
 
 describe("the tenant gateway import boundary", () => {
   /**
-   * The exact files allowed to reach the raw pool or the driver, and why.
-   * Everything else under `src/` is production code — including any future
-   * repository or service placed inside `src/server/db/`, which is deliberately
-   * NOT exempt as a directory.
+   * The exact files allowed to reach a restricted import, and which ones.
+   *
+   * Per file AND per pattern: being on this list exempts a module from the one
+   * thing it genuinely needs, never from the rest. No directory is exempt, so
+   * any future repository or service under `src/server/db/` is scanned exactly
+   * like anything else.
    */
-  const ALLOWED = {
-    "src/server/db/client.ts":
-      "creates the pool; the one place the driver lives",
-    "src/server/db/tenant.ts":
-      "the gateway; consumes the pool and context marker",
-  } as const;
-
-  const isTest = (path: string) =>
-    /\.test\.tsx?$/.test(path) || path.startsWith("src/test/");
-
-  /** The complete production tree: every src file that is not a test. */
-  const productionFiles = async (): Promise<string[]> => {
-    const walk = async (dir: string): Promise<string[]> => {
-      const entries = await readdir(dir, { withFileTypes: true });
-      const nested = await Promise.all(
-        entries.map(async (entry) => {
-          const path = `${dir}/${entry.name}`;
-          if (entry.isDirectory()) return walk(path);
-          if (!/\.tsx?$/.test(entry.name)) return [];
-          return isTest(path) ? [] : [path];
-        }),
-      );
-      return nested.flat();
-    };
-    return walk("src");
+  const ALLOWED: Record<string, readonly string[]> = {
+    // Creates the pool: the one place the driver may be imported.
+    "src/server/db/client.ts": ["the postgres driver", "a Drizzle client"],
+    // The gateway: consumes the pool and the context marker.
+    "src/server/db/tenant.ts": ["the runtime pool", "the context constructor"],
+    // Identity-scoped resolution: consumes the pool, and nothing else.
+    "src/server/db/identity.ts": ["the runtime pool"],
   };
 
-  /** Production files that are not on the allow-list. */
-  const restrictedFiles = async () =>
-    (await productionFiles()).filter((path) => !(path in ALLOWED));
+  const productionFiles = productionSources;
+
+  /** Files that must not match a given forbidden pattern. */
+  const filesRestrictedFor = async (label: string) =>
+    (await productionFiles()).filter(
+      (path) => !(ALLOWED[path] ?? []).includes(label),
+    );
 
   const FORBIDDEN = [
     { label: "the postgres driver", pattern: /from\s+["']postgres["']/ },
@@ -498,12 +514,21 @@ describe("the tenant gateway import boundary", () => {
     expect(dbLayer).toContain("src/server/db/tenant.ts");
   });
 
-  it("allows exactly two files to reach the pool or driver", async () => {
+  it("allows exactly three files, each only for what it needs", async () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
       "src/server/db/client.ts",
+      "src/server/db/identity.ts",
       "src/server/db/tenant.ts",
     ]);
+    // Identity resolution gets the pool and nothing else: it must not be able
+    // to import the driver or mint a tenant context.
+    expect(ALLOWED["src/server/db/identity.ts"]).toEqual(["the runtime pool"]);
+    // Every exemption must name a pattern that actually exists.
+    const labels = FORBIDDEN.map((entry) => entry.label);
+    for (const exemptions of Object.values(ALLOWED)) {
+      for (const label of exemptions) expect(labels).toContain(label);
+    }
     // Every allow-listed path must actually exist, or the list is stale.
     for (const path of allowed) {
       await expect(readRepoFile(path)).resolves.toBeTruthy();
@@ -511,10 +536,10 @@ describe("the tenant gateway import boundary", () => {
   });
 
   it.each(FORBIDDEN)(
-    "keeps $label out of every non-allow-listed production file",
-    async ({ pattern }) => {
+    "keeps $label out of every file not explicitly allowed it",
+    async ({ label, pattern }) => {
       const offenders: string[] = [];
-      for (const file of await restrictedFiles()) {
+      for (const file of await filesRestrictedFor(label)) {
         const contents = await readSourceWithoutComments(file);
         if (pattern.test(contents)) offenders.push(file);
       }
@@ -529,7 +554,7 @@ describe("the tenant gateway import boundary", () => {
       'import postgres from "postgres";\nexport const x = postgres;';
     const path = "src/server/db/repositories/workspaces.ts";
     expect(path in ALLOWED).toBe(false);
-    expect(isTest(path)).toBe(false);
+    expect(isTestFile(path)).toBe(false);
     const driverRule = FORBIDDEN[0];
     expect(driverRule).toBeDefined();
     expect(driverRule!.pattern.test(hypothetical)).toBe(true);
@@ -597,6 +622,195 @@ describe("the tenant gateway import boundary", () => {
     expect(client).toContain("prepare: false");
     expect(client).not.toContain("DRIZZLE_TOOLING_DATABASE_URL");
     expect(client).toContain("databaseEnv");
+  });
+});
+
+describe("identity resolution takes no identity from its caller", () => {
+  const MODULE = "src/server/db/identity.ts";
+
+  const identitySource = () => readSourceWithoutComments(MODULE);
+
+  it("exports a resolver that declares no parameters", async () => {
+    const source = await identitySource();
+    expect(source).toMatch(
+      /export\s+async\s+function\s+resolveVerifiedIdentity\s*\(\s*\)/,
+    );
+  });
+
+  it("exports nothing that accepts an identity, pool, client or transaction", async () => {
+    const source = await identitySource();
+    // Enumerated rather than pattern-matched, so a second entry point cannot
+    // arrive under a name a regex happens not to cover.
+    const exportedFunctions = [
+      ...source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g),
+    ].map((match) => match[1]);
+    expect(exportedFunctions.sort()).toEqual(["resolveVerifiedIdentity"]);
+
+    // Nor a const arrow function standing in for one.
+    expect(source).not.toMatch(/export\s+const\s+\w+\s*=\s*(async\s*)?\(/);
+
+    // No exported signature may take any of these.
+    for (const forbidden of [
+      /export[^\n]*\(\s*sql\s*:/i,
+      /export[^\n]*\(\s*tx\s*:/i,
+      /export[^\n]*:\s*RuntimeSql/,
+      /export[^\n]*:\s*RuntimeTx/,
+      /export[^\n]*:\s*TenantTx/,
+      /export[^\n]*\bauthUserId\s*:\s*string\s*\)/,
+      /export[^\n]*\bworkspaceId\s*:/,
+    ]) {
+      expect(source).not.toMatch(forbidden);
+    }
+  });
+
+  it("offers no test seam, setter, environment branch or second resolver", async () => {
+    const source = await identitySource();
+    expect(source).not.toMatch(/export[^\n]*\bForTests?\b/);
+    expect(source).not.toMatch(
+      /export[^\n]*\bset\w*(Pool|User|Identity)\w*\b/i,
+    );
+    expect(source).not.toMatch(/\b__\w+__\b/);
+    // Behaviour must not change with the environment.
+    expect(source).not.toContain("process.env");
+    expect(source).not.toMatch(/NODE_ENV|VERCEL|CI\b/);
+    // And there is exactly one of it.
+    expect((source.match(/resolveVerifiedIdentity/g) ?? []).length).toBe(1);
+  });
+
+  it("reads identity only from the verified-claims utility", async () => {
+    const source = await identitySource();
+    expect(source).toContain("getAuthenticatedUser");
+    // Browser-controlled inputs are not consulted here at all.
+    for (const forbidden of [
+      "cookies(",
+      "headers(",
+      "searchParams",
+      "NextRequest",
+      "formData",
+      "request",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("introduces no unverified authentication call anywhere in production", async () => {
+    const offenders: string[] = [];
+    for (const file of await productionSources()) {
+      const source = await readSourceWithoutComments(file);
+      if (/\.auth\.(getSession|getUser)\s*\(/.test(source)) {
+        offenders.push(file);
+      }
+    }
+    expect(offenders).toEqual([]);
+    // The one supported path is still the verified one.
+    const verifier = await readSourceWithoutComments(
+      "src/server/auth/require-user.ts",
+    );
+    expect(verifier).toContain("getClaims(");
+  });
+
+  it("cannot mint a tenant context or select a workspace in this slice", async () => {
+    const source = await identitySource();
+    expect(source).not.toContain("createTenantContext");
+    expect(source).not.toContain("withTenant");
+    expect(source).not.toMatch(/from\s+["'][^"']*\btenant(-context)?["']/);
+    // The workspace setting is never written, so no workspace row is readable.
+    expect(source).not.toContain("app.workspace_id");
+    expect(source).not.toMatch(/set_config\([^)]*workspace/i);
+    // And the result type carries no workspace selection to be mistaken for one.
+    expect(source).not.toMatch(
+      /\b(currentWorkspace|selectedWorkspace|defaultWorkspace)\b/,
+    );
+  });
+
+  it("uses only the runtime connection, with no elevation of any kind", async () => {
+    const source = await identitySource();
+    expect(source).toContain('import "server-only"');
+    expect(source).toMatch(/from\s+["']\.\/client["']/);
+    for (const forbidden of [
+      "DRIZZLE_TOOLING_DATABASE_URL",
+      "SERVICE_ROLE",
+      "service_role",
+      "limenzy_bootstrap",
+      "limenzy_owner",
+      "security definer",
+      "SECURITY DEFINER",
+      "set role",
+      "auth.users",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("writes nothing and reads only the two identity tables", async () => {
+    const source = await identitySource();
+    // The generic form — `tx<{ id: string }[]>` — is the one that reads data,
+    // so a pattern that missed it would check only the set_config calls.
+    const statements = [...source.matchAll(/tx(?:<[^`]*?>)?`([\s\S]*?)`/g)].map(
+      (match) => (match[1] ?? "").replace(/\s+/g, " ").trim(),
+    );
+    expect(statements).toHaveLength(4);
+    for (const statement of statements) {
+      expect(statement).toMatch(/^select\b/i);
+      expect(statement).not.toMatch(
+        /\b(insert|update|delete|merge|truncate|copy|alter|drop|grant)\b/i,
+      );
+    }
+    // Only these two tables, so no business data is within reach.
+    const tables = [...source.matchAll(/from\s+public\.(\w+)/g)].map(
+      (match) => match[1],
+    );
+    expect([...new Set(tables)].sort()).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
+    // Transaction-local settings only, never a session-wide SET.
+    expect(source).toMatch(/set_config\([^)]*true\)/);
+    expect(source).not.toMatch(/\bSET\s+app\./i);
+  });
+
+  it("keeps no request state or cache between requests", async () => {
+    const source = await identitySource();
+    // No module-level mutable binding: `const` declarations only.
+    const moduleLevel = source
+      .split("\n")
+      .filter((line) => /^(let|var)\s+\w/.test(line));
+    expect(moduleLevel).toEqual([]);
+    for (const forbidden of [
+      "unstable_cache",
+      "globalThis",
+      "AsyncLocalStorage",
+      "new Map(",
+      "WeakMap",
+      "revalidate",
+    ]) {
+      expect(source).not.toContain(forbidden);
+    }
+  });
+
+  it("adds no migration to the applied history", async () => {
+    const migrations = (await readdir("supabase/migrations")).filter((name) =>
+      name.endsWith(".sql"),
+    );
+    // Phase 4A is application code over the Phase 2 policies: the three
+    // reviewed migrations are still the whole history.
+    expect(migrations.sort()).toEqual([
+      "20260919045005_workspace_foundation.sql",
+      "20260919073002_tenant_roles.sql",
+      "20260921025321_tenant_rls.sql",
+    ]);
+  });
+
+  it("is explained where a developer will look for it", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    expect(guide).toContain("resolveVerifiedIdentity");
+    for (const phrase of [
+      "does not select a workspace",
+      "Phase 4B",
+      "Phase 4C",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
   });
 });
 
