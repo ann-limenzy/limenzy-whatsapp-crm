@@ -227,6 +227,7 @@ describe("dedicated live-database verification", () => {
     // under `npm test` and never be verified at all.
     expect(runner).toContain("src/server/db/identity.test.ts");
     expect(runner).toContain("src/server/auth/workspace-context.db.test.ts");
+    expect(runner).toContain("src/server/db/bootstrap.test.ts");
     // It must not fall back to the whole suite, which would hide a skip.
     expect(runner).not.toMatch(/vitest[^\n]*run['"\s,\]]*$/m);
   });
@@ -376,11 +377,29 @@ describe("the 1C-B migration file", () => {
 
     const policies = [...sql.matchAll(/create policy\s+(\S+)[\s\S]*?;/g)];
     for (const [statement, name] of policies) {
+      // Every policy names exactly one application role — the runtime role for
+      // reads and the workspace update (Phase 2), or the bootstrap role for
+      // first-tenancy creation (Phase 4C-1). Never both, and never a role a
+      // browser can reach.
+      const roles = [...statement.matchAll(/\bto\s+(limenzy_\w+)/g)].map(
+        (m) => m[1],
+      );
+      expect(`${name} roles: ${roles.join(",")}`).toBe(
+        `${name} roles: ${roles[0] ?? "NONE"}`,
+      );
       expect(
-        `${name} is role-scoped: ${/\bto\s+limenzy_\w+/.test(statement)}`,
-      ).toBe(`${name} is role-scoped: true`);
-      // Phase 2 grants the runtime role only; bootstrap policies are Phase 3.
-      expect(statement).not.toContain("to limenzy_bootstrap");
+        roles[0] === "limenzy_app" || roles[0] === "limenzy_bootstrap",
+      ).toBe(true);
+      for (const forbidden of [
+        "anon",
+        "authenticated",
+        "service_role",
+        "public",
+      ]) {
+        expect(
+          `${name} reaches ${forbidden}: ${statement.includes(`to ${forbidden}`)}`,
+        ).toBe(`${name} reaches ${forbidden}: false`);
+      }
     }
   });
 
@@ -411,8 +430,17 @@ describe("the 1C-B migration file", () => {
       expect(sql).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}\./);
       expect(sql).not.toMatch(/postgres(ql)?:\/\/[^\s]+/);
       expect(sql.toLowerCase()).not.toContain("fincare");
-      // No hard-coded row identifiers: the migration creates structure only.
-      expect(sql).not.toMatch(/insert into public\./i);
+
+      // No seed data: a migration creates structure, never rows. The INSERTs
+      // inside the Phase 4C-1 routine body are not seed data — they run only
+      // when a verified user onboards — so the check is applied to the
+      // statements *outside* any function body.
+      const outsideBodies = sql
+        .split(/\$fn\$|\$\$/)
+        .filter((_, index) => index % 2 === 0)
+        .join("\n");
+      expect(outsideBodies).not.toMatch(/insert into public\./i);
+      expect(outsideBodies).not.toMatch(/\bvalues\s*\(/i);
     }
   });
 });
@@ -637,6 +665,300 @@ describe("the tenant gateway import boundary", () => {
   });
 });
 
+describe("the initial-workspace bootstrap migration", () => {
+  const BOOTSTRAP =
+    "supabase/migrations/20260921064437_workspace_bootstrap.sql";
+  const EARLIER = [
+    "supabase/migrations/20260919045005_workspace_foundation.sql",
+    "supabase/migrations/20260919073002_tenant_roles.sql",
+    "supabase/migrations/20260921025321_tenant_rls.sql",
+  ];
+
+  /** The migration's statements, comments stripped, lower-cased. */
+  const statements = async () =>
+    (await readRepoFile(BOOTSTRAP))
+      .split("\n")
+      .map((line) => line.replace(/--.*$/, ""))
+      .join("\n")
+      .toLowerCase();
+
+  /** The body of the routine, between its $fn$ delimiters. */
+  const routineBody = async () => {
+    const sql = await statements();
+    const body = sql.split("as $fn$")[1]?.split("$fn$;")[0];
+    expect(body).toBeDefined();
+    return body ?? "";
+  };
+
+  it("adds exactly one migration and edits none of the earlier three", async () => {
+    const names = (await readdir("supabase/migrations"))
+      .filter((n) => n.endsWith(".sql"))
+      .sort();
+    expect(names).toHaveLength(4);
+    expect(names[3]).toBe("20260921064437_workspace_bootstrap.sql");
+
+    // The bootstrap work lives entirely in the new file: none of the earlier
+    // three mentions the routine, the new policies or the new grants. (That
+    // they are byte-identical is a Git fact, verified outside the suite.)
+    for (const path of EARLIER) {
+      const sql = (await readRepoFile(path)).toLowerCase();
+      expect(sql).not.toContain("create_initial_workspace");
+      expect(sql).not.toContain("_bootstrap_insert");
+      expect(sql).not.toContain("_bootstrap_select");
+      expect(sql).not.toMatch(/grant\s+insert/);
+    }
+  });
+
+  it("declares exactly the six business parameters, and no identity", async () => {
+    const sql = await statements();
+    const signature = sql
+      .split("create or replace function app.create_initial_workspace(")[1]
+      ?.split(")")[0];
+    expect(signature).toBeDefined();
+
+    const params = (signature ?? "")
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    expect(params).toEqual([
+      "p_full_name      text",
+      "p_workspace_name text",
+      "p_business_type  text",
+      "p_country        text",
+      "p_currency       text",
+      "p_time_zone      text",
+    ]);
+
+    // Nothing identity- or authorisation-shaped may be a parameter.
+    for (const forbidden of [
+      "auth",
+      "uuid",
+      "profile",
+      "workspace_id",
+      "membership",
+      "role",
+      "status",
+    ]) {
+      expect(`${forbidden}: ${(signature ?? "").includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("reads identity only from the verified transaction setting", async () => {
+    const body = await routineBody();
+    expect(body).toContain("app.current_auth_user_id()");
+    // A caller could not supply it even if it wanted to.
+    expect(body).not.toMatch(/p_auth|p_user|p_profile|p_role|p_status/);
+    // And it refuses when the setting is absent.
+    expect(body).toContain("no verified identity");
+  });
+
+  it("is the only bootstrap routine, and uses no dynamic SQL", async () => {
+    const sql = await statements();
+    expect(sql.match(/create or replace function/g) ?? []).toHaveLength(1);
+    expect(sql).not.toMatch(/create\s+(or\s+replace\s+)?procedure/);
+
+    const body = await routineBody();
+    // No EXECUTE, no format(), no string-built statement of any kind.
+    expect(body).not.toMatch(/\bexecute\b/);
+    expect(body).not.toMatch(/\bformat\s*\(/);
+    expect(body).not.toMatch(/quote_ident|quote_literal/);
+  });
+
+  it("schema-qualifies every object it touches", async () => {
+    const body = await routineBody();
+    // Tables.
+    for (const table of [
+      "user_profiles",
+      "workspaces",
+      "workspace_memberships",
+    ]) {
+      const occurrences = body.split(table).length - 1;
+      const qualified = body.split(`public.${table}`).length - 1;
+      expect(`${table}: ${qualified}/${occurrences}`).toBe(
+        `${table}: ${occurrences}/${occurrences}`,
+      );
+    }
+    // Built-ins.
+    for (const fn of [
+      "gen_random_uuid",
+      "hashtextextended",
+      "pg_advisory_xact_lock",
+      "btrim",
+      "count",
+    ]) {
+      expect(`${fn} qualified`).toBe(
+        body.includes(`pg_catalog.${fn}`) ? `${fn} qualified` : `${fn} BARE`,
+      );
+    }
+    // And the search path is pinned empty, so nothing can be shadowed.
+    expect(await statements()).toContain("set search_path = ''");
+  });
+
+  it("revokes PUBLIC before granting EXECUTE, and grants it only to limenzy_app", async () => {
+    const sql = await statements();
+    const revoke = sql.indexOf(
+      "revoke all on function app.create_initial_workspace",
+    );
+    const grant = sql.indexOf(
+      "grant execute on function app.create_initial_workspace",
+    );
+    expect(revoke).toBeGreaterThan(-1);
+    expect(grant).toBeGreaterThan(revoke);
+    expect(sql).toContain("from public;");
+
+    // Exactly one EXECUTE grant on the routine, and it names the runtime role.
+    const grants = [
+      ...sql.matchAll(
+        /grant execute on function app\.create_initial_workspace\([^)]*\)\s*to\s+(\w+)/g,
+      ),
+    ].map((m) => m[1]);
+    expect(grants).toEqual(["limenzy_app"]);
+  });
+
+  it("gives the runtime role no new table privilege", async () => {
+    const sql = await statements();
+    // Every INSERT grant in this migration goes to the bootstrap role, and
+    // every one of them is column-scoped.
+    const inserts = [
+      ...sql.matchAll(/grant insert\s*(\([^)]*\))?[\s\S]*?to\s+(\w+)/g),
+    ];
+    expect(inserts.length).toBeGreaterThan(0);
+    for (const match of inserts) {
+      expect(match[2]).toBe("limenzy_bootstrap");
+      expect(match[1]).toBeDefined(); // column list present
+    }
+    expect(sql).not.toMatch(
+      /grant\s+(insert|update|delete)[^;]*to\s+limenzy_app/,
+    );
+    expect(sql).not.toMatch(
+      /to\s+(anon|authenticated|service_role|public)\s*;/,
+    );
+  });
+
+  it("adds five policies, all scoped to limenzy_bootstrap and none permissive-by-default", async () => {
+    const sql = await statements();
+    const policies = [
+      ...sql.matchAll(/create policy (\w+) on ([\w.]+)\s+for (\w+) to (\w+)/g),
+    ].map((m) => ({ name: m[1], table: m[2], cmd: m[3], role: m[4] }));
+
+    expect(policies.map((p) => `${p.name}:${p.cmd}:${p.role}`).sort()).toEqual([
+      "user_profiles_bootstrap_insert:insert:limenzy_bootstrap",
+      "user_profiles_bootstrap_select:select:limenzy_bootstrap",
+      "workspace_memberships_bootstrap_insert:insert:limenzy_bootstrap",
+      "workspace_memberships_bootstrap_select:select:limenzy_bootstrap",
+      "workspaces_bootstrap_insert:insert:limenzy_bootstrap",
+    ]);
+
+    // No blanket predicate anywhere in the file.
+    expect(sql.replace(/\s+/g, " ")).not.toMatch(
+      /using \( true \)|using \(true\)/,
+    );
+    expect(sql.replace(/\s+/g, " ")).not.toMatch(
+      /with check \( true \)|with check \(true\)/,
+    );
+    // Each policy is dropped before it is recreated, matching the Phase 2 style.
+    expect(sql.match(/drop policy if exists/g) ?? []).toHaveLength(5);
+  });
+
+  it("withdraws the temporary CREATE on schema app", async () => {
+    const sql = await statements();
+    const granted = sql.indexOf(
+      "grant create on schema app to limenzy_bootstrap",
+    );
+    const revoked = sql.indexOf(
+      "revoke create on schema app from limenzy_bootstrap",
+    );
+    expect(granted).toBeGreaterThan(-1);
+    expect(revoked).toBeGreaterThan(granted);
+    // The membership needed for the ownership transfer goes to the migration
+    // executor, never to the runtime role.
+    expect(sql).toContain(
+      "grant limenzy_bootstrap to current_user with set option",
+    );
+    expect(sql).not.toMatch(/grant\s+limenzy_bootstrap\s+to\s+limenzy_app/);
+  });
+
+  it("is additive and destroys nothing", async () => {
+    const sql = await statements();
+    for (const forbidden of [
+      "drop table",
+      "drop schema",
+      "drop role",
+      "truncate",
+      "delete from",
+      "alter table public.workspaces disable",
+      "no force row level security",
+    ]) {
+      expect(`${forbidden}: ${sql.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+
+    // The routine's INSERTs are inside its body; nothing outside it writes a
+    // row, so the migration seeds nothing.
+    const outsideBody = sql
+      .split("$fn$")
+      .filter((_, i) => i % 2 === 0)
+      .join("\n");
+    expect(outsideBody).not.toContain("insert into public.");
+    // No service-role path: the statements must not grant it anything. A
+    // comment naming it in order to explain why it is excluded is
+    // documentation working as intended, so this reads the statements while
+    // the credential scan below reads the whole file.
+    expect(sql).not.toMatch(/service_role/);
+
+    const raw = await readRepoFile(BOOTSTRAP);
+    for (const forbidden of [
+      "sb_secret",
+      "sb_publishable",
+      "postgresql://",
+      "postgres://",
+    ]) {
+      expect(`${forbidden}: ${raw.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+    expect(raw).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}\./);
+    // No password literal: the bootstrap path needs no credential at all.
+    expect(raw).not.toMatch(/password\s*[:=]/i);
+  });
+
+  it("adds no TypeScript caller, route, component or context path in this phase", async () => {
+    // Phase 4C-1 is the database only. The server operation is 4C-2 and the
+    // form is 4C-3, so nothing in the production tree may reference the
+    // routine yet — which also means no production test seam was introduced.
+    const offenders: string[] = [];
+    for (const file of await productionSources()) {
+      const source = await readRepoFile(file);
+      if (source.includes("create_initial_workspace")) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+
+    // And the context-constructor allow-list is unchanged: no new module may
+    // mint a tenant context as part of this phase.
+    const config = await readRepoFile("eslint.config.mjs");
+    expect(config).toContain(
+      'workspaceContext: "src/server/auth/workspace-context.ts"',
+    );
+    expect(config).not.toMatch(/bootstrap[^\n]*:\s*"src\//);
+  });
+
+  it("is explained where a developer will look for it", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    expect(guide).toContain("app.create_initial_workspace");
+    for (const phrase of [
+      "limenzy_bootstrap",
+      "already_onboarded",
+      "access_unavailable",
+      "advisory lock",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
+  });
+});
+
 describe("workspace selection treats the candidate as a preference", () => {
   const MODULE = "src/server/auth/workspace-context.ts";
 
@@ -753,6 +1075,7 @@ describe("workspace selection treats the candidate as a preference", () => {
       "20260919045005_workspace_foundation.sql",
       "20260919073002_tenant_roles.sql",
       "20260921025321_tenant_rls.sql",
+      "20260921064437_workspace_bootstrap.sql",
     ]);
   });
 
@@ -942,6 +1265,7 @@ describe("identity resolution takes no identity from its caller", () => {
       "20260919045005_workspace_foundation.sql",
       "20260919073002_tenant_roles.sql",
       "20260921025321_tenant_rls.sql",
+      "20260921064437_workspace_bootstrap.sql",
     ]);
   });
 

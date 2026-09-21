@@ -205,8 +205,8 @@ describe.skipIf(!reachable)("Phase 1 ownership", () => {
     }
   });
 
-  it("leaves limenzy_app and limenzy_bootstrap owning nothing", async () => {
-    for (const role of ["limenzy_app", "limenzy_bootstrap"] as const) {
+  it("leaves limenzy_app owning nothing at all", async () => {
+    for (const role of ["limenzy_app"] as const) {
       const owned = first(
         await db()<{ n: number }[]>`
           select (
@@ -223,6 +223,37 @@ describe.skipIf(!reachable)("Phase 1 ownership", () => {
       );
       expect(`${role} owns ${owned.n}`).toBe(`${role} owns 0`);
     }
+  });
+
+  it("leaves limenzy_bootstrap owning exactly its one routine", async () => {
+    // Phase 4C-1 gives the bootstrap role a single object to own: the
+    // initial-workspace routine. Stronger than the Phase-1 "owns nothing",
+    // because it names what it owns rather than counting to zero — a second
+    // bootstrap-owned object, of any kind, fails this.
+    const rows = await db()<{ kind: string; name: string }[]>`
+      select 'relation' as kind, c.relname::text as name
+        from pg_catalog.pg_class c
+       where pg_catalog.pg_get_userbyid(c.relowner) = 'limenzy_bootstrap'
+      union all
+      select 'type', t.typname::text
+        from pg_catalog.pg_type t
+       where pg_catalog.pg_get_userbyid(t.typowner) = 'limenzy_bootstrap'
+      union all
+      select 'function', p.oid::regprocedure::text
+        from pg_catalog.pg_proc p
+       where pg_catalog.pg_get_userbyid(p.proowner) = 'limenzy_bootstrap'
+      union all
+      select 'schema', ns.nspname::text
+        from pg_catalog.pg_namespace ns
+       where pg_catalog.pg_get_userbyid(ns.nspowner) = 'limenzy_bootstrap'
+       order by 1, 2`;
+
+    expect(rows).toEqual([
+      {
+        kind: "function",
+        name: "app.create_initial_workspace(text,text,text,text,text,text)",
+      },
+    ]);
   });
 });
 
@@ -251,24 +282,41 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       expect(`${row.relname}:${row.force}`).toBe(`${row.relname}:true`);
   });
 
-  it("defines exactly the four approved Phase-2 policies", async () => {
-    // Phase 1 had none. Phase 2 adds precisely these and nothing else, each
-    // scoped to the runtime role only.
+  it("defines exactly the nine approved policies, each scoped to one role", async () => {
+    // Phase 1 had none; Phase 2 added four for the runtime role; Phase 4C-1
+    // adds five for the bootstrap role. Every policy is named here with the
+    // role it is scoped to, so neither a new policy nor a widened role
+    // assignment can pass unnoticed.
     const rows = await db()<{ policyname: string; roles: string }[]>`
       select policyname, roles::text as roles
         from pg_policies where schemaname = 'public' order by policyname`;
-    expect(rows.map((r) => r.policyname)).toEqual([
-      "user_profiles_self_select",
-      "workspace_memberships_self_select",
-      "workspaces_member_select",
-      "workspaces_owner_admin_update",
+
+    expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+      "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
+      "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
+      "user_profiles_self_select -> {limenzy_app}",
+      "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
+      "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
+      "workspace_memberships_self_select -> {limenzy_app}",
+      "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
+      "workspaces_member_select -> {limenzy_app}",
+      "workspaces_owner_admin_update -> {limenzy_app}",
     ]);
+
+    // No policy reaches a browser-facing role, the owner, or PUBLIC.
     for (const row of rows) {
-      expect(`${row.policyname}:${row.roles}`).toBe(
-        `${row.policyname}:{limenzy_app}`,
-      );
+      for (const forbidden of [
+        "anon",
+        "authenticated",
+        "service_role",
+        "limenzy_owner",
+        "public",
+      ]) {
+        expect(`${row.policyname}:${row.roles.includes(forbidden)}`).toBe(
+          `${row.policyname}:false`,
+        );
+      }
     }
-    expect(rows.some((r) => r.roles.includes("limenzy_bootstrap"))).toBe(false);
   });
 
   it("grants anon and authenticated nothing", async () => {
@@ -279,7 +327,7 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("grants limenzy_bootstrap nothing, and limenzy_app only SELECT", async () => {
+  it("grants limenzy_app only SELECT, and limenzy_bootstrap its exact allow-list", async () => {
     const rows = await db()<
       { grantee: string; table_name: string; privilege_type: string }[]
     >`
@@ -289,10 +337,16 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
          and grantee in ('limenzy_app', 'limenzy_bootstrap')
        order by grantee, table_name, privilege_type`;
 
-    // Phase 3 owns the bootstrap routine; it receives nothing here.
-    expect(rows.filter((r) => r.grantee === "limenzy_bootstrap")).toHaveLength(
-      0,
-    );
+    // Phase 4C-1 gives the bootstrap role table-wide SELECT on exactly the
+    // two tables its routine must read — and nothing on workspaces, which it
+    // only ever inserts into. Its INSERT privileges are column-scoped and are
+    // asserted column by column in bootstrap.test.ts.
+    expect(
+      rows
+        .filter((r) => r.grantee === "limenzy_bootstrap")
+        .map((r) => `${r.table_name}:${r.privilege_type}`)
+        .sort(),
+    ).toEqual(["user_profiles:SELECT", "workspace_memberships:SELECT"]);
 
     // The runtime role reads all three tables and holds no table-wide write.
     const runtimeGrants = rows.filter((r) => r.grantee === "limenzy_app");
@@ -342,12 +396,8 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("keeps the app schema closed to browser roles and to bootstrap", async () => {
-    for (const role of [
-      "anon",
-      "authenticated",
-      "limenzy_bootstrap",
-    ] as const) {
+  it("keeps the app schema closed to the browser-facing roles", async () => {
+    for (const role of ["anon", "authenticated", "service_role"] as const) {
       const row = first(
         await db()<{ usage: boolean }[]>`
           select pg_catalog.has_schema_privilege(${role}, 'app', 'USAGE') as usage`,
@@ -355,6 +405,19 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       );
       expect(`${role}:${row.usage}`).toBe(`${role}:false`);
     }
+  });
+
+  it("gives limenzy_bootstrap USAGE on app but never CREATE", async () => {
+    // Phase 4C-1 needed CREATE only long enough to own the routine, and the
+    // same migration withdraws it. USAGE remains so the routine can resolve
+    // app.current_auth_user_id() when it runs.
+    const row = first(
+      await db()<{ usage: boolean; may_create: boolean }[]>`
+        select pg_catalog.has_schema_privilege('limenzy_bootstrap', 'app', 'USAGE')  as usage,
+               pg_catalog.has_schema_privilege('limenzy_bootstrap', 'app', 'CREATE') as may_create`,
+      "bootstrap schema privileges",
+    );
+    expect(row).toEqual({ usage: true, may_create: false });
   });
 
   it("gives limenzy_app USAGE on app but never CREATE", async () => {

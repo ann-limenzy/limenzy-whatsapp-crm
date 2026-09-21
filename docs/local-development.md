@@ -275,6 +275,121 @@ workspace _names_ here: reading a name requires a selected workspace, which is
 the very thing that has not happened yet, and the policy is not being weakened
 to work around that.
 
+### Creating the first workspace
+
+A brand-new verified user has no profile, so Phase 4A returns
+`onboarding_required` and Phase 4B never gets as far as a workspace. Something
+has to make the first `user_profiles`, `workspaces` and `workspace_memberships`
+rows — and `limenzy_app` deliberately holds **no INSERT privilege on any of
+them**, which is exactly the property worth keeping.
+
+The obvious fix would be to grant the runtime role INSERT and add INSERT
+policies for it. That is rejected: an INSERT grant is permanent and applies to
+every request the application will ever make, in exchange for a path used once
+per account. Instead there is one narrow routine:
+
+```sql
+app.create_initial_workspace(
+  p_full_name, p_workspace_name, p_business_type,
+  p_country, p_currency, p_time_zone
+) returns text   -- 'created' | 'already_onboarded' | 'access_unavailable'
+```
+
+**Runtime privilege versus bootstrap privilege.**
+
+|                         | `limenzy_app` (every request)               | `limenzy_bootstrap` (inside the routine only)                                                       |
+| ----------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Login                   | yes, via `DATABASE_URL`                     | **NOLOGIN** — nothing can connect as it                                                             |
+| `user_profiles`         | SELECT                                      | SELECT + INSERT of `id`, `auth_user_id`, `full_name`                                                |
+| `workspaces`            | SELECT + column UPDATE                      | INSERT of the six business columns — **no SELECT**                                                  |
+| `workspace_memberships` | SELECT                                      | SELECT + INSERT of `id`, `workspace_id`, `user_profile_id`, `role`, `status`                        |
+| UPDATE / DELETE         | column UPDATE on `workspaces` only          | **none at all**                                                                                     |
+| Schema `app`            | USAGE                                       | USAGE — `CREATE` is granted only long enough to own the routine, then revoked in the same migration |
+| Can become the other    | **no** — not a member, `SET ROLE` is denied | n/a                                                                                                 |
+
+`limenzy_app` gains exactly one thing from this phase: EXECUTE on that one
+function. It still cannot INSERT into any of the three tables, and a live test
+over a genuine runtime connection proves it.
+
+**Trusted identity.** The routine takes no Auth UUID, profile id, workspace id,
+membership id, role or status. It reads `app.current_auth_user_id()`, which is
+the transaction-local `app.auth_user_id` that trusted server code set after
+`getClaims()` verified the token.
+
+> **What the database does not do.** PostgreSQL does not verify the Supabase
+> JWT and cannot know whether `app.auth_user_id` reflects a real signature
+> check — the server is responsible for that. What the database enforces is
+> _consistency_ with the asserted identity: the five `limenzy_bootstrap`
+> policies re-derive every decision from `app.current_auth_user_id()` and
+> stored rows, so a fault in the application layer cannot create or attach a
+> tenancy for a different user. The foreign key from `user_profiles.auth_user_id`
+> to `auth.users` is the backstop proving the asserted UUID belongs to a real
+> account.
+
+**Atomicity and the advisory lock.** All three rows are inserted in the
+caller's transaction, so any failure removes all of them — proven live by
+letting the IANA time-zone trigger reject a workspace _after_ the profile has
+been inserted. Before reading the profile, the routine takes
+`pg_advisory_xact_lock(hashtextextended('limenzy.bootstrap:' || auth_uuid, 0))`,
+which is transaction-scoped and released by COMMIT or ROLLBACK alike. A 64-bit
+hash of a UUID could in principle collide; the consequence is that two
+unrelated users serialise briefly, never that one gains the other's access,
+because the lock key appears in no predicate. The correctness backstop is the
+UNIQUE constraint on `user_profiles.auth_user_id`.
+
+**Why retries are safe.** The three outcomes are decided _after_ the lock:
+
+- **`created`** — there was no profile, and now there is a profile, a workspace
+  and one active Owner/Admin membership.
+- **`already_onboarded`** — a profile exists with at least one active
+  membership. Nothing is created and **no identifier is returned**; the caller
+  should resolve its context again through Phase 4A/4B, which is the only path
+  permitted to hand out a workspace.
+- **`access_unavailable`** — a profile exists with no active membership: no
+  memberships at all, inactive-only, or any other partial state. This
+  **fails closed**. It is most likely someone deactivated everywhere (§159,
+  §160), and giving them a brand-new workspace would be a silent privilege
+  grant; an inconsistent state is for an administrator to repair, not for this
+  routine to guess at. An existing profile is never attached to a new workspace.
+
+A duplicate submission therefore creates nothing, and two genuinely concurrent
+first submissions produce exactly one `created` and one `already_onboarded`.
+
+**No service-role key is used, anywhere.** The Supabase service role holds
+BYPASSRLS and blanket table privileges; putting that credential in the runtime
+would defeat every layer above. The bootstrap path needs no new credential at
+all — it reuses the same `DATABASE_URL` connection and gains one EXECUTE grant.
+
+**This phase adds no route and no UI.** `/setup` is untouched and still says the
+form is not built. **Phase 4C-2** adds the server-only operation that calls this
+routine; **Phase 4C-3** adds the `/setup` form and Server Action; **Phase 4D**
+owns persisted workspace selection and request routing.
+
+The contract those phases inherit: country is ISO 3166-1 alpha-2, currency is
+ISO 4217, Business Type stays optional free text with UI suggestions rather than
+a closed enum (§7 calls its eight values "examples" and forbids locking the CRM
+into an industry), and the setup form carries an editable "Your name" field
+prefilled from signup metadata when available. The database validates only what
+a database should, and no more:
+
+- surrounding **spaces** are trimmed from all six fields before storage;
+- a blank required value is refused — name, workspace name, country, currency
+  and time zone are all required, and Business Type is the one optional field;
+- a **control character anywhere in any field is refused, not repaired**. Note
+  the boundary this creates: `btrim(text)` removes spaces only, so a tab- or
+  newline-padded value survives trimming and is then refused. That is
+  deliberate — whitespace that is not a space almost always means the value
+  came from somewhere it should not have;
+- a null or whitespace-only Business Type is stored as `NULL`, never as an
+  empty string, and a real one is stored exactly as given;
+- the time zone is left to the existing IANA trigger, and everything else to
+  the 1C-B check constraints.
+
+Nothing else was added: no workspace-name uniqueness, no slug, no closed
+Business Type enum, no profile or workspace status column, and no country or
+currency lookup table. Each of those would pre-empt a product decision the
+specification has not made, and a live test asserts their absence.
+
 Nested `withTenant()` calls with the same context reuse the outer transaction
 (no second `BEGIN`, no second `set_config`). A nested call with a _different_
 context throws `TenantContextConflict` before any statement runs.
@@ -294,14 +409,17 @@ remains unverified until company Supabase access.
 
 ### What is proven locally
 
-154 database tests run against the real local database on every `npm run test:db`
+179 database tests run against the real local database on every `npm run test:db`
 and none may skip. They cover absent, empty and malformed context; identity
 resolution end to end through `resolveVerifiedIdentity()` — including that it
 leaves no context behind on a reused pooled connection after either commit or
 rollback, that concurrent users cannot see each other, and that it never
 acquires a transaction ID and so writes nothing; cross-tenant attempts;
 inactive membership; role-gated updates; column-level refusals; the browser
-roles; the owner under FORCE; the Phase 4A → Phase 4B → `withTenant()` chain,
+roles; the owner under FORCE; the bootstrap routine, including that its
+privileges are exactly the allow-list above, that `limenzy_app` still cannot
+INSERT or `SET ROLE limenzy_bootstrap`, and that a failure part-way through
+leaves no profile behind; the Phase 4A → Phase 4B → `withTenant()` chain,
 including that deactivating a membership or changing a role after a context has
 been minted is enforced by the database anyway; and a catalogue-based proof that
 the policy dependency graph
@@ -316,10 +434,9 @@ acyclic and references nothing outside those three tables.
   select a workspace and mint a context, but no cookie remembers the choice, no
   redirect acts on `workspace_selection_required`, and no picker or switcher
   exists to make one.
-- **The initial workspace cannot be created.** `limenzy_app` has no `INSERT`
-  grant or policy on any of the three tables, so signing up currently reaches
-  `onboarding_required` and stops. **Phase 4C** owns that routine; `/setup` and
-  workspace selection do not exist yet.
+- **Nothing calls the bootstrap routine yet.** `app.create_initial_workspace`
+  exists and is proven, but no TypeScript operation invokes it, `/setup` is
+  still a placeholder, and workspace selection does not exist.
 - **Tenant isolation is therefore not complete.** What exists is a correct,
   tested database layer and the server-side resolution above it — not a
   finished request path.
@@ -327,8 +444,12 @@ acyclic and references nothing outside those three tables.
 ### Still pending on hosted Supabase
 
 Hosted role creation and ownership transfer, transaction-pooler behaviour with
-the Drizzle driver, and genuinely separate hosted credentials. None of these can
-be established locally, and no hosted compatibility is claimed.
+the Drizzle driver, and genuinely separate hosted credentials. Phase 4C-1 adds
+two more: granting the migration executor `limenzy_bootstrap WITH SET OPTION`
+and transferring function ownership to a NOLOGIN role both depend on the
+executor's relationship to that role, which only the hosted project can settle.
+None of these can be established locally, and **no hosted compatibility is
+claimed**.
 
 ## Migration source of truth
 

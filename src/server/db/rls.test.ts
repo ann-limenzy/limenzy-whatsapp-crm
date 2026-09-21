@@ -614,13 +614,27 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'app' order by p.proname`;
 
+    // Schema `app` holds the three readers plus, since Phase 4C-1, exactly one
+    // bootstrap routine. Naming all four means a fifth function — especially a
+    // second SECURITY DEFINER one — cannot appear without failing here.
     expect(rows.map((r) => r.proname)).toEqual([
+      "create_initial_workspace",
       "current_auth_user_id",
       "current_user_profile_id",
       "current_workspace_id",
     ]);
 
-    for (const row of rows) {
+    // The bootstrap routine is the ONLY SECURITY DEFINER function in the
+    // schema, and it is owned by the reserved role, never by limenzy_owner.
+    const definers = rows.filter((r) => r.secdef);
+    expect(definers.map((r) => `${r.proname}:${r.owner}`)).toEqual([
+      "create_initial_workspace:limenzy_bootstrap",
+    ]);
+
+    const readers = rows.filter(
+      (r) => r.proname !== "create_initial_workspace",
+    );
+    for (const row of readers) {
       expect(`${row.proname}:owner`).toBe(`${row.proname}:owner`);
       expect(row.owner).toBe("limenzy_owner");
       expect(row.secdef).toBe(false); // SECURITY INVOKER
@@ -743,10 +757,25 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     }
     for (const row of await expressions()) {
       const fromCatalogue = byPolicy.get(row.policy) ?? new Set<string>();
-      const fromText = new Set([...fromTables(row.expr), row.on_table]);
-      expect(`${row.policy}: ${[...fromCatalogue].sort().join(",")}`).toBe(
-        `${row.policy}: ${[...fromText].sort().join(",")}`,
-      );
+      const selected = fromTables(row.expr);
+      // Every table the expression SELECTs from must be recorded as a
+      // dependency...
+      for (const table of selected) {
+        expect(`${row.policy} selects ${table}, recorded`).toBe(
+          `${row.policy} selects ${table}, ${fromCatalogue.has(table) ? "recorded" : "MISSING"}`,
+        );
+      }
+      // ...and the catalogue must record nothing the text never mentions.
+      // The guarded table itself may or may not appear: PostgreSQL records it
+      // only when the expression references one of its columns, so a predicate
+      // built purely from a function call (workspaces_bootstrap_insert) has no
+      // dependency at all. That is a property of the catalogue, not a gap.
+      const allowed = new Set([...selected, row.on_table]);
+      for (const table of fromCatalogue) {
+        expect(`${row.policy} depends on ${table}, mentioned`).toBe(
+          `${row.policy} depends on ${table}, ${allowed.has(table) ? "mentioned" : "UNMENTIONED"}`,
+        );
+      }
     }
   });
 
@@ -811,10 +840,32 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
         from pg_catalog.pg_proc p
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'app'`;
-    expect(rows).toHaveLength(3);
-    for (const row of rows) {
+
+    // The three readers are what policy expressions call, and they must reach
+    // no table — that is what makes evaluation terminate. The Phase 4C-1
+    // bootstrap routine does touch tables, deliberately, and is excluded here
+    // because no policy expression calls it; that it is called by nothing in a
+    // policy is asserted immediately below.
+    const readers = rows.filter(
+      (r) => r.proname !== "create_initial_workspace",
+    );
+    expect(readers.map((r) => r.proname).sort()).toEqual([
+      "current_auth_user_id",
+      "current_user_profile_id",
+      "current_workspace_id",
+    ]);
+    for (const row of readers) {
       expect(`${row.proname} table refs: ${row.refs}`).toBe(
         `${row.proname} table refs: 0`,
+      );
+    }
+
+    // No policy expression may call the bootstrap routine: a SECURITY DEFINER
+    // function inside a policy would evaluate with the definer's privileges
+    // every time a row is checked.
+    for (const row of await expressions()) {
+      expect(`${row.policy} calls bootstrap: false`).toBe(
+        `${row.policy} calls bootstrap: ${row.expr.includes("create_initial_workspace")}`,
       );
     }
   });

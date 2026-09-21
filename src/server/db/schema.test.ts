@@ -475,16 +475,24 @@ describe.skipIf(!reachable)("1C-B schema", () => {
       }
     });
 
-    it("carries exactly the policies 1C-C Phase 2 introduced", async () => {
-      // 1C-B created none. Phase 2 adds four, all scoped to the runtime role.
-      const rows = await db()<{ policyname: string }[]>`
-        select policyname from pg_policies where schemaname = 'public'
+    it("carries exactly the policies 1C-C introduced, and no others", async () => {
+      // 1C-B created none. Phase 2 adds four for the runtime role; Phase 4C-1
+      // adds five for the bootstrap role. Each is named with its role, so a
+      // policy that appeared without a migration would fail here.
+      const rows = await db()<{ policyname: string; roles: string }[]>`
+        select policyname, roles::text as roles
+          from pg_policies where schemaname = 'public'
          order by policyname`;
-      expect(rows.map((r) => r.policyname)).toEqual([
-        "user_profiles_self_select",
-        "workspace_memberships_self_select",
-        "workspaces_member_select",
-        "workspaces_owner_admin_update",
+      expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+        "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
+        "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
+        "user_profiles_self_select -> {limenzy_app}",
+        "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
+        "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
+        "workspace_memberships_self_select -> {limenzy_app}",
+        "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
+        "workspaces_member_select -> {limenzy_app}",
+        "workspaces_owner_admin_update -> {limenzy_app}",
       ]);
     });
 
