@@ -38,7 +38,7 @@ const STATUS_CLASS = {
 export function ResultScreen() {
   return (
     <ImportShell
-      current={5}
+      current={7}
       title="Import complete"
       description={`Finished at ${IMPORT_RESULT.finishedAt}. The leads are in the ${WORKSPACE.name} workspace and ready to work.`}
     >

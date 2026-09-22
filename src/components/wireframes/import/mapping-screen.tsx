@@ -276,13 +276,13 @@ export function MappingScreen() {
               </Button>
               {canContinue ? (
                 <Button asChild className="ms-auto">
-                  <Link href={"/wireframes/import/validate" as Route}>
-                    Continue to validation
+                  <Link href={"/wireframes/import/assign" as Route}>
+                    Continue to lead assignment
                   </Link>
                 </Button>
               ) : (
                 <Button className="ms-auto" disabled>
-                  Continue to validation
+                  Continue to lead assignment
                 </Button>
               )}
             </div>

@@ -51,7 +51,7 @@ export function ConfirmScreen() {
 
   return (
     <ImportShell
-      current={4}
+      current={5}
       title="Confirm and process"
       description="The last checkpoint before records are created. Everything below is reversible up to the moment you start."
     >

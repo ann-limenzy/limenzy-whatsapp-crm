@@ -49,7 +49,7 @@ export const FLOWS: readonly Flow[] = [
     name: "Bulk Import",
     icon: "Upload",
     description:
-      "Bring an existing spreadsheet of leads into the CRM — upload, map columns, review what is wrong, then import only the rows that are safe.",
+      "Bring an existing spreadsheet of leads into the CRM — upload, map columns, choose how the Leads are assigned, review what is wrong, then import only the rows that are safe.",
     device: "desktop",
     steps: [
       {
@@ -66,6 +66,14 @@ export const FLOWS: readonly Flow[] = [
         title: "Map columns to CRM fields",
         summary:
           "The CRM suggests obvious matches. Anything it cannot match is a decision for the admin, never an automatic one.",
+        device: "desktop",
+      },
+      {
+        href: "/wireframes/import/assign",
+        label: "Assign Leads",
+        title: "Choose lead assignment",
+        summary:
+          "One assignment method for the whole file, chosen before validation so it can be checked with everything else.",
         device: "desktop",
       },
       {

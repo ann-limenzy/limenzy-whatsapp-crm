@@ -85,7 +85,7 @@ export function ValidationScreen() {
 
   return (
     <ImportShell
-      current={2}
+      current={3}
       title="Validation summary"
       description={`All ${VALIDATION_TOTALS.found} rows were checked against the CRM. Nothing has been written yet — this is what will happen if you continue.`}
     >
@@ -241,6 +241,9 @@ export function ValidationScreen() {
           later is a normal way to work.
         </Note>
         <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" asChild>
+            <Link href={"/wireframes/import/assign" as Route}>Back</Link>
+          </Button>
           <Button variant="ghost">Cancel import</Button>
           <Button variant="outline" asChild>
             <Link href={"/wireframes/import/resolve" as Route}>

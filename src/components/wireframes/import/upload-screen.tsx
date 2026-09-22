@@ -133,7 +133,7 @@ export function UploadScreen() {
               Nothing has been created yet.
             </strong>{" "}
             The file has been read for its structure only. Leads appear in the
-            CRM after you confirm the import in step 5.
+            CRM after you confirm the import in step 6.
           </Note>
 
           <Panel title="What we accept" bodyClassName="p-4 sm:p-5">

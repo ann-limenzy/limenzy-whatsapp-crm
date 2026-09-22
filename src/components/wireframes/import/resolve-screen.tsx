@@ -38,7 +38,7 @@ export function ResolveScreen() {
 
   return (
     <ImportShell
-      current={3}
+      current={4}
       title="Resolve issues"
       description="Each row below needs one decision. Rows you leave alone stay outside the import — they are never guessed at."
     >

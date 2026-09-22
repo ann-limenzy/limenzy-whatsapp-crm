@@ -7,14 +7,20 @@ import { StepRail } from "@/components/wireframes/wf-ui";
 export const IMPORT_STEPS = [
   "Upload",
   "Map columns",
+  "Assign Leads",
   "Validate",
-  "Resolve",
+  "Resolve issues",
   "Confirm",
-  "Result",
+  "Processing",
+  "Results",
 ] as const;
 
 /**
- * Frame shared by the six import screens.
+ * Frame shared by the import screens.
+ *
+ * Eight stages, seven of them a screen: "Processing" happens in the
+ * background after Confirm, so it is a stage the rail reports rather than
+ * somewhere the admin waits.
  *
  * The step rail is the spine of this flow: at every point the admin can see
  * how far through they are and that nothing has been written yet.
