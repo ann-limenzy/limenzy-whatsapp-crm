@@ -111,6 +111,12 @@
   --sidebar-w: 16.5rem; /* 264px expanded */
   --sidebar-w-collapsed: 4.75rem; /* 76px rail */
   --mobile-nav-h: 3.5rem; /* 56px bottom bar */
+
+  /* The wireframe chrome keeps its own pair. Same measurements, separate
+   * names: the presentation rail and the product rail collapse independently
+   * and must never read each other's state. */
+  --wf-sidebar-w: 16.5rem; /* 264px expanded */
+  --wf-sidebar-w-collapsed: 4.75rem; /* 76px rail */
   --glass-shadow:
     0 1px 2px oklch(0.23 0.042 265 / 0.04),
     0 8px 24px -12px oklch(0.23 0.042 265 / 0.14);
@@ -256,6 +262,91 @@
     justify-content: center;
     padding-inline: 0;
   }
+}
+
+/* -----------------------------------------------------------------------
+ * Wireframe rail collapse.
+ *
+ * A parallel set of rules for the presentation chrome, keyed on
+ * `data-wf-sidebar` and its own `--wf-sidebar-w`. Nothing here reads or
+ * writes the production `data-sidebar` attribute, so a client demo and the
+ * real application never disturb one another.
+ *
+ * Deliberately UNLAYERED, for the same reason the block above is: `:root` is
+ * unlayered, and in the cascade unlayered rules beat every @layer — inside a
+ * layer these would lose to Tailwind's utilities and the rail would never
+ * narrow.
+ *
+ * Scoped to `lg` and up, where the rail is the only navigation on screen.
+ * Below that the wireframe chrome renders no rail at all and the mobile
+ * screens carry their own bottom bar, so a stored `collapsed` cannot reach
+ * a phone layout.
+ * -------------------------------------------------------------------- */
+@media (min-width: 64rem) {
+  [data-wf-sidebar="collapsed"] {
+    --wf-sidebar-w: var(--wf-sidebar-w-collapsed);
+  }
+
+  /* Presentation switches. These only ever HIDE, so each element keeps its
+   * natural box type. Before the pre-paint script runs there is no attribute,
+   * so `:not(...)` matches and the expanded presentation paints — the correct
+   * default. */
+  html:not([data-wf-sidebar="collapsed"]) .wf-sidebar-when-collapsed {
+    display: none;
+  }
+
+  [data-wf-sidebar="collapsed"] .wf-sidebar-when-expanded {
+    display: none;
+  }
+
+  /* Brand and toggle stack and centre on the rail, rather than sitting in a
+   * row with 264px of space that is no longer there. */
+  [data-wf-sidebar="collapsed"] .wf-sidebar-head {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  [data-wf-sidebar="collapsed"] .wf-sidebar-brand {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Navigation: same links, same order, labels withheld from view.
+   *
+   * Visually hidden rather than `display: none` — the label IS the accessible
+   * name of the link, so removing it from the tree would leave a screen
+   * reader with an unlabelled destination. Absolutely positioned, so a
+   * withheld label occupies no space and leaves no gap on the rail. */
+  [data-wf-sidebar="collapsed"] .wf-nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  [data-wf-sidebar="collapsed"] .wf-nav-link {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  /* The sighted equivalent: the label flies out beside the rail on hover or
+   * keyboard focus. Decorative only — `aria-hidden`, because the accessible
+   * name above already carries the same words. */
+  [data-wf-sidebar="collapsed"] .wf-nav-link:hover > .wf-nav-tip,
+  [data-wf-sidebar="collapsed"] .wf-nav-link:focus-visible > .wf-nav-tip {
+    display: block;
+  }
+}
+
+/* Hidden at every width until a collapsed rail asks for it. Unlayered, to sit
+ * at the same level as the rule above that reveals it. */
+.wf-nav-tip {
+  display: none;
 }
 
 /* -------------------------------------------------------------------------

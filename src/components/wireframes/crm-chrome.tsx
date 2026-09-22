@@ -19,6 +19,10 @@ import {
   PoweredByLimenzy,
   WireframeBrand,
 } from "@/components/wireframes/wireframe-brand";
+import {
+  WIREFRAME_SIDEBAR_ID,
+  WireframeSidebarToggle,
+} from "@/components/wireframes/wireframe-sidebar-toggle";
 import { Avatar } from "@/components/wireframes/wf-ui";
 import { CURRENT_USER, WORKSPACE } from "@/lib/wireframes/mock-data";
 import { cn } from "@/lib/utils";
@@ -35,6 +39,11 @@ import { cn } from "@/lib/utils";
  * Below `lg` the sidebar is withheld and the content becomes a single column,
  * so these desktop screens still render without horizontal overflow on a
  * phone. They are designed for 1280×800 and 1440×900.
+ *
+ * On `lg` and up the rail collapses to an icon-only strip. The preference is
+ * the wireframes' own (`@/lib/wireframes/sidebar-preference`) and is applied
+ * to <html> before first paint, so a presenter who collapsed it stays
+ * collapsed across every screen and across a refresh.
  */
 
 /**
@@ -110,17 +119,22 @@ export function CrmChrome({
 function Sidebar({ active }: { active: string }) {
   return (
     <aside
+      id={WIREFRAME_SIDEBAR_ID}
       /**
-       * Width comes from `--sidebar-w` rather than a fixed value. The pre-paint
-       * script sets `data-sidebar` on <html> for every route, so a visitor who
-       * collapsed the sidebar in the product arrives here with that preference
-       * already applied — this makes the wireframe rail follow it instead of
-       * silently ignoring it.
+       * Width comes from `--wf-sidebar-w` rather than a fixed value, and the
+       * rail is a flex sibling of the content rather than an overlay — so
+       * collapsing it hands the width back to the page instead of covering it,
+       * and nothing can be pushed outside the viewport.
+       *
+       * `z-30` puts the rail above the content's own sticky top bar (`z-20`),
+       * which is what lets a collapsed item's hover label read over the page.
+       * It stays below the presentation chrome at `z-40`.
        */
-      className="surface-glass sticky top-0 hidden h-dvh w-[var(--sidebar-w)] shrink-0 flex-col rounded-none border-y-0 border-s-0 px-3 py-4 transition-[width] duration-200 ease-out lg:flex"
+      className="surface-glass sticky top-0 z-30 hidden h-dvh w-[var(--wf-sidebar-w)] shrink-0 flex-col rounded-none border-y-0 border-s-0 px-3 py-4 transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex"
     >
-      <div className="px-2 pb-5">
+      <div className="wf-sidebar-head flex items-center justify-between gap-2 px-2 pb-5">
         <WireframeBrand variant="sidebar" />
+        <WireframeSidebarToggle />
       </div>
 
       <nav aria-label="CRM sections" className="flex flex-col gap-1">
@@ -133,7 +147,7 @@ function Sidebar({ active }: { active: string }) {
         ))}
       </nav>
 
-      <div className="sidebar-when-expanded mt-auto flex flex-col gap-2.5 px-2 pt-4">
+      <div className="wf-sidebar-when-expanded mt-auto flex flex-col gap-2.5 px-2 pt-4">
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           {WORKSPACE.name}
           <br />
@@ -151,9 +165,11 @@ function Sidebar({ active }: { active: string }) {
 function NavRow({ item, active }: { item: NavEntry; active: boolean }) {
   const Icon = item.icon;
   const className = cn(
-    "nav-link relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+    "wf-nav-link relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
     active ? "surface-glass-strong text-foreground" : "text-muted-foreground",
     item.href && !active && "hover:bg-accent/60 hover:text-foreground",
+    item.href &&
+      "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
   );
 
   const inner = (
@@ -168,7 +184,18 @@ function NavRow({ item, active }: { item: NavEntry; active: boolean }) {
         className={cn("size-[18px] shrink-0", active && "text-primary")}
         aria-hidden="true"
       />
-      <span className="nav-label truncate">{item.label}</span>
+      {/* On the rail this is hidden from view but kept in the accessibility
+          tree, so the link never loses its name. */}
+      <span className="wf-nav-label truncate">{item.label}</span>
+      {/* The sighted equivalent on the rail: shown on hover or keyboard focus
+          only, and hidden from assistive technology so the name above is not
+          announced twice. */}
+      <span
+        aria-hidden="true"
+        className="wf-nav-tip absolute start-full top-1/2 z-10 ms-2 -translate-y-1/2 rounded-md bg-foreground px-2 py-1 text-xs font-medium whitespace-nowrap text-background shadow-md"
+      >
+        {item.label}
+      </span>
     </>
   );
 

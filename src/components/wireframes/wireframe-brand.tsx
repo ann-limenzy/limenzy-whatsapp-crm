@@ -78,8 +78,8 @@ export function WireframeBrand({
   className,
 }: {
   /**
-   * `sidebar` follows the product's collapse contract, `compact` is the
-   * phone-sized lockup, `plain` is the standalone mark.
+   * `sidebar` follows the wireframe rail's collapse contract, `compact` is
+   * the phone-sized lockup, `plain` is the standalone mark.
    */
   variant?: BrandVariant;
   className?: string;
@@ -93,25 +93,26 @@ export function WireframeBrand({
       data-testid="wireframe-brand"
       className={cn(
         "inline-flex shrink-0 items-center rounded-md",
-        variant === "sidebar" && "sidebar-brand",
+        variant === "sidebar" && "wf-sidebar-brand",
         className,
       )}
     >
       {variant === "sidebar" ? (
         <>
-          {/* Reuses the product's collapse classes, so the rail presentation
-              is correct in the first painted frame rather than after React
-              hydrates — and stays in step if those rules ever change. */}
+          {/* Driven by the wireframes' own collapse classes, so the rail
+              presentation is correct in the first painted frame rather than
+              after React hydrates. Deliberately not the product's classes:
+              the demo rail and the real rail collapse independently. */}
           <span
             aria-hidden="true"
             // `flex` is needed for `flex-col` to apply; the collapse rule that
             // hides this is unlayered, so it still wins over this utility.
-            className="sidebar-when-expanded flex flex-col items-start gap-1.5"
+            className="wf-sidebar-when-expanded flex flex-col items-start gap-1.5"
           >
             <Logo height={30} />
             <ProductName className="text-[10px] tracking-[0.2em]" />
           </span>
-          <span aria-hidden="true" className="sidebar-when-collapsed">
+          <span aria-hidden="true" className="wf-sidebar-when-collapsed">
             {/* eslint-disable-next-line @next/next/no-img-element -- as above */}
             <img
               src={SYMBOL.src}

@@ -134,6 +134,9 @@ export function SalesTeamDetailScreen() {
                 <UserPlus className="size-4" aria-hidden="true" />
                 Add member
               </button>
+              {/* Transfer in — withheld from the header for now. The
+                  transfer flow itself is untouched and still reachable from
+                  the "Transfer instead" action inside Add member.
               <button
                 type="button"
                 disabled={!active}
@@ -144,6 +147,7 @@ export function SalesTeamDetailScreen() {
                 <ArrowRightLeft className="size-4" aria-hidden="true" />
                 Transfer in
               </button>
+              */}
               <button
                 type="button"
                 disabled={!active}
