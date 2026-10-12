@@ -450,10 +450,75 @@ carry the failing SQL, so no `cause` is attached and the driver message is never
 shown. Validation issues name a field and a safe message and **never echo the
 submitted value**.
 
-**There is still no setup form, redirect, cookie or picker.** `/setup` is
-untouched and still says the form is not built. **Phase 4C-3** adds the form and
-its Server Action; **Phase 4D** owns persisted workspace selection and request
-routing.
+### The `/setup` screen
+
+`/setup` is now the real onboarding screen (spec §7, Screen 1). Five files,
+all inside the route:
+
+| File                   | Role                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page.tsx`             | Server Component behind the auth gate. Passes **only** the metadata display name and the country labels to the client                                                                        |
+| `setup-form.tsx`       | Client Component: the six fields, defaulting, inline feedback and the terminal states                                                                                                        |
+| `actions.ts`           | The Server Action — reads six named values from `FormData` and calls `createInitialWorkspace`. It exports **nothing else**: a `"use server"` file may export only async functions            |
+| `setup-state.ts`       | The action's state type and frozen initial value. They live here precisely because they cannot be exported from a `"use server"` module, and both the action and the client form import them |
+| `workspace-options.ts` | Picker data derived from the validation lists, plus the country→currency suggestion map                                                                                                      |
+
+**Nothing identity-shaped crosses to the browser.** The page passes a display
+name and country labels; no Auth UUID, email, claim, profile ID, membership ID
+or role.
+
+Two separate controls, at two different points — worth keeping apart, because
+only the first one acts on this path:
+
+- **The action extracts an allowlist.** `actions.ts` reads exactly six named
+  values out of the `FormData` and builds a fresh object from them. A submitted
+  `authUserId`, `workspaceId`, `role`, `status` or `claims` is simply never
+  copied across, so it does not reach the parser at all — it is dropped, not
+  rejected.
+- **The parser validates the constructed payload.** `parseWorkspaceSetup()`
+  uses a `z.strictObject`, so a payload carrying an unexpected key is refused
+  rather than ignored. That protects any caller which hands the operation an
+  object directly; it is not what stops an extra form field, because the action
+  has already left it behind.
+
+**Defaults are timid and never overwrite a person.** The browser's time zone is
+adopted only if it is already in the approved list; the locale's region only if
+it is an approved country code. Changing the country suggests that country's
+currency _only while the currency is untouched_ — and where a country has no
+obvious currency the suggestion is cleared rather than left attributed to the
+previous country. A currency or time zone the person selected is never changed
+by anything.
+
+**The picker is narrower than the validator, deliberately.** `CUC`, `HRK` and
+`SLL` are withheld from the currency list — Croatia adopted the euro, Sierra
+Leone redenominated, CUC was withdrawn — while the Phase 4C-2 validator still
+accepts them, because refusing a code a business may still be quoting is worse
+than storing it. The validator was not changed for this.
+
+**Outcomes.** `invalid_input` becomes inline field messages plus an announced
+summary that takes focus. `access_unavailable` is terminal: the form is
+replaced by a status panel and cannot be submitted again (the database routine
+remains the authoritative guard). `unauthenticated` offers a plain sign-in link
+with no caller-controlled return URL. A `BootstrapError` becomes a retryable
+message and **never** carries the reason internals, the driver message, its
+cause, SQL or a connection string.
+
+**Updated by Phase 4D.** Two things in this section changed when routing
+landed, and the text above has been corrected rather than left to rot:
+
+- The route moved from `src/app/(app)/setup/` to **`src/app/(account)/setup/`**,
+  because the `(app)` group now requires a resolved workspace and would bounce
+  this page in a loop. The page's own `requireUser()` call is unchanged.
+- `created` and `already_onboarded` are **no longer terminal states rendered in
+  the form**. The action now redirects to `/` so a **fresh request**
+  re-resolves identity and membership, which is the only path permitted to mint
+  a context. The bootstrap result still carries no profile id, workspace id or
+  role, so nothing travels with the redirect. The page also routes away anyone
+  who already has a workspace, which settles the email-confirmation link whose
+  `next` defaults to `/setup`.
+
+Still true: no `TenantContext` is minted anywhere in this route, and the form
+decides nothing about tenancy.
 
 The contract those phases inherit: country is ISO 3166-1 alpha-2, currency is
 ISO 4217, Business Type stays optional free text with UI suggestions rather than
@@ -499,8 +564,14 @@ remains unverified until company Supabase access.
 
 ### What is proven locally
 
-179 database tests run against the real local database on every `npm run test:db`
-and none may skip. They cover absent, empty and malformed context; identity
+**203 tests** run on every `npm run test:db` and none may skip. Of those,
+**198 are database-backed**; the remaining 5 are the fixture-cleanup runner
+cases in `src/server/db/schema.test.ts`, which drive that logic with test
+doubles and need no connection — they are counted here only because they live
+in a gated file. (This figure is the one reported for commit `90db9e4`; it
+grows as suites are added, and the runner lists the nine files it covers.)
+
+The database-backed tests cover absent, empty and malformed context; identity
 resolution end to end through `resolveVerifiedIdentity()` — including that it
 leaves no context behind on a reused pooled connection after either commit or
 rollback, that concurrent users cannot see each other, and that it never
@@ -516,20 +587,54 @@ the policy dependency graph
 (`workspaces → workspace_memberships → user_profiles → context readers`) is
 acyclic and references nothing outside those three tables.
 
-### What is not done yet
+### The request path (Phase 4D — implemented)
 
-- **No route, layout or page calls any of this yet.** The gateway and the
-  identity resolver exist and are proven, but nothing above them uses them.
-- **Nothing persists or offers a choice.** `resolveWorkspaceContext()` can
-  select a workspace and mint a context, but no cookie remembers the choice, no
-  redirect acts on `workspace_selection_required`, and no picker or switcher
-  exists to make one.
-- **Nothing calls the bootstrap routine yet.** `app.create_initial_workspace`
-  exists and is proven, but no TypeScript operation invokes it, `/setup` is
-  still a placeholder, and workspace selection does not exist.
-- **Tenant isolation is therefore not complete.** What exists is a correct,
-  tested database layer and the server-side resolution above it — not a
-  finished request path.
+The three bullets that used to sit here — “no route calls any of this”,
+“nothing persists or offers a choice”, “nothing calls the bootstrap routine” —
+are all out of date. The request path exists:
+
+- **`requireWorkspaceContext()`** (`src/server/auth/require-workspace.ts`) is
+  called by the `(app)` layout **and by every page beneath it**, because a
+  layout is not re-executed on client-side navigation between sibling routes.
+  It re-resolves identity and active membership on every request and caches
+  nothing.
+- **Account routes** live in `src/app/(account)/` — setup, `/select-workspace`,
+  `/no-access`. They need authentication and deliberately no workspace.
+- **The choice is remembered** in a `limenzy_ws` cookie (`HttpOnly`,
+  `SameSite=Lax`, `Path=/`, no `Domain`, 30 days, `Secure` derived from server
+  configuration only). It is a hint: every request re-validates it against
+  active memberships under RLS, so a stale or forged value is simply refused.
+- **Recovery** goes through `GET /workspace/reset`, which expires the cookie
+  and returns a **root-relative** `Location` so your browser keeps the origin
+  you typed — `127.0.0.1` stays `127.0.0.1`, which matters locally because the
+  Supabase session cookie is host-scoped.
+- **Chooser names** are read one workspace at a time through `withTenant()`,
+  never with the tooling connection.
+
+What is still **not** done: a second workspace for an existing member,
+invitations, and every CRM business module — the pages under `(app)` remain
+placeholders that say so.
+
+### Fixture cleanup in the database suites
+
+Every suite removes its fixtures in an `afterAll`, in foreign-key-safe order.
+How strictly it does so differs, and the difference is worth knowing before you
+read anything into a local row count:
+
+| Suite                                          | Cleanup                                                                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `schema.test.ts`, `workspace-names.db.test.ts` | Records inserted ids, deletes them, **reads back** to confirm, **fails** the run if anything survives or a delete errors |
+| the other seven database suites                | Best-effort: each `catch` is swallowed and nothing is read back, so a failed cleanup is silent                           |
+
+Memberships are removed through the **parent ids the suite tracked** — its own
+workspace ids and profile ids — rather than by tracking each membership row's
+primary key.
+
+This prevents **new** leakage from the two verifying suites only. Synthetic
+rows left behind by runs from before that work were deliberately **not**
+removed, so your local counts will still include that historical residue. Do
+not treat a non-zero row count on a long-lived local database as a bug on its
+own.
 
 ### Still pending on hosted Supabase
 

@@ -228,7 +228,16 @@ Verified against supabase.com/docs/guides/auth/server-side/nextjs on 2026-09-11.
   they do not each attempt a refresh. Server Components cannot write cookies, so
   refresh must happen in `proxy.ts`.
 
-## 6. Tenant isolation (planned — Milestone 1C/1D)
+## 6. Tenant isolation (foundation implemented — Milestone 1C; propagation 1D)
+
+> **Status.** The mechanism below is built and committed for the three
+> foundation tables, and 8 of the 10 checks in §6.1 have been demonstrated
+> against a real local PostgreSQL. **Checks 9 and 10 need a hosted environment
+> and remain unverified, so Milestone 1C-C is not complete** and the pattern is
+> not yet propagated across the schema. The implemented branded type is called
+> `TenantContext`; where this section says `WorkspaceContext`, it means that
+> same object, produced by `createTenantContext()` inside
+> `server/auth/workspace-context.ts` and required by `withTenant()`.
 
 **The product requirement (spec §177).** Every application read and write is
 scoped to the acting user's workspace. Isolation must be enforced in
@@ -281,6 +290,100 @@ environment:
 
 If any step cannot be demonstrated, stop and report the exact failure. Do not
 weaken the test and do not describe the protection as working.
+
+**Status of each check at commit `90db9e4`.** Checks 1–8 were demonstrated by
+the live suites in `src/server/db/` and `src/server/auth/` against the local
+Supabase stack; the figures are the ones quoted in build-plan.md and were not
+re-measured by this documentation pass.
+
+| #   | Check                                       | Status               | Where                                                            |
+| --- | ------------------------------------------- | -------------------- | ---------------------------------------------------------------- |
+| 1   | Runtime role can connect                    | demonstrated locally | `roles.test.ts`                                                  |
+| 2   | Does not own the application tables         | demonstrated locally | `roles.test.ts`; owner is `limenzy_owner`                        |
+| 3   | No `BYPASSRLS`                              | demonstrated locally | `roles.test.ts`                                                  |
+| 4   | `FORCE ROW LEVEL SECURITY` behaves          | demonstrated locally | `rls.test.ts` — constrains the table owner too                   |
+| 5   | Unset tenant GUC fails closed               | demonstrated locally | `rls.test.ts`                                                    |
+| 6   | Wrong workspace GUC returns zero rows       | demonstrated locally | `rls.test.ts`                                                    |
+| 7   | `set_config(..., true)` stays transactional | demonstrated locally | `tenant.test.ts`                                                 |
+| 8   | No context leak across pooled transactions  | demonstrated locally | `tenant.test.ts`, `workspace-context.db.test.ts`                 |
+| 9   | Supabase transaction pooler + Drizzle       | **not verified**     | local pooler disabled; never in the connection path              |
+| 10  | Migration and runtime credentials separate  | **locally only**     | `limenzy_owner` is NOLOGIN locally; hosted separation unverified |
+
+Checks 9 and 10 are **not waived, reinterpreted or moved to a later
+milestone**. They are blocked on a hosted project existing, and 1C-C stays open
+until they pass.
+
+### 6.2 Workspace routing and selection (implemented, Milestone 1C-C)
+
+How a request gets from a verified person to a workspace. This records what the
+committed code does; it changes no decision above.
+
+**Two groups of routes.** `src/app/(account)/` holds setup, the workspace
+chooser and the access-unavailable screen: they require authentication and
+deliberately **not** a workspace, because they exist to answer “which
+workspace?”. `src/app/(app)/` holds the application, where a workspace is
+required.
+
+**The gate runs per page, not only per layout.** `requireWorkspaceContext()` is
+called by the `(app)` layout and again by every page beneath it, and must be
+called again by every Server Action that writes. A layout is not re-executed on
+client-side navigation between sibling routes, so a layout-only check can be
+stale by the time a page renders; and the proxy is explicitly not the
+authorization boundary. Nothing is cached — no `cache()`, no module state, no
+role in a cookie.
+
+**The saved workspace is a preference, never authorization.** The cookie holds
+one workspace id and nothing else — no role, no profile id, no context. Every
+request hands it to the resolver as an untrusted candidate, which checks it
+against memberships read under RLS for the verified identity, so a stale,
+revoked, foreign or forged value is refused identically.
+
+It is unsigned. Signing would only establish that this server wrote the value;
+it would say nothing about whether the person still has an active membership in
+that workspace, which is the question that actually decides access. Because
+membership is re-read on every request, the outcome is the same whether the
+preference is signed or not — a tampered id is refused by the membership check,
+not by a signature.
+
+**Explicit workspace parameters: one route only.** `?workspace=<id>` is read
+**only** by the chooser at `/select-workspace`, where a value that is not an
+active membership produces a 404, matching the standing cross-tenant rule in
+§9. No other route reads the parameter: on an application route it is an
+unknown query parameter and selects nothing, so the saved preference still
+decides what is rendered.
+
+The specification does not require a workspace identifier in a URL anywhere.
+What it does say about addressing is §179.1: the installed application must
+start at `/` and "must not start at a workspace-specific or permission-specific
+address", and the root route runs the authentication, onboarding and
+workspace-selection flow — which is what the implementation does. There is no
+specification conflict here and no decision pending; this paragraph records
+behaviour, not an open question.
+
+**Cookie mutation happens in exactly three places**, because the platform
+forbids it during rendering: the chooser's Server Action writes it, sign-out
+clears it, and `GET /workspace/reset` clears it during recovery. The reset
+handler returns a **root-relative** `Location`, so the browser keeps its own
+scheme, host and port and the session cookie travels with it; deriving an
+origin from a `Host` or forwarded header is specifically rejected.
+
+**Chooser names come through the ordinary gateway.** `public.workspaces` grants
+a row only when it matches the selected workspace and an active membership
+exists, so names are read one workspace at a time inside `withTenant()`, each
+under a context minted from that membership. A workspace whose row is no longer
+readable is dropped from the list rather than shown. No tooling credential, no
+secret key, no `SECURITY DEFINER` and no policy change is involved.
+
+**Runtime and tooling credentials stay separate.** `DATABASE_URL` is the
+application's `limenzy_app` connection — non-owner, NOBYPASSRLS, used only
+through `withTenant()`. `DRIZZLE_TOOLING_DATABASE_URL` is a local superuser
+connection for Drizzle Kit, migrations and test fixtures; it bypasses RLS, is
+never used by application code, and proving access with it would prove nothing.
+Two independent mechanisms keep that boundary: `eslint.config.mjs` restricts
+the driver, raw-client and context-constructor imports per directory and
+forbids naming the tooling connection outside the places that may, and a
+contract test in `src/test/local-tooling.test.ts` enumerates the exact files
+allowed each exemption, so a new file cannot quietly acquire one.
 
 ## 7. Decisions taken during Milestone 1A
 
@@ -435,9 +538,17 @@ placeholder behaviour, package versions and architecture are untouched.
 The CRM is additionally delivered as an installable PWA. **One** Next.js
 App Router codebase, one backend, one PostgreSQL database, one
 multi-tenant product. No Flutter application, no React Native
-application, no separate mobile repository, no A&S Fincare fork.
+application, no separate mobile repository.
 
-A&S Fincare uses the same product through its own isolated workspace.
+> **Superseded — project boundary.** This section originally read “A&S Fincare
+> uses the same product through its own isolated workspace”, and the sentence
+> above ended “…, no A&S Fincare fork.” That framing is no longer correct and
+> must not be relied on: **A&S Fincare is a separate client project with its
+> own requirements, and is not a workspace of Limenzy CRM SaaS.** Nothing from
+> that project — roles, business rules, database design, providers or stack
+> decisions — is an input here. The original wording is quoted rather than
+> deleted so the historical decision stays legible; the decisions in the table
+> below are unaffected, because they concern Limenzy's own product identity.
 
 | #   | Decision                                                                                                                                                                                                                                                                                                                                          |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

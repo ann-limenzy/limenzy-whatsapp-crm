@@ -32,8 +32,23 @@ is not a reason to stall the foundation.
 - Keep **every schema change in a version-controlled migration**. No manual
   changes to a database that a migration cannot reproduce.
 - Use **seed data that contains no client-sensitive information** — synthetic
-  names, numbers and addresses only. No real customer, lead or A&S Fincare data
-  in a fixture.
+  names, numbers and addresses only. No real customer or lead data in a
+  fixture, and nothing belonging to any client project.
+- **Database suites remove the rows they create**, each in its own `afterAll`.
+  The strength of that cleanup is **not** uniform, and the difference matters
+  when reading a local row count:
+  - `schema.test.ts` and `workspace-names.db.test.ts` record the ids they
+    insert, delete in foreign-key-safe order, **read back** to confirm the rows
+    are gone, and **fail the run** if anything survives or a delete errors.
+  - The other seven suites delete their fixtures best-effort: each `catch` is
+    swallowed and nothing is read back, so a failed cleanup leaves rows behind
+    without failing the run.
+  - Memberships are deleted through their **tracked parent ids** — the
+    workspace ids and profile ids the suite created — not by tracking each
+    membership's own primary key.
+  - This stops **new** leakage from the suites that verify. Synthetic rows left
+    behind by earlier runs were deliberately not deleted, so local counts still
+    include that historical residue.
 - Keep provider integrations **behind interfaces/adapters** (§81.1, §116.19,
   §176.1), so the provider decisions in §180.1 stay open without blocking work.
 - Where external credentials are unavailable, use **local or fake provider
@@ -65,7 +80,7 @@ system, and a responsive app shell with placeholder routes.
 
 No authentication, no database, no permissions, no business modules.
 
-### 1B — Supabase authentication and workspace onboarding — _next_
+### 1B — Supabase authentication and workspace onboarding ✅ complete
 
 - `@supabase/ssr` clients: browser, Server Component (read-only cookies),
   Route Handler / Server Action (writable cookies), admin (secret key,
@@ -83,6 +98,11 @@ No authentication, no database, no permissions, no business modules.
 - Onboarding Screen 1 only (spec §7): create the business workspace — name,
   type, country, timezone, currency. Screens §8–§14 are later.
 - Real user identity replaces the "Not signed in" presentation in the top bar.
+
+Landed. The onboarding screen itself was completed inside 1C (Phase 4C-3) once
+the workspace tables existed to write to, and now lives at
+`src/app/(account)/setup/`. Screens §8–§14 remain unbuilt, and nothing in the
+product claims they are done.
 
 ### 1C — Drizzle foundation, tenant context and focused RLS proof
 
@@ -104,22 +124,120 @@ Progress:
   `workspace_role_permissions` are deliberately **not** in 1C-B: invitations
   belong with the Settings → Users flow, and module and permission tables with
   Milestone 1D's gating work.
-- **1C-C — tenant isolation: not started.** Owns the real workspace policies,
-  the session-context mechanism, `requireWorkspaceContext()`, and the §6.1
-  proof gate. Until it lands, no application code reads these tables and
-  nothing here may be described as tenant isolation.
-- `WorkspaceContext` (branded type) and `requireWorkspaceContext()`, which
-  re-verifies active membership on every request.
-- `withTenant()` transaction helper issuing `set_config(..., true)`.
-- **The RLS proof gate** — all ten checks in architecture-decisions.md §6.1 must
-  pass before the pattern is propagated across the schema. If any fails, stop
-  and report the exact failure.
+- **1C-C — tenant isolation: built, gate not fully passed.** The code exists
+  and is committed; the milestone stays open because two of the §6.1 checks
+  cannot be demonstrated locally. In detail:
+  - **Policies and roles (done).** `limenzy_owner` owns the objects and never
+    logs in; `limenzy_app` is the runtime login, non-owner and NOBYPASSRLS;
+    `limenzy_bootstrap` is NOLOGIN and exists only for the initial-workspace
+    routine. All three tables carry forced row-level security, and
+    UPDATE/INSERT grants are column-scoped. The nine policies are split by
+    role: four **runtime** policies `TO limenzy_app` (own profile, own
+    memberships and the selected workspace for SELECT, plus owner/admin UPDATE
+    of that workspace), and five **bootstrap** policies `TO limenzy_bootstrap`
+    (SELECT and INSERT on `user_profiles` and `workspace_memberships`, INSERT
+    on `workspaces`) used only by the initial-workspace routine.
+  - **Session context (done).** `withTenant()` opens one transaction and issues
+    three `set_config(..., true)` settings, so the context is transaction-local
+    and cannot leak to the next request on a pooled connection. A context can
+    only be produced by `createTenantContext()`, and only
+    `server/auth/workspace-context.ts` may call it.
+  - **Identity and selection (done).** `resolveVerifiedIdentity()` reads the
+    profile and active memberships under RLS; `resolveWorkspaceContext()`
+    validates an optional, untrusted candidate against them; the committed
+    `requireWorkspaceContext()` re-resolves identity **and** active membership
+    on every request, with no caching of any kind.
+  - **Naming.** The helper is `requireWorkspaceContext()` as planned, but it
+    returns the implemented branded `TenantContext` rather than a type called
+    `WorkspaceContext`. The earlier name in this plan and in
+    architecture-decisions.md §6 describes the same object.
+  - **Onboarding and selection (done).** Workspace creation, the chooser, the
+    access-unavailable screen, the saved preference and its recovery — see
+    “1C-C Phase 4D” below.
+  - **The RLS proof gate — 8 of 10 checks demonstrated locally.** Checks 1–8
+    were exercised against a real local PostgreSQL. **Check 9 (the Supabase
+    transaction pooler with the Drizzle driver) and check 10 (migration and
+    runtime credentials genuinely separate in a hosted project) remain
+    unverified**, because both need a hosted environment this project does not
+    yet have. They are not waived, reinterpreted or moved: until they pass,
+    1C-C is incomplete and the pattern is not propagated across the schema.
+    If any check fails, stop and report the exact failure.
+
+#### 1C-C Phase 4D — workspace routing and selection (implemented)
+
+Committed. What exists, precisely:
+
+- **Account surfaces** under `src/app/(account)/` — setup, the workspace
+  chooser and the access-unavailable screen. They require authentication and
+  deliberately **not** a workspace, because they are the screens that answer
+  “which workspace?”.
+- **Application surfaces** under `src/app/(app)/`. The layout resolves a
+  workspace, and every page beneath it calls `requireWorkspaceContext()` again
+  for itself, because a layout is not re-executed on client-side navigation
+  between sibling routes.
+- **The root route resolves and routes** rather than assuming `/dashboard`,
+  which is what spec §179.1 requires of an installed application's `start_url`.
+- **A saved workspace preference**: one workspace id in an `HttpOnly`,
+  `SameSite=Lax`, path-wide cookie with no `Domain`, written only by the
+  chooser's Server Action, cleared on sign-out and by the reset Route Handler.
+  It is a selection hint and never authorization — every request re-validates
+  it against active memberships under RLS.
+- **Stale-preference recovery** through `GET /workspace/reset`, which expires
+  the cookie and returns a root-relative `Location`, so the browser keeps its
+  own scheme, host and port and the session survives.
+- **Chooser names** read one workspace at a time through `withTenant()`, since
+  the policy grants a `workspaces` row only when it matches the selected
+  workspace. No policy change, tooling credential or service-role bypass.
+- **Not built**: a second workspace for an existing member, invitations, and
+  every CRM business module. The module routes under `(app)` are still
+  placeholder screens that say so, and the navigation lists destinations that
+  are not implemented.
+
+#### Verification status at this checkpoint
+
+**Previously reported** for commit `90db9e4` (“feat: connect workspace
+onboarding and selection”), by the verification pass that preceded it. These
+figures are quoted, not re-measured by later documentation passes:
+
+| What ran                   | Result                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `npm test`                 | 924 passed, none failed, none skipped                                        |
+| `npm run test:db` (strict) | 203 passed, none skipped — 198 database-backed plus 5 independent            |
+| format · lint · typecheck  | passed                                                                       |
+| `npm run build`            | passed                                                                       |
+| `git diff --check`         | passed                                                                       |
+| Browser flows              | the listed workspace flows passed against a local production build over HTTP |
+
+The 5 independent tests are the fixture-cleanup runner cases in
+`src/server/db/schema.test.ts`, which use test doubles and need no database;
+they are counted by the strict runner because they live in a gated file.
+
+**Local only.** Every figure above comes from the local Supabase stack. It is
+not evidence about a hosted project, and in particular:
+
+- the hosted transaction pooler (§6.1 check 9) is **unverified** — the local
+  pooler is disabled and was never in the connection path;
+- hosted credential separation (§6.1 check 10) is **unverified** — only the
+  local role split was observed;
+- **HTTPS `Secure` cookie behaviour in a browser is unverified.** The flag's
+  derivation is covered by unit tests and was observed as `false` over local
+  HTTP, which is correct there; no HTTPS origin was available to confirm the
+  browser receives it as `Secure` in a deployed environment.
 
 ### 1D — Permissions, module gates and tenant-isolation test suite
 
 - The spec §162 permission matrix as executable data, with the workspace-level
   "Configurable" toggles (D5).
-- Visibility resolution: Manager `all` vs `own` (D6), Staff own-only (D7, D8).
+- Visibility resolution against the specification's own wording (§162.1), not a
+  shorthand. The Manager scope is configured per workspace as either **All
+  Records** or **Own, Assigned and Explicitly Shared Records** (D6) — the
+  second is not “own only”, because it also covers records assigned to them and
+  records explicitly shared with them. Staff/Sales may access the Leads and
+  Customers they own, operational items assigned to them once the
+  related-record permission has been validated, and Leads and Customers
+  explicitly shared with them (D7, D8). Sales Team membership alone grants
+  access to nothing. **None of this is implemented**; no permission behaviour
+  exists in the product yet.
 - Module gating and the §172 dependency engine, replacing
   `ALL_MODULES_ENABLED` in the navigation config with the workspace's real
   module set.
