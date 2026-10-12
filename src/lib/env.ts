@@ -115,6 +115,63 @@ const serverSchema = z.object({
 const RUNTIME_ROLE = "limenzy_app";
 const RUNTIME_PROTOCOLS = new Set(["postgres:", "postgresql:"]);
 
+/**
+ * The project-reference half of a Supabase shared-pooler username.
+ *
+ * Supabase documents the pooler username as `[ROLE].[PROJECT-REF]` — a direct
+ * or dedicated-pooler connection uses the plain role name, and only the shared
+ * pooler carries the suffix. What the docs do **not** specify anywhere is the
+ * project reference's own grammar: the published examples are twenty lowercase
+ * alphanumerics, but that is an example, not a stated rule.
+ *
+ * **This pattern is therefore this application's accepted syntax, not a
+ * Supabase guarantee.** It is modelled on those observed examples: lowercase
+ * ASCII letters and digits, at least one character, no second separator. The
+ * length is deliberately not pinned, because turning an example into a
+ * twenty-character rule would reject a legitimate project if a reference of
+ * another length were ever issued. If Supabase publishes a grammar, this is
+ * the single place to tighten.
+ *
+ * `(?![\s\S])` rather than a bare `$`: it asserts that **nothing at all**
+ * follows, under any flags. A plain `$` is correct here today — in JavaScript,
+ * without the `m` flag, it already matches only the true end of input, unlike
+ * the Perl and Python dialects where it also matches before a final newline —
+ * but that correctness depends on a flag nobody has added yet. The explicit
+ * form keeps the guarantee local to the pattern, so adding `m` later cannot
+ * quietly let a trailing `\n`, `\r`, `\r\n`, U+2028 or U+2029 through.
+ */
+const POOLER_PROJECT_REF = /^[a-z0-9]+(?![\s\S])/;
+
+/**
+ * Whether a connection username names the approved runtime role.
+ *
+ * Parsed structurally, never by `startsWith` or `includes`: the role is
+ * compared as a whole segment, so `limenzy_app2`, `limenzy_app_admin` and
+ * `xlimenzy_app.ref` are all refused. Exactly two forms are accepted —
+ * `limenzy_app`, and `limenzy_app.<project-ref>` for the shared pooler.
+ *
+ * A worked example of what the suffix is NOT: `limenzy_app.limenzy_owner` is
+ * refused because `limenzy_owner` contains an underscore and so fails the
+ * project-reference syntax — not because the suffix could have selected
+ * another role. It could not: the pooler reads the role from the half before
+ * the dot, and the half after it names a project.
+ *
+ * Syntax only. That a URL names this role proves nothing about which role the
+ * database actually authenticates, which privileges it holds, or which project
+ * it belongs to; the live suite asserts those against a real connection.
+ */
+function isApprovedRuntimeUsername(username: string): boolean {
+  if (username === RUNTIME_ROLE) return true;
+
+  const separator = username.indexOf(".");
+  if (separator === -1) return false;
+  if (username.slice(0, separator) !== RUNTIME_ROLE) return false;
+
+  // Anything after the first dot must be one project reference and nothing
+  // else, so a second dot fails here rather than being quietly accepted.
+  return POOLER_PROJECT_REF.test(username.slice(separator + 1));
+}
+
 /** Parse without ever surfacing the value. Returns null when unparseable. */
 function parseConnectionUrl(value: string): URL | null {
   try {
@@ -148,15 +205,19 @@ const databaseSchema = z.object({
         try {
           username = decodeURIComponent(url.username);
         } catch {
+          // Malformed percent-encoding is refused, and the value it could not
+          // decode is never surfaced.
           return false;
         }
-        return username === RUNTIME_ROLE;
+        return isApprovedRuntimeUsername(username);
       },
       {
         message:
           `must connect as the ${RUNTIME_ROLE} runtime role — not a ` +
-          "superuser, the schema owner, or any other account. Run " +
-          "`npm run db:role:local` to provision it.",
+          "superuser, the schema owner, or any other account. Use " +
+          `\`${RUNTIME_ROLE}\` for a direct connection, or ` +
+          `\`${RUNTIME_ROLE}.<project-ref>\` for the Supabase shared pooler. ` +
+          "Locally, run `npm run db:role:local` to provision it.",
       },
     ),
 });

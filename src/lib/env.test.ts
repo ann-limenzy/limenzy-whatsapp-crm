@@ -322,6 +322,182 @@ describe("databaseEnv", () => {
     expect(() => databaseEnv()).toThrow(EnvConfigurationError);
   });
 
+  /**
+   * Supabase documents the shared-pooler username as `[ROLE].[PROJECT-REF]`;
+   * direct and dedicated-pooler connections use the plain role name. These
+   * cases pin both forms, and — more importantly — the near-misses that must
+   * not pass as a result.
+   *
+   * Syntax only: none of this proves which role the database authenticates.
+   */
+  const pooled = (user: string) =>
+    `postgresql://${user}:FixturePasswordNotReal@aws-0-ap-south-1.pooler.supabase.com:6543/postgres`;
+
+  it.each([
+    "abcdefghijklmnopqrst",
+    "xvljpkujuwroxcuvossw",
+    "abc123def456ghi789jk",
+    "a",
+  ])("accepts the shared-pooler form for project ref %s", (ref) => {
+    process.env.DATABASE_URL = pooled(`limenzy_app.${ref}`);
+    expect(databaseEnv().DATABASE_URL).toBe(pooled(`limenzy_app.${ref}`));
+  });
+
+  it("still accepts the plain role on a direct connection", () => {
+    process.env.DATABASE_URL = url("limenzy_app");
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  it.each([
+    // A privileged or arbitrary role does not become acceptable by acquiring
+    // a project-ref suffix.
+    "postgres.abcdefghijklmnopqrst",
+    "supabase_admin.abcdefghijklmnopqrst",
+    "limenzy_owner.abcdefghijklmnopqrst",
+    "limenzy_bootstrap.abcdefghijklmnopqrst",
+    "service_role.abcdefghijklmnopqrst",
+    "anon.abcdefghijklmnopqrst",
+  ])("rejects the suffixed %s role", (user) => {
+    process.env.DATABASE_URL = pooled(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it.each([
+    // Empty, repeated or malformed suffixes.
+    "limenzy_app.",
+    "limenzy_app..abcdefghijklmnopqrst",
+    "limenzy_app.abcdefghijklmnopqrst.extra",
+    "limenzy_app.ABCDEFGHIJKLMNOPQRST",
+    "limenzy_app.abc-def",
+    "limenzy_app.abc_def",
+    "limenzy_app.abc def",
+    "limenzy_app. abcdefghijklmnopqrst",
+    // Deceptive near-matches on the role half.
+    ".limenzy_app",
+    "limenzy_app2.abcdefghijklmnopqrst",
+    "xlimenzy_app.abcdefghijklmnopqrst",
+    "limenzy_app_admin.abcdefghijklmnopqrst",
+    "LIMENZY_APP.abcdefghijklmnopqrst",
+    "limenzy_app.limenzy_owner",
+  ])("rejects the malformed or deceptive username %s", (user) => {
+    process.env.DATABASE_URL = pooled(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("reads the suffix as a project reference, never as a second role", () => {
+    /**
+     * `limenzy_app.postgres` is accepted, and that is correct rather than a
+     * gap: in `[ROLE].[PROJECT-REF]` the authority is decided by the half
+     * BEFORE the dot, which is the approved runtime role. The suffix names a
+     * project, so a project reference that happens to read like a role name
+     * grants nothing. `postgres.<ref>` — the role half actually being
+     * `postgres` — is refused above.
+     */
+    process.env.DATABASE_URL = pooled("limenzy_app.postgres");
+    expect(() => databaseEnv()).not.toThrow();
+
+    // The first call memoises, so the cache is cleared before asserting the
+    // mirror image — otherwise the second expectation would read the first
+    // result and pass for the wrong reason.
+    resetEnvCacheForTests();
+    process.env.DATABASE_URL = pooled("postgres.limenzy_app");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts a percent-encoded pooler username", () => {
+    // `limenzy_app.abcdefghijklmnopqrst` with the underscore encoded.
+    process.env.DATABASE_URL = pooled("limenzy%5Fapp.abcdefghijklmnopqrst");
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  /**
+   * Line terminators smuggled in through percent-encoding.
+   *
+   * A RAW newline never survives: WHATWG URL parsing strips tab, LF and CR
+   * from the input, so `limenzy_app.abc\ndef` arrives as `limenzy_app.abcdef`.
+   * The encoded forms do survive parsing and only become terminators after
+   * `decodeURIComponent`, which is exactly where the project-reference syntax
+   * has to hold. U+2028 and U+2029 are included because they are line
+   * terminators to a JavaScript regex engine even though the URL parser leaves
+   * them alone.
+   */
+  it.each([
+    ["LF", "%0A"],
+    ["CR", "%0D"],
+    ["CRLF", "%0D%0A"],
+    ["U+2028", "%E2%80%A8"],
+    ["U+2029", "%E2%80%A9"],
+  ])(
+    "rejects a trailing encoded %s in the project reference",
+    (_name, tail) => {
+      const value = pooled(`limenzy_app.abcdefghijklmnopqrst${tail}`);
+      process.env.DATABASE_URL = value;
+
+      try {
+        databaseEnv();
+        expect.unreachable("databaseEnv should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(EnvConfigurationError);
+        const message = (error as Error).message;
+        expect(message).toContain("DATABASE_URL");
+        // Sanitized: neither the smuggled sequence nor anything else from the URL.
+        expect(message).not.toContain(tail);
+        expect(message).not.toContain(value);
+        expect(message).not.toContain("FixturePasswordNotReal");
+        expect(message).not.toContain("pooler.supabase.com");
+        expect(/[\u000A\u000D\u2028\u2029]/.test(message)).toBe(false);
+      }
+    },
+  );
+
+  it.each([
+    ["LF", "%0A"],
+    ["CR", "%0D"],
+    ["U+2028", "%E2%80%A8"],
+    ["U+2029", "%E2%80%A9"],
+  ])("rejects a leading or embedded encoded %s too", (_name, mid) => {
+    process.env.DATABASE_URL = pooled(`limenzy_app.${mid}abcdefghijklmnopqrst`);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+
+    resetEnvCacheForTests();
+    process.env.DATABASE_URL = pooled(`limenzy_app.abcdef${mid}ghijklmnop`);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects an encoded separator that would smuggle a second dot", () => {
+    // `%2E` decodes to ".", so this is `limenzy_app..ref` once decoded.
+    process.env.DATABASE_URL = pooled("limenzy_app%2E.abcdefghijklmnopqrst");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects malformed percent-encoding without echoing it", () => {
+    const malformed = pooled("limenzy_app%ZZ.abcdefghijklmnopqrst");
+    process.env.DATABASE_URL = malformed;
+    try {
+      databaseEnv();
+      expect.unreachable("databaseEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("DATABASE_URL");
+      expect(message).not.toContain("%ZZ");
+      expect(message).not.toContain("FixturePasswordNotReal");
+      expect(message).not.toContain("pooler.supabase.com");
+    }
+  });
+
+  it("adds no query-parameter or option bypass", () => {
+    process.env.DATABASE_URL = `${pooled("postgres.abcdefghijklmnopqrst")}?options=-c%20role%3Dlimenzy_app`;
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("keeps the pooler form subject to every other rule", () => {
+    // Scheme is still checked.
+    process.env.DATABASE_URL = pooled(
+      "limenzy_app.abcdefghijklmnopqrst",
+    ).replace("postgresql://", "mysql://");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
   it("rejects an empty username", () => {
     process.env.DATABASE_URL =
       "postgresql://:FixturePasswordNotReal@127.0.0.1:54322/postgres";
