@@ -56,6 +56,39 @@ function readMetadataName(claims: Claims): string | null {
 }
 
 /**
+ * Whether the address behind this token is confirmed.
+ *
+ * **The token itself is the evidence.** Supabase issues no access token to an
+ * unconfirmed address while `enable_confirmations` is on: the token endpoint
+ * answers `400 email_not_confirmed`. So a signature-verified token existing at
+ * all is proof the address was confirmed, and `supabase/config.toml` keeping
+ * that setting on is asserted by a contract test rather than assumed here.
+ *
+ * This replaces a check that read a top-level `email_verified` claim. Supabase
+ * does not emit one — a real local access token carries exactly `aal, amr,
+ * app_metadata, aud, email, exp, iat, is_anonymous, iss, phone, role,
+ * session_id, sub, user_metadata` — so that check evaluated to `false` for
+ * **every** signed-in user. Pages never noticed, because `requireUser()` gates
+ * on identity alone; the Server Actions that do check it classified every
+ * valid session as unauthenticated.
+ *
+ * If a future Supabase version (or a custom access-token hook) does emit the
+ * claim, it is honoured and can still say `false`, which fails closed.
+ *
+ * `user_metadata.email_verified` is deliberately **not** consulted, even
+ * though it is inside the signed token: `updateUser({ data })` lets a user
+ * write their own metadata, so trusting it would let an unverified account
+ * assert its own verification. A gate that an attacker can set is worse than
+ * no gate, because it reads like protection.
+ */
+function readEmailVerified(claims: Claims): boolean {
+  const claim = claims["email_verified"];
+  if (typeof claim === "boolean") return claim;
+  if (typeof claim === "string") return claim === "true";
+  return true;
+}
+
+/**
  * Read the verified user, or `null` when there is no valid session.
  *
  * Never throws for "not signed in" — that is an expected state, not an error.
@@ -72,16 +105,10 @@ export async function getAuthenticatedUser(): Promise<AuthenticatedUser | null> 
   const id = readString(claims, "sub");
   if (!id) return null;
 
-  // Supabase sets this claim when the address has been confirmed. Absent or
-  // non-string means "treat as unverified" — fail closed.
-  const confirmedAt =
-    readString(claims, "email_verified") ??
-    (claims["email_verified"] === true ? "true" : null);
-
   return {
     id,
     email: readString(claims, "email"),
-    emailVerified: confirmedAt !== null,
+    emailVerified: readEmailVerified(claims),
     fullName: readMetadataName(claims),
   };
 }

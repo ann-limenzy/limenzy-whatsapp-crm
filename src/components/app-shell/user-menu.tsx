@@ -1,6 +1,7 @@
 "use client";
 
-import { LogOut, UserRound } from "lucide-react";
+import { ArrowLeftRight, LogOut, UserRound } from "lucide-react";
+import Link from "next/link";
 
 import { signOutAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { AuthenticatedUser } from "@/server/auth/require-user";
+import type { WorkspaceRole } from "@/server/db/identity";
+
+/** Presentation only. The membership row decides access, every request. */
+const ROLE_LABEL: Record<WorkspaceRole, string> = {
+  owner_admin: "Owner / Admin",
+  manager: "Manager",
+  staff_sales: "Staff",
+};
 
 /**
  * Account menu for the signed-in user.
@@ -27,9 +36,19 @@ import type { AuthenticatedUser } from "@/server/auth/require-user";
  */
 export function UserMenu({
   user,
+  workspaceName,
+  role,
   className,
 }: {
   user: AuthenticatedUser;
+  /**
+   * Current workspace, when the surface has one. Optional because this menu
+   * also mounts inside the navigation drawer, which is given a user and
+   * nothing else. Display only.
+   */
+  workspaceName?: string | null;
+  /** Presentation only — never an authorization decision. */
+  role?: WorkspaceRole;
   className?: string;
 }) {
   const label = user.fullName ?? user.email ?? "Account";
@@ -59,9 +78,43 @@ export function UserMenu({
           ) : null}
         </DropdownMenuLabel>
 
+        {workspaceName ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="font-normal">
+              <span className="block text-[11px] tracking-wide text-muted-foreground uppercase">
+                Workspace
+              </span>
+              <span className="mt-0.5 block truncate text-sm font-medium text-foreground">
+                {workspaceName}
+              </span>
+              {role ? (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {ROLE_LABEL[role]}
+                </span>
+              ) : null}
+            </DropdownMenuLabel>
+          </>
+        ) : null}
+
         <DropdownMenuSeparator />
 
         <div className="p-1">
+          {/*
+            A deliberate way back to the chooser, rather than only landing
+            there when a preference goes stale. The destination consults no
+            saved preference, so it always offers the list — including for
+            someone who currently has one workspace.
+          */}
+          <Link
+            href="/select-workspace?change=1"
+            data-testid="switch-workspace"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            <ArrowLeftRight className="size-4" aria-hidden="true" />
+            Switch workspace
+          </Link>
+
           <form action={signOutAction}>
             <button
               type="submit"

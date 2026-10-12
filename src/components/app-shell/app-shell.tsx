@@ -4,6 +4,7 @@ import { DesktopSidebar } from "@/components/app-shell/desktop-sidebar";
 import { MobileNav } from "@/components/app-shell/mobile-nav";
 import { TopBar } from "@/components/app-shell/top-bar";
 import type { AuthenticatedUser } from "@/server/auth/require-user";
+import type { WorkspaceRole } from "@/server/db/identity";
 
 /**
  * Authenticated application shell (spec §3, §4, §25).
@@ -25,10 +26,24 @@ import type { AuthenticatedUser } from "@/server/auth/require-user";
  */
 export function AppShell({
   user,
+  workspaceName,
+  role,
   children,
 }: {
   /** Resolved on the server by the `(app)` layout. Never read from the browser. */
   user: AuthenticatedUser;
+  /**
+   * The current workspace's name, read under its own tenant context. Display
+   * only — `null` when the row became unreadable, which the next request's
+   * workspace gate turns into a redirect.
+   */
+  workspaceName: string | null;
+  /**
+   * The role from the membership row, for presentation. Never an authorization
+   * decision: hiding a control is not a permission check, and row-level
+   * security re-checks the membership on every statement regardless.
+   */
+  role: WorkspaceRole;
   children: ReactNode;
 }) {
   return (
@@ -36,7 +51,7 @@ export function AppShell({
       <DesktopSidebar />
 
       <div className="transition-[padding] duration-200 ease-out lg:ps-[var(--sidebar-w)]">
-        <TopBar user={user} />
+        <TopBar user={user} workspaceName={workspaceName} role={role} />
 
         {/* Bottom padding clears the fixed mobile bar and its safe-area inset;
             removed once the bar is hidden at `md`. */}

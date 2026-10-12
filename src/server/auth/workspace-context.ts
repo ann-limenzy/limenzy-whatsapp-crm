@@ -38,6 +38,15 @@ import {
  * membership on every statement, using the context this function issues.
  */
 
+/**
+ * Re-exported so callers can name the type without importing the module that
+ * constructs it. The import boundary allows exactly one file to reach
+ * `tenant-context`, and that restriction is about the CONSTRUCTOR, not the
+ * type: a type cannot mint anything. Routing it through here keeps the
+ * one-file rule literal as well as true.
+ */
+export type { TenantContext };
+
 /** One workspace the user could choose. Nothing here is a default. */
 export type WorkspaceChoice = {
   readonly workspaceId: string;
@@ -269,4 +278,88 @@ export async function resolveWorkspaceContext(
     // defaulted. RLS re-checks it on every statement regardless.
     role: matched.role,
   }) as WorkspaceResolution;
+}
+
+/** One choice, with the context needed to read that workspace's own row. */
+export type WorkspaceChoiceContext = {
+  readonly workspaceId: string;
+  readonly role: WorkspaceRole;
+  /**
+   * Issued here, from database-read membership. It exists so the chooser can
+   * read each workspace's name through the ordinary tenant gateway, and it is
+   * never serialised, never sent to a client component and never stored.
+   */
+  readonly context: TenantContext;
+};
+
+export type WorkspaceChoicesResolution =
+  | { readonly kind: "unauthenticated" }
+  | { readonly kind: "onboarding_required" }
+  | { readonly kind: "access_unavailable" }
+  | {
+      readonly kind: "choices";
+      readonly choices: readonly WorkspaceChoiceContext[];
+    };
+
+/**
+ * Every workspace this user may act in, each with a context to read it with.
+ *
+ * The chooser needs names, and a name lives in `public.workspaces`, whose
+ * policy grants a row only when `app.workspace_id` equals that row's id AND an
+ * active membership exists. So one context per workspace is not a convenience
+ * here — it is the only authorised shape the read can take.
+ *
+ * It lives in this module for the same reason `resolveWorkspaceContext` does:
+ * this is the one place permitted to call `createTenantContext()`, because it
+ * is the one place that has validated the memberships it mints from. A caller
+ * receives contexts it could not have constructed and could not forge.
+ *
+ * Identity is not a parameter, exactly as above. The candidate is not a
+ * parameter either: this answers "what could you choose?", never "what did you
+ * choose?".
+ */
+export async function resolveWorkspaceChoices(): Promise<WorkspaceChoicesResolution> {
+  const identity = await resolveVerifiedIdentity();
+
+  if (identity.kind === "unauthenticated") {
+    return Object.freeze({
+      kind: "unauthenticated",
+    }) as WorkspaceChoicesResolution;
+  }
+  if (identity.kind === "onboarding_required") {
+    return Object.freeze({
+      kind: "onboarding_required",
+    }) as WorkspaceChoicesResolution;
+  }
+
+  const memberships = checkedMemberships(identity.memberships);
+  if (memberships.length === 0) {
+    return Object.freeze({
+      kind: "access_unavailable",
+    }) as WorkspaceChoicesResolution;
+  }
+
+  const authUserId = checkedIdentifier("auth user id", identity.authUserId);
+  const userProfileId = checkedIdentifier("profile id", identity.userProfileId);
+
+  // Same stable, meaningless order as the selection path, so the chooser and
+  // the resolver never disagree about which workspaces exist.
+  const choices = memberships
+    .map((m) =>
+      Object.freeze({
+        workspaceId: m.workspaceId,
+        role: m.role,
+        context: createTenantContext({
+          authUserId,
+          userProfileId,
+          workspaceId: m.workspaceId,
+        }),
+      }),
+    )
+    .sort((a, b) => (a.workspaceId < b.workspaceId ? -1 : 1));
+
+  return Object.freeze({
+    kind: "choices",
+    choices: Object.freeze(choices),
+  }) as WorkspaceChoicesResolution;
 }

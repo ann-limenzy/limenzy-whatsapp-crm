@@ -677,6 +677,288 @@ describe("the tenant gateway import boundary", () => {
   });
 });
 
+describe("email confirmation is enforced by Supabase, not assumed", () => {
+  it("keeps signup confirmations enabled", async () => {
+    const config = await readRepoFile("supabase/config.toml");
+
+    // `getAuthenticatedUser()` treats a signature-verified token as proof the
+    // address is confirmed, because Supabase refuses to issue one otherwise
+    // (`400 email_not_confirmed`, verified against the local stack). That is
+    // only true while this setting is on, so the dependency is asserted here
+    // rather than left as a comment someone can quietly invalidate.
+    const auth = config.slice(config.indexOf("[auth]"));
+    const emailSection = auth.slice(auth.indexOf("[auth.email]"));
+    const setting = emailSection
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("enable_confirmations"));
+
+    expect(setting).toBe("enable_confirmations = true");
+  });
+
+  it("reads verification from the token, never from user-writable metadata", async () => {
+    const source = await readSourceWithoutComments(
+      "src/server/auth/require-user.ts",
+    );
+    // user_metadata is writable through updateUser({ data }), so a gate built
+    // on it would be one an unverified account could set for itself.
+    expect(source).not.toMatch(/user_metadata[^\n]*email_verified/);
+    expect(source).not.toMatch(/email_verified[^\n]*user_metadata/);
+    // And the verified-claims path is still the only one.
+    expect(source).toContain("getClaims()");
+    expect(source).not.toContain("getSession(");
+    expect(source).not.toContain("getUser(");
+  });
+});
+
+describe("the workspace setup screen", () => {
+  const ACTION = "src/app/(account)/setup/actions.ts";
+  const PAGE = "src/app/(account)/setup/page.tsx";
+  const FORM = "src/app/(account)/setup/setup-form.tsx";
+  const OPTIONS = "src/app/(account)/setup/workspace-options.ts";
+  const STATE = "src/app/(account)/setup/setup-state.ts";
+
+  it("keeps the server-action module's runtime exports to async functions only", async () => {
+    // A `"use server"` file may export only async functions; exporting the
+    // initial-state object built and typechecked cleanly and then failed at
+    // dispatch. Only `actions.ts` carries the directive.
+    const withDirective: string[] = [];
+    for (const file of await productionSources()) {
+      const source = await readRepoFile(file);
+      const firstStatement = source
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0 && !line.startsWith("//"));
+      if (firstStatement === '"use server";') withDirective.push(file);
+    }
+    expect(withDirective).toEqual([
+      "src/app/(account)/select-workspace/actions.ts",
+      "src/app/(account)/setup/actions.ts",
+      "src/app/actions/auth.ts",
+    ]);
+
+    for (const file of withDirective) {
+      const code = await readSourceWithoutComments(file);
+      const exported = [
+        ...code.matchAll(/^export\s+(async\s+function|type|interface|\w+)/gm),
+      ].map((match) => match[1]);
+
+      for (const declaration of exported) {
+        // `async function` is the only runtime export a "use server" file may
+        // have. `type` and `interface` are erased before the module exists at
+        // runtime, so they are safe — `src/app/actions/auth.ts` has always
+        // exported its state type this way. Anything else (const, let, var,
+        // class, enum, or a non-async function) is either an illegal runtime
+        // export or one Next.js cannot serialise as an action.
+        expect(`${file}: ${declaration}`).toBe(
+          ["async function", "type", "interface"].includes(declaration ?? "")
+            ? `${file}: ${declaration}`
+            : `${file}: async function`,
+        );
+      }
+
+      // No re-export can smuggle a value back in either.
+      expect(code).not.toMatch(/^export\s*\{/m);
+      expect(code).not.toMatch(/^export\s+\*/m);
+      expect(code).not.toMatch(/^export\s+default/m);
+    }
+  });
+
+  it("routes every write through the one Phase 4C-2 operation", async () => {
+    const source = await readSourceWithoutComments(ACTION);
+    expect(source).toContain("createInitialWorkspace");
+
+    // No second path to the database, and no elevation.
+    for (const forbidden of [
+      "postgres",
+      "drizzle",
+      "runtimeSql",
+      "server/db",
+      "set_config",
+      "app.create_initial_workspace",
+      "service_role",
+      "SERVICE_ROLE",
+      "DRIZZLE_TOOLING_DATABASE_URL",
+      "createClient(",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("writes no cookie and mints no context, and navigates only on the server", async () => {
+    /**
+     * Phase 4D changed one thing here: the action and the page now navigate.
+     * The action redirects after a successful bootstrap so membership is
+     * re-resolved on a FRESH request, and the page redirects a visitor who
+     * already has a workspace. Everything else that mattered still holds —
+     * above all that neither may write a preference cookie or mint a context,
+     * which is what would let a form decide a tenancy.
+     */
+    for (const path of [ACTION, PAGE, FORM, OPTIONS, STATE]) {
+      const source = await readSourceWithoutComments(path);
+      for (const forbidden of [
+        "next/headers",
+        "cookies(",
+        "createTenantContext",
+        "withTenant",
+        "resolveVerifiedIdentity",
+        "writeWorkspacePreference",
+      ]) {
+        expect(`${path} ${forbidden}: ${source.includes(forbidden)}`).toBe(
+          `${path} ${forbidden}: false`,
+        );
+      }
+    }
+
+    // Client modules still navigate nowhere by themselves.
+    for (const path of [FORM, OPTIONS, STATE]) {
+      const source = await readSourceWithoutComments(path);
+      expect(`${path} redirect: ${source.includes("redirect(")}`).toBe(
+        `${path} redirect: false`,
+      );
+    }
+
+    // The only navigation in the form is the plain sign-in link.
+    const form = await readSourceWithoutComments(FORM);
+    expect(form).toContain("SIGN_IN_PATH");
+    expect(form).not.toMatch(/router\.(push|replace)/);
+
+    // The page reads the resolver to decide whether a creation form is the
+    // right screen at all; it still mints nothing.
+    const page = await readSourceWithoutComments(PAGE);
+    expect(page).toContain("resolveWorkspaceContext");
+  });
+
+  it("serialises no raw error and no identifier into action state", async () => {
+    const source = await readSourceWithoutComments(ACTION);
+    // Only the reason is read; the error itself never enters the state.
+    expect(source).toMatch(/error instanceof BootstrapError/);
+    expect(source).not.toMatch(/message:\s*error/);
+    expect(source).not.toMatch(/String\(error\)/);
+    expect(source).not.toMatch(/error\.message/);
+    expect(source).not.toMatch(/\bcause\b/);
+    for (const forbidden of [
+      "workspaceId",
+      "userProfileId",
+      "authUserId",
+      "membershipId",
+      "owner_admin",
+    ]) {
+      expect(`${forbidden}: ${source.includes(forbidden)}`).toBe(
+        `${forbidden}: false`,
+      );
+    }
+  });
+
+  it("uses Tailwind and the existing UI kit, never another framework", async () => {
+    const pkg = await packageJson();
+    const deps = [
+      ...Object.keys(pkg.dependencies),
+      ...Object.keys(pkg.devDependencies),
+    ];
+    for (const forbidden of [
+      "bootstrap",
+      "react-bootstrap",
+      "@mui/material",
+      "antd",
+      "bulma",
+      "foundation-sites",
+    ]) {
+      expect(deps).not.toContain(forbidden);
+    }
+
+    const form = await readSourceWithoutComments(FORM);
+    // Components come from the existing kit; nothing new was introduced.
+    for (const expected of [
+      "@/components/ui/button",
+      "@/components/ui/input",
+      "@/components/ui/label",
+    ]) {
+      expect(form).toContain(expected);
+    }
+    expect(form).not.toMatch(/from\s+"bootstrap/);
+    // No inline style objects standing in for the token system.
+    expect(form).not.toMatch(/style=\{\{/);
+  });
+
+  it("changes no route outside /setup", async () => {
+    // The invariant is one-directional: nothing outside the setup route may
+    // reach into this phase's modules. A setup file is free not to reference
+    // its own siblings.
+    const outsiders: string[] = [];
+    for (const file of await productionSources()) {
+      if (file.startsWith("src/app/(account)/setup/")) continue;
+      const source = await readRepoFile(file);
+      if (
+        source.includes("createWorkspaceAction") ||
+        source.includes("setup-form") ||
+        source.includes("workspace-options")
+      ) {
+        outsiders.push(file);
+      }
+    }
+    expect(outsiders).toEqual([]);
+
+    // And the setup route is exactly the four files this phase adds.
+    const setupFiles = (await productionSources())
+      .filter((file) => file.startsWith("src/app/(account)/setup/"))
+      .sort();
+    expect(setupFiles).toEqual([
+      "src/app/(account)/setup/actions.ts",
+      "src/app/(account)/setup/page.tsx",
+      "src/app/(account)/setup/setup-form.tsx",
+      "src/app/(account)/setup/setup-state.ts",
+      "src/app/(account)/setup/workspace-options.ts",
+    ]);
+  });
+
+  it("offers no retired currency while the validator still accepts them", async () => {
+    const options = await readSourceWithoutComments(OPTIONS);
+    for (const retired of ["CUC", "HRK", "SLL"]) {
+      expect(options).toContain(retired);
+    }
+    expect(options).toContain("RETIRED_CURRENCIES");
+    // The Phase 4C-2 validator is untouched: it remains the permissive one.
+    const validator = await readSourceWithoutComments(
+      "src/lib/validation/workspace-setup.ts",
+    );
+    for (const retired of ["CUC", "HRK", "SLL"]) {
+      expect(validator).toContain(`"${retired}"`);
+    }
+  });
+
+  it("adds no migration and changes no earlier phase", async () => {
+    const migrations = (await readdir("supabase/migrations")).filter((name) =>
+      name.endsWith(".sql"),
+    );
+    expect(migrations.sort()).toEqual([
+      "20260919045005_workspace_foundation.sql",
+      "20260919073002_tenant_roles.sql",
+      "20260921025321_tenant_rls.sql",
+      "20260921064437_workspace_bootstrap.sql",
+    ]);
+
+    // The setup screen reaches earlier phases only through the one operation.
+    for (const path of [PAGE, FORM, OPTIONS, STATE]) {
+      const source = await readSourceWithoutComments(path);
+      expect(source).not.toContain("@/server/db/");
+    }
+  });
+
+  it("keeps the temporary-documentation rule visible", async () => {
+    const guide = await readRepoFile("docs/local-development.md");
+    for (const phrase of [
+      "deleted before integration",
+      "squash-merge",
+      "must **not** be fast-forwarded",
+    ]) {
+      expect(guide).toContain(phrase);
+    }
+  });
+});
+
 describe("the initial-workspace operation", () => {
   const MODULE = "src/server/auth/create-initial-workspace.ts";
   const VALIDATION = "src/lib/validation/workspace-setup.ts";
@@ -940,8 +1222,9 @@ describe("the initial-workspace operation", () => {
       "20260921064437_workspace_bootstrap.sql",
     ]);
 
-    // Nothing under the route tree or the component tree calls the operation
-    // yet: the form and the Server Action are Phase 4C-3.
+    // Phase 4C-3 adds exactly one caller: the /setup Server Action. Naming it
+    // is stronger than "nothing calls it" — a second caller anywhere in the
+    // production tree fails here.
     const callers: string[] = [];
     for (const file of await productionSources()) {
       if (file === MODULE) continue;
@@ -949,7 +1232,7 @@ describe("the initial-workspace operation", () => {
         callers.push(file);
       }
     }
-    expect(callers).toEqual([]);
+    expect(callers).toEqual(["src/app/(account)/setup/actions.ts"]);
   });
 
   it("is explained where a developer will look for it", async () => {
@@ -1272,7 +1555,15 @@ describe("workspace selection treats the candidate as a preference", () => {
     const exportedFunctions = [
       ...source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g),
     ].map((match) => match[1]);
-    expect(exportedFunctions.sort()).toEqual(["resolveWorkspaceContext"]);
+    expect(exportedFunctions.sort()).toEqual([
+      "resolveWorkspaceChoices",
+      "resolveWorkspaceContext",
+    ]);
+    // The chooser's source of contexts takes NO parameter at all: it answers
+    // "what could you choose?", never "what did you choose?".
+    expect(source).toMatch(
+      /export\s+async\s+function\s+resolveWorkspaceChoices\s*\(\s*\)/,
+    );
     // Typed `unknown` precisely because it is expected to arrive from a cookie
     // or a URL one day: nothing about it is trusted.
     expect(source).toMatch(
@@ -1339,8 +1630,9 @@ describe("workspace selection treats the candidate as a preference", () => {
   it("mints the context only through the reviewed constructor", async () => {
     const source = await selectionSource();
     expect(source).toContain("createTenantContext");
-    // Exactly one construction site, and it is not building the object itself.
-    expect((source.match(/createTenantContext\(/g) ?? []).length).toBe(1);
+    // Two construction sites: the single-workspace resolution, and one per
+    // choice for the chooser. Both inside this module, which is the invariant.
+    expect((source.match(/createTenantContext\(/g) ?? []).length).toBe(2);
     expect(source).not.toMatch(/as\s+unknown\s+as\s+TenantContext/);
     expect(source).not.toMatch(/as\s+TenantContext\b/);
     // Its three values are named fields, not a spread of caller input.

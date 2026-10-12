@@ -68,8 +68,322 @@ if (!reachable) {
   console.warn(`[schema.test] skipped: ${message}`);
 }
 
+/**
+ * The primary keys this run created, recorded at insert time.
+ *
+ * Ids, never a name prefix: the local database is shared with every other
+ * suite and with whatever a developer left behind, so a
+ * `like 'Test Workspace%'` sweep would delete rows this run never made.
+ * Recording at insert time is also what makes a row created by a test that
+ * later throws still reachable for cleanup.
+ */
+const suiteFixtureIds: {
+  workspaces: string[];
+  profiles: string[];
+  authUsers: string[];
+} = { workspaces: [], profiles: [], authUsers: [] };
+
+/**
+ * What went wrong, without the fields that can quote data back.
+ *
+ * A PostgreSQL error carries the offending values in its human-readable
+ * fields: `detail` spells out the key that collided
+ * ("Key (workspace_id, user_profile_id)=(…) already exists"), and `message`,
+ * `hint`, `where`, `internal_query` and `position` can each quote the
+ * statement or its values. A connection error's message carries the host and
+ * port instead (postgres.js builds it in `src/errors.js`).
+ *
+ * `code`, `table_name` and `constraint_name` are schema identifiers rather
+ * than data, so they say what failed without repeating anything back.
+ */
+const reason = (error: unknown): string => {
+  const e = error as {
+    code?: unknown;
+    table_name?: unknown;
+    constraint_name?: unknown;
+  };
+  const parts: string[] = [
+    typeof e?.code === "string" ? `sqlstate ${e.code}` : "no sqlstate",
+  ];
+  if (typeof e?.table_name === "string") parts.push(`table ${e.table_name}`);
+  if (typeof e?.constraint_name === "string")
+    parts.push(`constraint ${e.constraint_name}`);
+  return parts.join(", ");
+};
+
+/**
+ * One named piece of cleanup.
+ *
+ * A deletion resolves to nothing; a read-back resolves to the rows that
+ * survived it, which is a failure however the query itself went.
+ */
+type CleanupStep = {
+  readonly what: string;
+  readonly run: () => Promise<readonly { id: string }[] | void>;
+};
+
+/**
+ * Run every step, then close, and report everything that went wrong.
+ *
+ * Separated from the hook below so the failure path can be exercised with
+ * doubles — a cleanup that has never been seen to fail is a cleanup whose
+ * failure handling is a guess. Nothing here throws: the caller decides what a
+ * non-empty result means.
+ *
+ * Deliberately does NOT swallow errors the way a `.catch(() => {})` would. A
+ * cleanup that fails quietly is exactly how the previous version of this file
+ * left its workspaces, profiles and memberships behind on every run while the
+ * suite still reported green.
+ */
+const runCleanup = async (
+  steps: readonly CleanupStep[],
+  close: () => Promise<unknown>,
+): Promise<string[]> => {
+  const problems: string[] = [];
+
+  // Every step is attempted, including after an earlier one fails: a failed
+  // membership delete must not strand the profiles and workspaces behind it.
+  for (const step of steps) {
+    try {
+      const survivors = await step.run();
+      if (survivors && survivors.length > 0) {
+        problems.push(
+          `${step.what} still present: ${survivors.map((r) => r.id).join(", ")}`,
+        );
+      }
+    } catch (error) {
+      problems.push(`${step.what} (${reason(error)})`);
+    }
+  }
+
+  // Closure is attempted whatever happened above, and a failure to close is
+  // reported rather than discarded — it leaks a connection for the rest of
+  // the process.
+  try {
+    await close();
+  } catch (error) {
+    problems.push(`close connection (${reason(error)})`);
+  }
+
+  return problems;
+};
+
+/** The deletions and read-backs for this run's fixtures, in dependency order. */
+const cleanupSteps = (db: postgres.Sql): readonly CleanupStep[] => {
+  const { workspaces, profiles, authUsers } = suiteFixtureIds;
+  const steps: CleanupStep[] = [];
+
+  // Foreign keys RESTRICT, so memberships go before what they reference.
+  // Every membership this suite inserts names one of its own workspaces and
+  // one of its own profiles, so scoping by those ids is exact.
+  if (workspaces.length > 0) {
+    steps.push({
+      what: "delete memberships by workspace",
+      run: async () => {
+        await db`delete from public.workspace_memberships
+                   where workspace_id in ${db(workspaces)}`;
+      },
+    });
+  }
+  if (profiles.length > 0) {
+    steps.push({
+      what: "delete memberships by profile",
+      run: async () => {
+        await db`delete from public.workspace_memberships
+                   where user_profile_id in ${db(profiles)}`;
+      },
+    });
+    steps.push({
+      what: "delete profiles",
+      run: async () => {
+        await db`delete from public.user_profiles where id in ${db(profiles)}`;
+      },
+    });
+  }
+  if (workspaces.length > 0) {
+    steps.push({
+      what: "delete workspaces",
+      run: async () => {
+        await db`delete from public.workspaces where id in ${db(workspaces)}`;
+      },
+    });
+  }
+  // Only the accounts this run inserted. A profile merely REFERENCING an auth
+  // user is never a reason to delete that user.
+  if (authUsers.length > 0) {
+    steps.push({
+      what: "delete auth users",
+      run: async () => {
+        await db`delete from auth.users where id in ${db(authUsers)}`;
+      },
+    });
+  }
+
+  // Read back rather than trust the deletes. Memberships are checked under
+  // BOTH scopes they were deleted by, so a row reached by one scope and not
+  // the other cannot slip through unnoticed.
+  if (workspaces.length > 0) {
+    steps.push({
+      what: "verify workspaces",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.workspaces
+                               where id in ${db(workspaces)}`,
+    });
+    steps.push({
+      what: "verify memberships by workspace",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.workspace_memberships
+                               where workspace_id in ${db(workspaces)}`,
+    });
+  }
+  if (profiles.length > 0) {
+    steps.push({
+      what: "verify memberships by profile",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.workspace_memberships
+                               where user_profile_id in ${db(profiles)}`,
+    });
+    steps.push({
+      what: "verify profiles",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.user_profiles
+                               where id in ${db(profiles)}`,
+    });
+  }
+  if (authUsers.length > 0) {
+    steps.push({
+      what: "verify auth users",
+      run: async () =>
+        db<{ id: string }[]>`select id from auth.users
+                               where id in ${db(authUsers)}`,
+    });
+  }
+
+  return steps;
+};
+
+/**
+ * Remove this run's fixtures, close the connection, and fail the run if any
+ * part of that did not work — naming the ids still present.
+ */
 afterAll(async () => {
-  await sql?.end({ timeout: 2 }).catch(() => {});
+  const problems = await runCleanup(sql ? cleanupSteps(sql) : [], async () =>
+    sql?.end({ timeout: 2 }),
+  );
+
+  if (problems.length > 0) {
+    throw new Error(
+      `[schema.test] fixture cleanup failed — ${problems.join("; ")}`,
+    );
+  }
+});
+
+/**
+ * The failure handling above, exercised with doubles.
+ *
+ * No database and no connection: the point is to prove what happens when
+ * cleanup goes wrong, which a passing run against a healthy database can
+ * never show. Runs everywhere, including on a machine with the stack stopped.
+ */
+describe("fixture cleanup failure handling", () => {
+  const pgError = Object.assign(new Error("duplicate key value violates …"), {
+    code: "23505",
+    table_name: "workspace_memberships",
+    constraint_name: "workspace_memberships_workspace_id_user_profile_id_key",
+    detail: "Key (workspace_id, user_profile_id)=(secret-a, secret-b) exists.",
+  });
+
+  it("reports a failed step, and still runs the steps after it", async () => {
+    const ran: string[] = [];
+    const problems = await runCleanup(
+      [
+        {
+          what: "delete memberships by workspace",
+          run: async () => {
+            ran.push("first");
+            throw pgError;
+          },
+        },
+        {
+          what: "delete workspaces",
+          run: async () => {
+            ran.push("second");
+          },
+        },
+      ],
+      async () => {
+        ran.push("close");
+      },
+    );
+
+    expect(ran).toEqual(["first", "second", "close"]);
+    expect(problems).toEqual([
+      "delete memberships by workspace (sqlstate 23505, " +
+        "table workspace_memberships, constraint " +
+        "workspace_memberships_workspace_id_user_profile_id_key)",
+    ]);
+  });
+
+  it("never quotes the data a driver error carries", async () => {
+    const problems = await runCleanup(
+      [{ what: "delete profiles", run: () => Promise.reject(pgError) }],
+      async () => undefined,
+    );
+
+    const reported = problems.join(" ");
+    expect(reported).not.toContain("secret-a");
+    expect(reported).not.toContain("secret-b");
+    expect(reported).not.toContain(pgError.message);
+    expect(reported).not.toContain("Key (");
+  });
+
+  it("names the rows a read-back found still present", async () => {
+    const problems = await runCleanup(
+      [
+        {
+          what: "verify memberships by profile",
+          run: async () => [{ id: "11111111-1111-4111-8111-111111111111" }],
+        },
+      ],
+      async () => undefined,
+    );
+
+    expect(problems).toEqual([
+      "verify memberships by profile still present: " +
+        "11111111-1111-4111-8111-111111111111",
+    ]);
+  });
+
+  it("reports a failed close alongside the rest, having attempted it", async () => {
+    let attempted = false;
+    const problems = await runCleanup(
+      [{ what: "delete workspaces", run: () => Promise.reject(pgError) }],
+      async () => {
+        attempted = true;
+        throw Object.assign(
+          new Error("write CONNECTION_ENDED 127.0.0.1:54322"),
+          {
+            code: "CONNECTION_ENDED",
+          },
+        );
+      },
+    );
+
+    expect(attempted).toBe(true);
+    expect(problems).toHaveLength(2);
+    expect(problems[1]).toBe("close connection (sqlstate CONNECTION_ENDED)");
+    // The endpoint the driver puts in a connection error's message stays out.
+    expect(problems.join(" ")).not.toContain("54322");
+  });
+
+  it("reports nothing when every step and the close succeed", async () => {
+    expect(
+      await runCleanup(
+        [{ what: "delete workspaces", run: async () => undefined }],
+        async () => undefined,
+      ),
+    ).toEqual([]);
+  });
 });
 
 /** The first row of a result that must have produced one. */
@@ -97,7 +411,9 @@ const newWorkspace = async (overrides: Record<string, string> = {}) => {
   };
   const rows = await db()`
     insert into public.workspaces ${db()(values)} returning *`;
-  return first(rows, "inserted workspace");
+  const row = first(rows, "inserted workspace");
+  suiteFixtureIds.workspaces.push(String(row.id));
+  return row;
 };
 
 const newProfile = async () => {
@@ -105,7 +421,9 @@ const newProfile = async () => {
     insert into public.user_profiles (full_name)
     values (${`Test Person ${crypto.randomUUID().slice(0, 8)}`})
     returning *`;
-  return first(rows, "inserted user profile");
+  const row = first(rows, "inserted user profile");
+  suiteFixtureIds.profiles.push(String(row.id));
+  return row;
 };
 
 describe.skipIf(!reachable)("1C-B schema", () => {
@@ -388,6 +706,10 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         returning id`,
         "inserted auth user",
       );
+      // This test deletes the account itself further down — that deletion is
+      // the behaviour under test. Recording it here covers the case where an
+      // assertion between the two points throws and that line never runs.
+      suiteFixtureIds.authUsers.push(String(authUser.id));
       await db()`update public.user_profiles
                  set auth_user_id = ${authUser.id} where id = ${profile.id}`;
       await db()`insert into public.workspace_memberships

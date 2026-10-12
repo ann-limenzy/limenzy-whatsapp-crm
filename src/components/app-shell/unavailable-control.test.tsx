@@ -28,15 +28,26 @@ const TEST_USER: AuthenticatedUser = {
   emailVerified: true,
   fullName: "Test Owner",
 };
+/**
+ * The workspace name and role the `(app)` layout resolves per request. Display
+ * values only: this suite is about how unbuilt features are presented, and
+ * nothing here grants or checks access.
+ */
+const TOP_BAR_PROPS = {
+  user: TEST_USER,
+  workspaceName: "Test Workspace",
+  role: "owner_admin",
+} as const;
+
 describe("top bar — unbuilt features are presented honestly", () => {
   it("offers no text input to type a search into", () => {
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("names the search control as unavailable", () => {
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
     expect(
       screen.getAllByRole("button", { name: /global search — not available/i })
         .length,
@@ -45,7 +56,7 @@ describe("top bar — unbuilt features are presented honestly", () => {
 
   it("explains that search is not available when activated", async () => {
     const user = userEvent.setup();
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
 
     await user.click(screen.getByTestId("global-search"));
 
@@ -56,7 +67,7 @@ describe("top bar — unbuilt features are presented honestly", () => {
 
   it("explains that notifications are not available when activated", async () => {
     const user = userEvent.setup();
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
 
     await user.click(screen.getByTestId("notifications"));
 
@@ -66,14 +77,14 @@ describe("top bar — unbuilt features are presented honestly", () => {
   });
 
   it("shows no notification count", () => {
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
     const bell = screen.getByTestId("notifications");
     expect(bell.textContent?.trim()).toBe("");
   });
 
   it("presents the server-resolved identity and a real sign-out", async () => {
     const user = userEvent.setup();
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
 
     await user.click(screen.getByTestId("user-menu"));
 
@@ -89,7 +100,7 @@ describe("top bar — unbuilt features are presented honestly", () => {
 
   it("never renders an identity the browser supplied", async () => {
     const user = userEvent.setup();
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
     await user.click(screen.getByTestId("user-menu"));
 
     // The menu shows only what the server passed in. Nothing is read from
@@ -99,7 +110,7 @@ describe("top bar — unbuilt features are presented honestly", () => {
 
   it("keeps the unavailable controls reachable by keyboard", async () => {
     const user = userEvent.setup();
-    render(<TopBar user={TEST_USER} />);
+    render(<TopBar {...TOP_BAR_PROPS} />);
 
     const search = screen.getByTestId("global-search");
     search.focus();
