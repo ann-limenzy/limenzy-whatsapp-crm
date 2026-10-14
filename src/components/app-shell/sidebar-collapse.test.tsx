@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MODULE_KEYS } from "@/lib/modules";
 import { NavList } from "@/components/app-shell/nav-list";
 import { SidebarToggle } from "@/components/app-shell/sidebar-toggle";
 import { ALL_NAV, PRIMARY_NAV } from "@/config/navigation";
@@ -139,7 +140,7 @@ describe("collapsed navigation", () => {
     const { rerender } = render(
       <>
         <SidebarToggle />
-        <NavList collapsible />
+        <NavList collapsible enabledModules={MODULE_KEYS} />
       </>,
     );
 
@@ -151,7 +152,7 @@ describe("collapsed navigation", () => {
     rerender(
       <>
         <SidebarToggle />
-        <NavList collapsible />
+        <NavList collapsible enabledModules={MODULE_KEYS} />
       </>,
     );
 
@@ -174,7 +175,7 @@ describe("collapsed navigation", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
 
     for (const item of ALL_NAV) {
       expect(
@@ -188,7 +189,7 @@ describe("collapsed navigation", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
     const current = screen.getAllByRole("link", { current: "page" });
     expect(current).toHaveLength(1);
     expect(current[0]).toHaveAttribute("href", "/dashboard");
@@ -200,7 +201,7 @@ describe("collapsed tooltips", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
     const link = screen.getByTestId("nav-leads");
     link.focus();
 
@@ -215,7 +216,7 @@ describe("collapsed tooltips", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
     await user.hover(screen.getByTestId("nav-customers"));
 
     const tip = await screen.findByRole("tooltip");
@@ -226,7 +227,7 @@ describe("collapsed tooltips", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
     expect(
       document.querySelectorAll("[data-slot='tooltip-trigger']"),
     ).toHaveLength(ALL_NAV.length);
@@ -234,7 +235,7 @@ describe("collapsed tooltips", () => {
 
   it("renders no tooltip markup while expanded", () => {
     bootFromStorage();
-    render(<NavList collapsible />);
+    render(<NavList collapsible enabledModules={MODULE_KEYS} />);
 
     // Radix marks its triggers; none should exist when labels are visible.
     expect(
@@ -247,7 +248,7 @@ describe("collapsed tooltips", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList />);
+    render(<NavList enabledModules={MODULE_KEYS} />);
     expect(
       document.querySelectorAll("[data-slot='tooltip-trigger']"),
     ).toHaveLength(0);
@@ -261,7 +262,7 @@ describe("tablet and mobile ignore the desktop preference", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList />);
+    render(<NavList enabledModules={MODULE_KEYS} />);
     for (const item of PRIMARY_NAV) {
       expect(screen.getByRole("link", { name: item.label })).toBeVisible();
     }
@@ -271,7 +272,7 @@ describe("tablet and mobile ignore the desktop preference", () => {
     window.localStorage.setItem(SIDEBAR_STORAGE_KEY, "collapsed");
     bootFromStorage();
 
-    render(<NavList />);
+    render(<NavList enabledModules={MODULE_KEYS} />);
     // `.nav-link` / `.nav-label` are the only hooks the collapse CSS targets.
     expect(document.querySelectorAll(".nav-link")).toHaveLength(0);
     expect(document.querySelectorAll(".nav-label")).toHaveLength(0);

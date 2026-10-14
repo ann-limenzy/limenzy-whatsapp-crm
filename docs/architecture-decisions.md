@@ -123,6 +123,23 @@ load testing, the private object-storage provider, backup retention, and the
 legal data-retention and deletion policy. Until each is approved, the V1
 defaults above apply.
 
+### 2.2 One applied migration history (Milestone 1C-A)
+
+`supabase/migrations/` is the **single authoritative applied migration
+history**. The Supabase CLI applies and resets from it; nothing else applies SQL
+to a shared environment.
+
+Drizzle's role is narrower: `src/server/db/schema/` holds the typed schema, and
+`drizzle-kit generate` may produce **candidate** SQL into the git-ignored
+`./drizzle` directory for review. Reviewed SQL is then committed into
+`supabase/migrations/`.
+
+Consequently `drizzle-kit migrate` is never run against a database the Supabase
+CLI migrates, and `drizzle-kit push` is not a migration mechanism — it mutates a
+database without leaving a reviewable, replayable file. Neither has an npm
+script. The reasoning and the day-to-day commands are in
+[development.md](./development.md).
+
 ## 3. Approved interpretations of ambiguous specification points
 
 ### 3.1 Follow-ups module gating (spec §43, §171, §172, §25)
@@ -211,7 +228,16 @@ Verified against supabase.com/docs/guides/auth/server-side/nextjs on 2026-09-11.
   they do not each attempt a refresh. Server Components cannot write cookies, so
   refresh must happen in `proxy.ts`.
 
-## 6. Tenant isolation (planned — Milestone 1C/1D)
+## 6. Tenant isolation (foundation implemented — Milestone 1C; propagation 1D)
+
+> **Status.** The mechanism below is built and committed for the three
+> foundation tables, and 8 of the 10 checks in §6.1 have been demonstrated
+> against a real local PostgreSQL. **Checks 9 and 10 need a hosted environment
+> and remain unverified, so Milestone 1C-C is not complete** and the pattern is
+> not yet propagated across the schema. The implemented branded type is called
+> `TenantContext`; where this section says `WorkspaceContext`, it means that
+> same object, produced by `createTenantContext()` inside
+> `server/auth/workspace-context.ts` and required by `withTenant()`.
 
 **The product requirement (spec §177).** Every application read and write is
 scoped to the acting user's workspace. Isolation must be enforced in
@@ -264,6 +290,223 @@ environment:
 
 If any step cannot be demonstrated, stop and report the exact failure. Do not
 weaken the test and do not describe the protection as working.
+
+**Status of each check at commit `90db9e4`.** Checks 1–8 were demonstrated by
+the live suites in `src/server/db/` and `src/server/auth/` against the local
+Supabase stack; the figures are the ones quoted in build-plan.md and were not
+re-measured by this documentation pass.
+
+| #   | Check                                       | Status               | Where                                                            |
+| --- | ------------------------------------------- | -------------------- | ---------------------------------------------------------------- |
+| 1   | Runtime role can connect                    | demonstrated locally | `roles.test.ts`                                                  |
+| 2   | Does not own the application tables         | demonstrated locally | `roles.test.ts`; owner is `limenzy_owner`                        |
+| 3   | No `BYPASSRLS`                              | demonstrated locally | `roles.test.ts`                                                  |
+| 4   | `FORCE ROW LEVEL SECURITY` behaves          | demonstrated locally | `rls.test.ts` — constrains the table owner too                   |
+| 5   | Unset tenant GUC fails closed               | demonstrated locally | `rls.test.ts`                                                    |
+| 6   | Wrong workspace GUC returns zero rows       | demonstrated locally | `rls.test.ts`                                                    |
+| 7   | `set_config(..., true)` stays transactional | demonstrated locally | `tenant.test.ts`                                                 |
+| 8   | No context leak across pooled transactions  | demonstrated locally | `tenant.test.ts`, `workspace-context.db.test.ts`                 |
+| 9   | Supabase transaction pooler + Drizzle       | **not verified**     | local pooler disabled; never in the connection path              |
+| 10  | Migration and runtime credentials separate  | **locally only**     | `limenzy_owner` is NOLOGIN locally; hosted separation unverified |
+
+Checks 9 and 10 are **not waived, reinterpreted or moved to a later
+milestone**. They are blocked on a hosted project existing, and 1C-C stays open
+until they pass.
+
+**Hosted status: the gate is passed.** Run `fab69fd8` on 2026-10-14 against the
+hosted development project `limenzy-crm-dev` completed **46 passed, 0 failed, 0
+skipped, exit 0**. The runtime role connected as `limenzy_app` through the
+Supabase transaction pooler on port 6543 with verified TLS; the tooling role
+connected as `postgres` on 5432 and was used only to create, read and remove
+fixtures. An earlier run, `c29c8e63`, established checks 1–8 and 10 by the same
+method; `fab69fd8` repeated them and added the Drizzle gateway.
+
+| #   | Check                                                                                                             | Status                  |
+| --- | ----------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 1–8 | Connection, ownership, BYPASSRLS, FORCE RLS, unset and wrong GUC, transaction-locality, pooled-connection leakage | demonstrated hosted     |
+| 9   | Supabase transaction pooler + Drizzle                                                                             | **demonstrated hosted** |
+| 10  | Migration and runtime credentials separate                                                                        | **demonstrated hosted** |
+
+**Check 9.** Exercised through the real `withTenantDb()` gateway of §6.3 over
+the 6543 pooler: the Drizzle query builder returned only the context workspace;
+an `owner_admin` `UPDATE … RETURNING` affected exactly one row and the stored
+value was confirmed by the tooling connection; a `staff_sales` `UPDATE` affected
+zero rows and left the stored value unchanged; a cross-workspace context
+returned zero rows; a thrown callback rolled its `UPDATE` back; the setting was
+absent after the transaction; and sequential and concurrent transactions each
+saw only their own workspace. The same isolation was demonstrated through the
+raw-SQL `withTenant()` gateway in the same run, and nesting one gateway inside
+the other was refused in both directions with `TenantGatewayConflict`.
+
+**Check 10.** The two connections authenticate as different roles; the runtime
+role holds no membership of `limenzy_owner`, `limenzy_bootstrap`, `postgres`,
+`service_role`, `supabase_admin` or `pg_read_all_data` (`MEMBER`, `USAGE` and
+`SET` all false); `SET ROLE` to the privileged roles is refused with SQLSTATE
+42501; the migration history is unreadable to it; and only the tooling role
+holds `BYPASSRLS`. Every permission-denial assertion requires SQLSTATE 42501
+specifically, so a missing object or a constraint violation cannot be mistaken
+for access control.
+
+**Negative TLS controls.** A wrong certificate authority, a mismatched server
+name and the absence of a pinned CA each failed the connection. Verification was
+never disabled, for any check.
+
+**Fixtures and cleanup.** The run created synthetic fixtures only — two
+`auth.users` rows, two profiles, three workspaces and four memberships,
+including an inactive membership — each recorded by primary key as it was
+created. Cleanup ran in a `finally` block, deleted only those recorded
+identifiers in foreign-key-safe order, re-read each one individually to confirm
+absence, and compared both row counts and the pre-existing identifier sets
+against baselines captured before the fixtures existed. All four table counts
+returned to their baseline of zero and no pre-existing row was touched. No
+`TRUNCATE`, prefix match or reset was used at any point.
+
+**How the hosted run was configured.** The harness lives outside the repository
+and set `DATABASE_URL` and `DATABASE_CA_CERT` **inside its own process only**.
+`.env.local` was neither read nor switched, no hosted credential was exported to
+a parent shell or written to disk, and both passwords were typed at hidden
+terminal prompts. The repository's own configuration is unchanged.
+
+**What this gate does not cover.** It is a database-layer proof. HTTPS `Secure`
+cookie behaviour in a browser remains unverified — no HTTPS origin was
+available — and the CRM business modules remain placeholder screens. Neither is
+a §6.1 check; both are tracked in `docs/build-plan.md`.
+
+### 6.2 Workspace routing and selection (implemented, Milestone 1C-C)
+
+How a request gets from a verified person to a workspace. This records what the
+committed code does; it changes no decision above.
+
+**Two groups of routes.** `src/app/(account)/` holds setup, the workspace
+chooser and the access-unavailable screen: they require authentication and
+deliberately **not** a workspace, because they exist to answer “which
+workspace?”. `src/app/(app)/` holds the application, where a workspace is
+required.
+
+**The gate runs per page, not only per layout.** `requireWorkspaceContext()` is
+called by the `(app)` layout and again by every page beneath it, and must be
+called again by every Server Action that writes. A layout is not re-executed on
+client-side navigation between sibling routes, so a layout-only check can be
+stale by the time a page renders; and the proxy is explicitly not the
+authorization boundary. Nothing is cached — no `cache()`, no module state, no
+role in a cookie.
+
+**The saved workspace is a preference, never authorization.** The cookie holds
+one workspace id and nothing else — no role, no profile id, no context. Every
+request hands it to the resolver as an untrusted candidate, which checks it
+against memberships read under RLS for the verified identity, so a stale,
+revoked, foreign or forged value is refused identically.
+
+It is unsigned. Signing would only establish that this server wrote the value;
+it would say nothing about whether the person still has an active membership in
+that workspace, which is the question that actually decides access. Because
+membership is re-read on every request, the outcome is the same whether the
+preference is signed or not — a tampered id is refused by the membership check,
+not by a signature.
+
+**Explicit workspace parameters: one route only.** `?workspace=<id>` is read
+**only** by the chooser at `/select-workspace`, where a value that is not an
+active membership produces a 404, matching the standing cross-tenant rule in
+§9. No other route reads the parameter: on an application route it is an
+unknown query parameter and selects nothing, so the saved preference still
+decides what is rendered.
+
+The specification does not require a workspace identifier in a URL anywhere.
+What it does say about addressing is §179.1: the installed application must
+start at `/` and "must not start at a workspace-specific or permission-specific
+address", and the root route runs the authentication, onboarding and
+workspace-selection flow — which is what the implementation does. There is no
+specification conflict here and no decision pending; this paragraph records
+behaviour, not an open question.
+
+**Cookie mutation happens in exactly three places**, because the platform
+forbids it during rendering: the chooser's Server Action writes it, sign-out
+clears it, and `GET /workspace/reset` clears it during recovery. The reset
+handler returns a **root-relative** `Location`, so the browser keeps its own
+scheme, host and port and the session cookie travels with it; deriving an
+origin from a `Host` or forwarded header is specifically rejected.
+
+**Chooser names come through the ordinary gateway.** `public.workspaces` grants
+a row only when it matches the selected workspace and an active membership
+exists, so names are read one workspace at a time inside `withTenant()`, each
+under a context minted from that membership. A workspace whose row is no longer
+readable is dropped from the list rather than shown. No tooling credential, no
+secret key, no `SECURITY DEFINER` and no policy change is involved.
+
+**Runtime and tooling credentials stay separate.** `DATABASE_URL` is the
+application's `limenzy_app` connection — non-owner, NOBYPASSRLS, used only
+through `withTenant()`. `DRIZZLE_TOOLING_DATABASE_URL` is a local superuser
+connection for Drizzle Kit, migrations and test fixtures; it bypasses RLS, is
+never used by application code, and proving access with it would prove nothing.
+Two independent mechanisms keep that boundary: `eslint.config.mjs` restricts
+the driver, raw-client and context-constructor imports per directory and
+forbids naming the tooling connection outside the places that may, and a
+contract test in `src/test/local-tooling.test.ts` enumerates the exact files
+allowed each exemption, so a new file cannot quietly acquire one.
+
+### 6.3 Tenant query gateways (implemented, Milestone 1C-C)
+
+Two gateways, one contract. Both open a transaction on the same restricted
+runtime pool (`limenzy_app`, no `BYPASSRLS`, verified TLS, `prepare: false`),
+establish the same three transaction-local settings before any caller statement
+runs, and leave the rest to the fail-closed policies.
+
+| Gateway                                         | Handle the callback receives | Use it for                             |
+| ----------------------------------------------- | ---------------------------- | -------------------------------------- |
+| `withTenant()` — `src/server/db/tenant.ts`      | postgres.js `TransactionSql` | tagged-template SQL                    |
+| `withTenantDb()` — `src/server/db/tenant-db.ts` | Drizzle transaction          | Drizzle query builder and `.execute()` |
+
+**Why two.** Drizzle's `drizzle()` factory writes type parsers to
+`client.options`, and a postgres.js `TransactionSql` has no `options` — it is
+built by an inner `Sql(handler)` that assigns only `types`, `typed`, `unsafe`,
+`notify`, `array`, `json` and `file`. So a Drizzle handle **cannot** be
+constructed over a transaction `withTenant()` already opened. What Drizzle does
+support is opening the transaction itself: its `transaction()` calls postgres.js
+`begin()` and builds its session over the resulting transaction client.
+`withTenantDb()` uses that supported path, which is why it owns its transaction
+rather than borrowing one. No `.options` is fabricated, no `TransactionSql` is
+cast into `drizzle()`, and no driver internals are copied.
+
+**Nesting.** Both gateways share one `AsyncLocalStorage` scope in
+`src/server/db/tenant-scope.ts`, which no other module may import. A nested call
+with an identical context reuses the running transaction; a differing context
+throws `TenantContextConflict`; a call made while the _other_ gateway owns the
+transaction throws `TenantGatewayConflict`. All three decisions happen **before**
+any statement runs. Two separate scopes would each be blind to the other, so a
+`withTenantDb()` inside a `withTenant()` would open a second transaction on a
+second pooled connection — two tenant contexts in flight at once, which is the
+failure this design exists to prevent.
+
+#### The parser contract
+
+`drizzle()` replaces the pool's type parsers and serializers as a side effect:
+transparent parsers for OIDs 1184, 1082, 1083, 1114, 1182, 1185, 1115 and 1231,
+and serializers for 114 and 3802. The practical effect is that **timestamp
+columns come back as raw strings rather than `Date`** — `"2026-10-14 03:00:00+00"`
+instead of a `Date` object.
+
+This applies to **raw SQL on the runtime pool**, including `withTenant()`
+callbacks. Drizzle's own schema-defined columns are unaffected: it maps them
+through the schema, which is why the transparent parsers are installed in the
+first place.
+
+The side effect is accepted deliberately, and made deterministic:
+`createRuntimePool()` builds the Drizzle handle **as it creates the pool**, so
+the contract is a fixed property of every runtime pool from its first statement,
+identical for both gateways, in every process. Deferring it to first use would
+mean the raw-SQL path behaved one way before the first `withTenantDb()` call and
+another way after it — a behaviour change that moves with traffic.
+
+No current raw-SQL caller selects a timestamp column
+(`workspace-names.ts`, `identity.ts`, `create-initial-workspace.ts` read
+`name`, `id`, `workspace_id`, `role` and `outcome`), so nothing needed
+converting. A future raw-SQL caller that wants a `Date` must parse the string
+itself, or read that column through Drizzle. `client-drizzle.unit.test.ts`
+pins this contract so it cannot change unnoticed.
+
+Each pool gets exactly one Drizzle handle, held in a `WeakMap` keyed by the pool,
+so a handle can never outlive the pool it is bound to or be served for a pool
+that has been closed and replaced.
 
 ## 7. Decisions taken during Milestone 1A
 
@@ -418,9 +661,17 @@ placeholder behaviour, package versions and architecture are untouched.
 The CRM is additionally delivered as an installable PWA. **One** Next.js
 App Router codebase, one backend, one PostgreSQL database, one
 multi-tenant product. No Flutter application, no React Native
-application, no separate mobile repository, no A&S Fincare fork.
+application, no separate mobile repository.
 
-A&S Fincare uses the same product through its own isolated workspace.
+> **Superseded — project boundary.** This section originally read “A&S Fincare
+> uses the same product through its own isolated workspace”, and the sentence
+> above ended “…, no A&S Fincare fork.” That framing is no longer correct and
+> must not be relied on: **A&S Fincare is a separate client project with its
+> own requirements, and is not a workspace of Limenzy CRM SaaS.** Nothing from
+> that project — roles, business rules, database design, providers or stack
+> decisions — is an input here. The original wording is quoted rather than
+> deleted so the historical decision stays legible; the decisions in the table
+> below are unaffected, because they concern Limenzy's own product identity.
 
 | #   | Decision                                                                                                                                                                                                                                                                                                                                          |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

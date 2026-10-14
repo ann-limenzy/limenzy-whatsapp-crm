@@ -44,6 +44,17 @@ const { createClient, headersMock } = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ redirect: redirectMock }));
 vi.mock("next/headers", () => ({ headers: headersMock }));
+const clearWorkspacePreference = vi.hoisted(() => vi.fn());
+
+/**
+ * Doubled because signing out now also drops the saved workspace preference,
+ * and the real one reaches for `cookies()`, which belongs to a request this
+ * unit test does not have.
+ */
+vi.mock("@/server/auth/workspace-selection", () => ({
+  clearWorkspacePreference,
+}));
+
 vi.mock("@/lib/supabase/server", () => ({ createClient }));
 
 const actions = await import("@/app/actions/auth");
@@ -421,6 +432,12 @@ describe("signOutAction", () => {
     const url = await redirectedTo(() => actions.signOutAction());
     expect(auth.signOut).toHaveBeenCalledTimes(1);
     expect(url).toBe("/sign-in");
+  });
+
+  it("drops the saved workspace preference, so the next user starts clean", async () => {
+    clearWorkspacePreference.mockClear();
+    await redirectedTo(() => actions.signOutAction());
+    expect(clearWorkspacePreference).toHaveBeenCalledTimes(1);
   });
 
   it("signs out before redirecting, not after", async () => {

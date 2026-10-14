@@ -95,10 +95,92 @@ describe("getAuthenticatedUser", () => {
     expect((await getAuthenticatedUser())?.fullName).toBe("Ann");
   });
 
-  it("treats a missing verification claim as unverified — fail closed", async () => {
-    signedIn({ sub: "u", email: "ann@example.com" });
+  it("honours an explicit verification claim, including a false one", async () => {
+    // A claim that says "not verified" still fails closed. This is the half of
+    // the old assertion that was right.
+    signedIn({ sub: "u", email: "ann@example.com", email_verified: false });
+    expect((await getAuthenticatedUser())?.emailVerified).toBe(false);
+
+    signedIn({ sub: "u", email: "ann@example.com", email_verified: "false" });
+    expect((await getAuthenticatedUser())?.emailVerified).toBe(false);
+
+    signedIn({ sub: "u", email: "ann@example.com", email_verified: true });
+    expect((await getAuthenticatedUser())?.emailVerified).toBe(true);
+  });
+
+  /**
+   * The regression that manual testing found.
+   *
+   * These are the exact top-level claim keys a local Supabase access token
+   * carries — captured from a real token, not invented. There is **no**
+   * `email_verified` among them, so the previous "absent means unverified"
+   * rule made every signed-in user unverified. Pages kept working, because
+   * `requireUser()` gates on identity alone; every Server Action that checks
+   * verification classified a perfectly valid session as unauthenticated.
+   */
+  const REAL_SUPABASE_CLAIMS = Object.freeze({
+    aal: "aal1",
+    amr: [{ method: "password", timestamp: 1_758_000_000 }],
+    app_metadata: { provider: "email", providers: ["email"] },
+    aud: "authenticated",
+    email: "ann@example.com",
+    exp: 1_758_003_600,
+    iat: 1_758_000_000,
+    is_anonymous: false,
+    iss: "http://127.0.0.1:54321/auth/v1",
+    phone: "",
+    role: "authenticated",
+    session_id: "b0a1c2d3-e4f5-4678-9abc-def012345678",
+    sub: "1a1a1a1a-1111-4111-8111-1111111111aa",
+    user_metadata: {
+      email: "ann@example.com",
+      email_verified: true,
+      full_name: "Ann Sebastian",
+      phone_verified: false,
+      sub: "1a1a1a1a-1111-4111-8111-1111111111aa",
+    },
+  });
+
+  it("treats a real Supabase session as verified, with no such claim present", async () => {
+    signedIn({ ...REAL_SUPABASE_CLAIMS });
     const user = await getAuthenticatedUser();
-    expect(user?.emailVerified).toBe(false);
+
+    expect(user).not.toBeNull();
+    expect(user?.id).toBe("1a1a1a1a-1111-4111-8111-1111111111aa");
+    // The token exists, and Supabase issues none to an unconfirmed address
+    // while confirmations are on — so this must be true.
+    expect(user?.emailVerified).toBe(true);
+    expect(user?.fullName).toBe("Ann Sebastian");
+  });
+
+  it("does not let user-writable metadata assert verification", async () => {
+    // `updateUser({ data })` lets a user write their own user_metadata, so it
+    // must never be the authority. An explicit top-level claim of false wins
+    // over metadata claiming true.
+    signedIn({
+      ...REAL_SUPABASE_CLAIMS,
+      email_verified: false,
+      user_metadata: {
+        ...REAL_SUPABASE_CLAIMS.user_metadata,
+        email_verified: true,
+      },
+    });
+    expect((await getAuthenticatedUser())?.emailVerified).toBe(false);
+  });
+
+  it("still returns nothing for a missing or broken session", async () => {
+    signedOut();
+    expect(await getAuthenticatedUser()).toBeNull();
+
+    getClaims.mockResolvedValue({
+      data: null,
+      error: { message: "jwt expired" },
+    });
+    expect(await getAuthenticatedUser()).toBeNull();
+
+    // A token with no subject is not an identity either.
+    signedIn({ ...REAL_SUPABASE_CLAIMS, sub: "" });
+    expect(await getAuthenticatedUser()).toBeNull();
   });
 
   it("returns null when the token has no subject", async () => {

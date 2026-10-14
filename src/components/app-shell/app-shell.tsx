@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 import { DesktopSidebar } from "@/components/app-shell/desktop-sidebar";
 import { MobileNav } from "@/components/app-shell/mobile-nav";
 import { TopBar } from "@/components/app-shell/top-bar";
+import type { ModuleKey } from "@/lib/modules";
 import type { AuthenticatedUser } from "@/server/auth/require-user";
+import type { WorkspaceRole } from "@/server/db/identity";
 
 /**
  * Authenticated application shell (spec §3, §4, §25).
@@ -25,18 +27,44 @@ import type { AuthenticatedUser } from "@/server/auth/require-user";
  */
 export function AppShell({
   user,
+  workspaceName,
+  role,
+  enabledModules,
   children,
 }: {
   /** Resolved on the server by the `(app)` layout. Never read from the browser. */
   user: AuthenticatedUser;
+  /**
+   * The current workspace's name, read under its own tenant context. Display
+   * only — `null` when the row became unreadable, which the next request's
+   * workspace gate turns into a redirect.
+   */
+  workspaceName: string | null;
+  /**
+   * The role from the membership row, for presentation. Never an authorization
+   * decision: hiding a control is not a permission check, and row-level
+   * security re-checks the membership on every statement regardless.
+   */
+  role: WorkspaceRole;
+  /**
+   * The workspace's enabled modules (spec §171), resolved on the server by the
+   * `(app)` layout. Navigation renders only these — but hiding a link is not
+   * the gate: each module route re-checks with `requireModule()` (§172).
+   */
+  enabledModules: readonly ModuleKey[];
   children: ReactNode;
 }) {
   return (
     <div className="app-ambient min-h-dvh">
-      <DesktopSidebar />
+      <DesktopSidebar enabledModules={enabledModules} />
 
       <div className="transition-[padding] duration-200 ease-out lg:ps-[var(--sidebar-w)]">
-        <TopBar user={user} />
+        <TopBar
+          user={user}
+          workspaceName={workspaceName}
+          role={role}
+          enabledModules={enabledModules}
+        />
 
         {/* Bottom padding clears the fixed mobile bar and its safe-area inset;
             removed once the bar is hidden at `md`. */}
@@ -45,7 +73,7 @@ export function AppShell({
         </main>
       </div>
 
-      <MobileNav />
+      <MobileNav enabledModules={enabledModules} />
     </div>
   );
 }

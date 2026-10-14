@@ -1,0 +1,37 @@
+-- Local development seed data.
+--
+-- Run automatically by `npm run db:reset` ([db.seed] in supabase/config.toml).
+-- It never runs against a hosted project.
+--
+-- ---------------------------------------------------------------------------
+-- RULES FOR ANYTHING ADDED TO THIS FILE
+-- ---------------------------------------------------------------------------
+--
+-- This file is committed, so treat it as public.
+--
+--   * Synthetic data only. No real person, business or record.
+--   * No client or A&S Fincare data, ever.
+--   * No real email addresses or phone numbers. Use reserved, non-routable
+--     values: `@example.com` / `@example.org` (RFC 2606) and `+15550100`-style
+--     numbers (RFC 3849 / NANP 555 range).
+--   * No passwords, access tokens, API keys, JWTs or connection strings.
+--   * No production UUIDs copied from any environment. Generate new ones.
+--   * Deterministic and idempotent: `db:reset` must produce the same state
+--     every time, on every developer's machine.
+--
+-- If seed data ever needs a value that feels sensitive, that is the signal to
+-- leave it out rather than to obfuscate it.
+--
+-- ---------------------------------------------------------------------------
+-- CURRENT CONTENT: none
+-- ---------------------------------------------------------------------------
+--
+-- Milestone 1C-A establishes local tooling only. No application table exists
+-- yet, so there is nothing to seed and nothing is inserted below.
+--
+-- Workspaces and memberships arrive in 1C-B; seed rows for them belong in the
+-- same change that creates their tables, not here in advance.
+
+-- Intentionally empty. A no-op statement keeps the file valid SQL for the
+-- seeding step without creating, altering or inserting anything.
+SELECT 1 WHERE FALSE;

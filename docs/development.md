@@ -1,0 +1,848 @@
+# Development
+
+How to run Limenzy CRM's database and authentication stack on your own machine,
+with no company Supabase credentials and no hosted project.
+
+Everything here is local. Nothing in this guide connects to a hosted
+environment, and no command in `package.json` can target one.
+
+This is the permanent developer runbook: how to run the system, and what each
+part of the tenancy foundation does and returns. It is not the authority for
+_why_ anything is designed as it is — that is
+[architecture-decisions.md](./architecture-decisions.md), and where the two ever
+disagree, the decisions document and the migrations win.
+
+---
+
+## Prerequisites
+
+| Requirement    | Version                   | Notes                                               |
+| -------------- | ------------------------- | --------------------------------------------------- |
+| Node           | ≥ 20.19.0 (`engines`)     | Verified on 20.20.2                                 |
+| npm            | 10.x                      | Verified on 10.8.2. npm only — no yarn, pnpm or bun |
+| Docker Desktop | Running before `db:start` | The Supabase stack is twelve containers             |
+| Disk           | ~3 GB free                | First start downloads the official Supabase images  |
+
+The Supabase CLI and Drizzle Kit are **repository dependencies**, pinned to
+exact versions in `package.json`. Do not install a global Supabase CLI — the
+npm scripts resolve `supabase` from `node_modules/.bin`, so everyone runs the
+same version.
+
+```bash
+npm install
+```
+
+---
+
+## Daily commands
+
+| Command                 | What it does                                                              |
+| ----------------------- | ------------------------------------------------------------------------- |
+| `npm run db:start`      | Starts the local Supabase stack                                           |
+| `npm run db:status`     | Shows service status and local URLs and keys                              |
+| `npm run db:stop`       | Stops the stack, preserving local data                                    |
+| `npm run db:reset`      | **Destroys local data**, replays migrations, re-runs the seed             |
+| `npm run db:migrate`    | Applies pending migrations to the local database                          |
+| `npm run db:role:local` | Enables the `limenzy_app` runtime login locally and writes `DATABASE_URL` |
+| `npm run test:db`       | Runs the live schema tests; fails if the database is unavailable          |
+
+Local endpoints:
+
+| Service         | URL                      |
+| --------------- | ------------------------ |
+| API gateway     | `http://127.0.0.1:54321` |
+| PostgreSQL      | `127.0.0.1:54322`        |
+| Studio          | `http://127.0.0.1:54323` |
+| Email (Mailpit) | `http://127.0.0.1:54324` |
+| Analytics       | `http://127.0.0.1:54327` |
+
+Local sign-up requires email confirmation, matching the production flow. The
+confirmation email is not delivered anywhere real — open **Mailpit** at
+`http://127.0.0.1:54324` and click the link there.
+
+### `db:reset` is destructive
+
+It drops and recreates the **local** database: every local user, every row, all
+of it. It only ever affects the container on your machine — `--local` is
+explicit in the script, and this repository is not linked to a hosted project.
+There is nothing to recover afterwards, so do not reach for it to fix a
+migration you have not yet written down.
+
+---
+
+## Environment files
+
+`npm run db:start` prints the local URL and keys. Copy them into `.env.local`,
+which is git-ignored:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=              # the printed API URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=  # the printed sb_publishable_... key
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+DRIZZLE_TOOLING_DATABASE_URL=          # the printed DB URL — tooling only
+```
+
+Rules that the code enforces, not just convention:
+
+- Only the **publishable** key (`sb_publishable_…`) may live in a
+  `NEXT_PUBLIC_` variable. `src/lib/env.ts` rejects an `sb_secret_` value there
+  and fails the build rather than inlining it into the browser bundle.
+- The **legacy `anon` / `service_role` JWTs are not supported** under any
+  variable name, and are rejected too. The local stack still prints them for
+  backwards compatibility; ignore them.
+- `DRIZZLE_TOOLING_DATABASE_URL` is for local Drizzle Kit commands only. It is
+  **not** the application's runtime connection, and pointing application code
+  at it would be a mistake. Real runtime/migration role separation arrives in
+  Milestone 1C-C and does not exist yet.
+- Never commit `.env.local`. Never paste a real key into `.env.example`, this
+  guide, a commit message or a test.
+
+---
+
+### Identity resolution
+
+`resolveVerifiedIdentity()` (`src/server/db/identity.ts`) answers the question
+that has to be settled _before_ a tenant context can exist: **who is signed in,
+and which workspaces are they an active member of?**
+
+```ts
+const identity = await resolveVerifiedIdentity();
+// { kind: "unauthenticated" }
+// { kind: "onboarding_required", authUserId }
+// { kind: "resolved", authUserId, userProfileId, memberships: [{ workspaceId, role }] }
+```
+
+**It takes no arguments, and that is the security property.** The user comes
+from `getAuthenticatedUser()`, which reads the signature-verified access token
+via `getClaims()`. There is no parameter, no options object and no overload, so
+no caller — and therefore no browser — can ask it to resolve somebody else. A
+`sub` that is not a canonical lower-case UUID, or an address that has not been
+verified, resolves to `unauthenticated` rather than being repaired.
+
+Inside one transaction on the runtime pool it sets `app.auth_user_id` only,
+reads the caller's `user_profiles` row **through row-level security** (the query
+carries no `WHERE` clause — the policy is what narrows it), sets
+`app.user_profile_id` from the ID the database returned, and then reads active
+memberships. Roles and workspace IDs are reported exactly as stored.
+
+What it deliberately does not do:
+
+- **It does not select a workspace.** It never sets `app.workspace_id`, so for
+  the whole of that transaction the workspace policy matches nothing and **no
+  business data is readable** — the only tables it touches are `user_profiles`
+  and `workspace_memberships`. Validating a selection and minting a
+  `TenantContext` is **Phase 4B**.
+- **It does not create anything.** It performs no `INSERT`, `UPDATE` or
+  `DELETE`; a verified user with no profile returns `onboarding_required` and
+  nothing is written. Creating the first workspace and profile is **Phase 4C**,
+  which needs privileges this resolver does not have.
+- It returns a plain, frozen result. Several memberships come back as a list in
+  a stable order, with no "current" or "default" among them; choosing is not
+  this function's job.
+
+### Workspace selection
+
+`resolveWorkspaceContext()` (`src/server/auth/workspace-context.ts`) is the
+other half of the bridge. It calls Phase 4A, validates an **optional** workspace
+against the memberships that came back, and only then mints the `TenantContext`
+that `withTenant()` requires.
+
+```ts
+const resolution = await resolveWorkspaceContext(candidate);
+// { kind: "unauthenticated" }
+// { kind: "onboarding_required" }
+// { kind: "access_unavailable" }
+// { kind: "workspace_selection_required", choices: [{ workspaceId, role }] }
+// { kind: "forbidden" }
+// { kind: "ok", context, role }
+```
+
+**The candidate is a preference, never authorization.** It is typed `unknown`
+because one day it will arrive from a cookie, a URL or a form, and holding a
+workspace UUID must grant nothing. Every candidate is matched against
+memberships that were read under row-level security as the signed-in user:
+
+| Membership state     | Candidate                              | Result                         |
+| -------------------- | -------------------------------------- | ------------------------------ |
+| no verified identity | any                                    | `unauthenticated`              |
+| verified, no profile | any                                    | `onboarding_required`          |
+| profile, zero active | any                                    | `access_unavailable`           |
+| exactly one active   | absent                                 | selected automatically         |
+| exactly one active   | matching                               | selected                       |
+| exactly one active   | malformed / stale / foreign / inactive | `forbidden`                    |
+| several active       | absent                                 | `workspace_selection_required` |
+| several active       | matching                               | selected                       |
+| several active       | malformed / stale / foreign / inactive | `forbidden`                    |
+
+Only `undefined` means "no candidate supplied". `null`, `""`, whitespace, an
+upper-case or padded UUID, a number or an object is a _supplied but invalid_
+candidate and is refused — never repaired, and never quietly replaced by the one
+workspace the caller does have. All four refusal reasons return the same frozen
+`forbidden` value, down to object identity, so nothing reveals whether the
+workspace exists.
+
+**`onboarding_required` and `access_unavailable` are different problems.** The
+first is a verified user with no profile row — Phase 4C creates the first
+profile and workspace. The second is a profile whose memberships are all
+inactive, which is what being removed from every workspace looks like (§159,
+§160); sending that person to create a workspace would answer a question they
+did not ask.
+
+The role in a successful result comes from the matched membership row and is a
+request-scoped snapshot for rendering decisions. It is never cached, and it is
+never what protects a row: the policies re-check the membership on every
+statement, so deactivating a membership or demoting a role takes effect
+immediately even for a context that was minted a moment earlier. Both are
+proven live in `src/server/auth/workspace-context.db.test.ts`.
+
+**No cookies, redirects or UI exist yet.** This layer reads no request and
+performs no navigation — it returns a value and stops. Persisting a choice,
+redirecting on `workspace_selection_required`, and building a workspace
+picker or switcher are later concerns, and the picker deliberately gets no
+workspace _names_ here: reading a name requires a selected workspace, which is
+the very thing that has not happened yet, and the policy is not being weakened
+to work around that.
+
+### Creating the first workspace
+
+A brand-new verified user has no profile, so Phase 4A returns
+`onboarding_required` and Phase 4B never gets as far as a workspace. Something
+has to make the first `user_profiles`, `workspaces` and `workspace_memberships`
+rows — and `limenzy_app` deliberately holds **no INSERT privilege on any of
+them**, which is exactly the property worth keeping.
+
+The obvious fix would be to grant the runtime role INSERT and add INSERT
+policies for it. That is rejected: an INSERT grant is permanent and applies to
+every request the application will ever make, in exchange for a path used once
+per account. Instead there is one narrow routine:
+
+```sql
+app.create_initial_workspace(
+  p_full_name, p_workspace_name, p_business_type,
+  p_country, p_currency, p_time_zone
+) returns text   -- 'created' | 'already_onboarded' | 'access_unavailable'
+```
+
+**Runtime privilege versus bootstrap privilege.**
+
+|                         | `limenzy_app` (every request)               | `limenzy_bootstrap` (inside the routine only)                                                       |
+| ----------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Login                   | yes, via `DATABASE_URL`                     | **NOLOGIN** — nothing can connect as it                                                             |
+| `user_profiles`         | SELECT                                      | SELECT + INSERT of `id`, `auth_user_id`, `full_name`                                                |
+| `workspaces`            | SELECT + column UPDATE                      | INSERT of the six business columns — **no SELECT**                                                  |
+| `workspace_memberships` | SELECT                                      | SELECT + INSERT of `id`, `workspace_id`, `user_profile_id`, `role`, `status`                        |
+| UPDATE / DELETE         | column UPDATE on `workspaces` only          | **none at all**                                                                                     |
+| Schema `app`            | USAGE                                       | USAGE — `CREATE` is granted only long enough to own the routine, then revoked in the same migration |
+| Can become the other    | **no** — not a member, `SET ROLE` is denied | n/a                                                                                                 |
+
+`limenzy_app` gains exactly one thing from this phase: EXECUTE on that one
+function. It still cannot INSERT into any of the three tables, and a live test
+over a genuine runtime connection proves it.
+
+**Trusted identity.** The routine takes no Auth UUID, profile id, workspace id,
+membership id, role or status. It reads `app.current_auth_user_id()`, which is
+the transaction-local `app.auth_user_id` that trusted server code set after
+`getClaims()` verified the token.
+
+> **What the database does not do.** PostgreSQL does not verify the Supabase
+> JWT and cannot know whether `app.auth_user_id` reflects a real signature
+> check — the server is responsible for that. What the database enforces is
+> _consistency_ with the asserted identity: the five `limenzy_bootstrap`
+> policies re-derive every decision from `app.current_auth_user_id()` and
+> stored rows, so a fault in the application layer cannot create or attach a
+> tenancy for a different user. The foreign key from `user_profiles.auth_user_id`
+> to `auth.users` is the backstop proving the asserted UUID belongs to a real
+> account.
+
+**Atomicity and the advisory lock.** All three rows are inserted in the
+caller's transaction, so any failure removes all of them — proven live by
+letting the IANA time-zone trigger reject a workspace _after_ the profile has
+been inserted. Before reading the profile, the routine takes
+`pg_advisory_xact_lock(hashtextextended('limenzy.bootstrap:' || auth_uuid, 0))`,
+which is transaction-scoped and released by COMMIT or ROLLBACK alike. A 64-bit
+hash of a UUID could in principle collide; the consequence is that two
+unrelated users serialise briefly, never that one gains the other's access,
+because the lock key appears in no predicate. The correctness backstop is the
+UNIQUE constraint on `user_profiles.auth_user_id`.
+
+**Why retries are safe.** The three outcomes are decided _after_ the lock:
+
+- **`created`** — there was no profile, and now there is a profile, a workspace
+  and one active Owner/Admin membership.
+- **`already_onboarded`** — a profile exists with at least one active
+  membership. Nothing is created and **no identifier is returned**; the caller
+  should resolve its context again through Phase 4A/4B, which is the only path
+  permitted to hand out a workspace.
+- **`access_unavailable`** — a profile exists with no active membership: no
+  memberships at all, inactive-only, or any other partial state. This
+  **fails closed**. It is most likely someone deactivated everywhere (§159,
+  §160), and giving them a brand-new workspace would be a silent privilege
+  grant; an inconsistent state is for an administrator to repair, not for this
+  routine to guess at. An existing profile is never attached to a new workspace.
+
+A duplicate submission therefore creates nothing, and two genuinely concurrent
+first submissions produce exactly one `created` and one `already_onboarded`.
+
+**No service-role key is used, anywhere.** The Supabase service role holds
+BYPASSRLS and blanket table privileges; putting that credential in the runtime
+would defeat every layer above. The bootstrap path needs no new credential at
+all — it reuses the same `DATABASE_URL` connection and gains one EXECUTE grant.
+
+### Calling it: the server-only operation
+
+`createInitialWorkspace()` (`src/server/auth/create-initial-workspace.ts`) is
+the **only** TypeScript caller of that routine, and the only thing in the
+application that can create a tenancy.
+
+```ts
+const result = await createInitialWorkspace(submission);
+// { kind: "unauthenticated" }
+// { kind: "invalid_input", issues: [{ field, message }] }
+// { kind: "created" } | { kind: "already_onboarded" } | { kind: "access_unavailable" }
+```
+
+It takes exactly one argument — the untrusted submission, typed `unknown`
+because it will arrive from a form. Identity is **not** a parameter: it comes
+from `getAuthenticatedUser()` and therefore from the signature-verified access
+token. A submission carrying `authUserId`, `workspaceId`, `role` or `status` is
+**rejected**, not ignored, because whoever sent it believed those fields would
+be honoured.
+
+The order matters: the submission is validated, then identity is checked, and
+only then is a connection opened. An invalid submission, an unauthenticated
+caller, an unverified email address or a non-canonical `sub` all return before
+any connection exists.
+
+Inside one transaction it issues exactly two statements — `set_config` for
+`app.auth_user_id` (transaction-local) and the routine call — and nothing else.
+It sets neither `app.user_profile_id` nor `app.workspace_id`.
+
+**It mints no `TenantContext`.** A successful result is the single word
+`created`: no profile id, no workspace id, no role. The next request resolves
+its context through **Phase 4A then Phase 4B**, exactly as any other request
+does — that is the only path that re-reads the membership under row-level
+security, and the only one permitted to issue a context. A live test performs
+that re-resolution end to end and then reads the new workspace through
+`withTenant()`.
+
+**Validation and normalization** live in `src/lib/validation/workspace-setup.ts`,
+shared so the Phase 4C-3 form can use the same rules for inline feedback:
+
+| Field           | Rule                                                                                                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fullName`      | the existing signup `fullNameSchema` (trimmed, 2–120), plus no control characters. Display data only — never identity                             |
+| `workspaceName` | trimmed, 2–160, no control characters, **not** unique, no slug                                                                                    |
+| `businessType`  | optional free text, trimmed, ≤120; absent, empty or whitespace-only becomes `null`; **not** restricted to the eight §7 suggestions                |
+| `country`       | **ISO 3166-1 alpha-2**, trimmed and upper-cased; checked against an immutable 249-code list; `ZZ` is refused                                      |
+| `currency`      | **ISO 4217**, trimmed and upper-cased; checked against an immutable 162-code list; `ZZZ` is refused                                               |
+| `timeZone`      | exact, case-sensitive membership of a 554-entry list generated from PostgreSQL's own `pg_timezone_names`; `+05:30` and `Mars/Olympus` are refused |
+
+All three lists are literals in the module, and that is deliberate: this file
+is shared with the Phase 4C-3 form, so it must initialise in a browser.
+`Intl.supportedValuesOf` reached Safari only in 15.4 - calling it as the module
+loads would throw on an older iPhone and the setup form would not render at
+all. A literal also makes validation identical everywhere rather than varying
+with the visitor's browser or the bundled ICU data, and changes to any list are
+reviewed deliberately instead of inherited silently from a runtime upgrade.
+
+The time-zone list needs one more word of explanation, because two obvious
+implementations are actively wrong.
+`Intl.supportedValuesOf("timeZone")` omits `UTC`, every `Etc/*` zone and
+every modern rename on this runtime — including `Asia/Kolkata`, the identifier
+§158 uses as its own example — so it would reject the canonical answer.
+`Intl.DateTimeFormat` accepts a zone but is **case-insensitive**, so
+`asia/kolkata` would pass validation and then fail against the trigger, which
+compares `pg_timezone_names.name` exactly; that turns a fixable form mistake
+into an internal error. Hence the explicit list, with a live test asserting
+every entry still exists in `pg_timezone_names` so the two cannot drift.
+
+No new dependency was added for any of this.
+
+**Errors carry nothing.** A failure throws `BootstrapError` with a reason of
+`database_unavailable` or `unexpected`. The driver's error is _replaced, never
+wrapped_: its message can contain the connection string and its `cause` can
+carry the failing SQL, so no `cause` is attached and the driver message is never
+shown. Validation issues name a field and a safe message and **never echo the
+submitted value**.
+
+### The `/setup` screen
+
+`/setup` is now the real onboarding screen (spec §7, Screen 1). Five files,
+all inside the route:
+
+| File                   | Role                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page.tsx`             | Server Component behind the auth gate. Passes **only** the metadata display name and the country labels to the client                                                                        |
+| `setup-form.tsx`       | Client Component: the six fields, defaulting, inline feedback and the terminal states                                                                                                        |
+| `actions.ts`           | The Server Action — reads six named values from `FormData` and calls `createInitialWorkspace`. It exports **nothing else**: a `"use server"` file may export only async functions            |
+| `setup-state.ts`       | The action's state type and frozen initial value. They live here precisely because they cannot be exported from a `"use server"` module, and both the action and the client form import them |
+| `workspace-options.ts` | Picker data derived from the validation lists, plus the country→currency suggestion map                                                                                                      |
+
+**Nothing identity-shaped crosses to the browser.** The page passes a display
+name and country labels; no Auth UUID, email, claim, profile ID, membership ID
+or role.
+
+Two separate controls, at two different points — worth keeping apart, because
+only the first one acts on this path:
+
+- **The action extracts an allowlist.** `actions.ts` reads exactly six named
+  values out of the `FormData` and builds a fresh object from them. A submitted
+  `authUserId`, `workspaceId`, `role`, `status` or `claims` is simply never
+  copied across, so it does not reach the parser at all — it is dropped, not
+  rejected.
+- **The parser validates the constructed payload.** `parseWorkspaceSetup()`
+  uses a `z.strictObject`, so a payload carrying an unexpected key is refused
+  rather than ignored. That protects any caller which hands the operation an
+  object directly; it is not what stops an extra form field, because the action
+  has already left it behind.
+
+**Defaults are timid and never overwrite a person.** The browser's time zone is
+adopted only if it is already in the approved list; the locale's region only if
+it is an approved country code. Changing the country suggests that country's
+currency _only while the currency is untouched_ — and where a country has no
+obvious currency the suggestion is cleared rather than left attributed to the
+previous country. A currency or time zone the person selected is never changed
+by anything.
+
+**The picker is narrower than the validator, deliberately.** `CUC`, `HRK` and
+`SLL` are withheld from the currency list — Croatia adopted the euro, Sierra
+Leone redenominated, CUC was withdrawn — while the Phase 4C-2 validator still
+accepts them, because refusing a code a business may still be quoting is worse
+than storing it. The validator was not changed for this.
+
+**Outcomes.** `invalid_input` becomes inline field messages plus an announced
+summary that takes focus. `access_unavailable` is terminal: the form is
+replaced by a status panel and cannot be submitted again (the database routine
+remains the authoritative guard). `unauthenticated` offers a plain sign-in link
+with no caller-controlled return URL. A `BootstrapError` becomes a retryable
+message and **never** carries the reason internals, the driver message, its
+cause, SQL or a connection string.
+
+**Updated by Phase 4D.** Two things in this section changed when routing
+landed, and the text above has been corrected rather than left to rot:
+
+- The route moved from `src/app/(app)/setup/` to **`src/app/(account)/setup/`**,
+  because the `(app)` group now requires a resolved workspace and would bounce
+  this page in a loop. The page's own `requireUser()` call is unchanged.
+- `created` and `already_onboarded` are **no longer terminal states rendered in
+  the form**. The action now redirects to `/` so a **fresh request**
+  re-resolves identity and membership, which is the only path permitted to mint
+  a context. The bootstrap result still carries no profile id, workspace id or
+  role, so nothing travels with the redirect. The page also routes away anyone
+  who already has a workspace, which settles the email-confirmation link whose
+  `next` defaults to `/setup`.
+
+Still true: no `TenantContext` is minted anywhere in this route, and the form
+decides nothing about tenancy.
+
+The contract those phases inherit: country is ISO 3166-1 alpha-2, currency is
+ISO 4217, Business Type stays optional free text with UI suggestions rather than
+a closed enum (§7 calls its eight values "examples" and forbids locking the CRM
+into an industry), and the setup form carries an editable "Your name" field
+prefilled from signup metadata when available. The database validates only what
+a database should, and no more:
+
+- surrounding **spaces** are trimmed from all six fields before storage;
+- a blank required value is refused — name, workspace name, country, currency
+  and time zone are all required, and Business Type is the one optional field;
+- a **control character anywhere in any field is refused, not repaired**. Note
+  the boundary this creates: `btrim(text)` removes spaces only, so a tab- or
+  newline-padded value survives trimming and is then refused. That is
+  deliberate — whitespace that is not a space almost always means the value
+  came from somewhere it should not have;
+- a null or whitespace-only Business Type is stored as `NULL`, never as an
+  empty string, and a real one is stored exactly as given;
+- the time zone is left to the existing IANA trigger, and everything else to
+  the 1C-B check constraints.
+
+Nothing else was added: no workspace-name uniqueness, no slug, no closed
+Business Type enum, no profile or workspace status column, and no country or
+currency lookup table. Each of those would pre-empt a product decision the
+specification has not made, and a live test asserts their absence.
+
+Nested `withTenant()` calls with the same context reuse the outer transaction
+(no second `BEGIN`, no second `set_config`). A nested call with a _different_
+context throws `TenantContextConflict` before any statement runs.
+
+To run the gateway's live proof:
+
+```bash
+npm run db:start && npm run db:reset && npm run db:role:local
+npm run test:db
+```
+
+**What this does not prove.** The local stack runs a direct PostgreSQL
+connection, not Supabase's hosted transaction pooler (`db.pooler` is disabled in
+`supabase/config.toml`). The driver is configured with `prepare: false` in
+anticipation of it, but hosted pooler compatibility — §6.1 gate check 9 —
+remains unverified until company Supabase access.
+
+### Transport security: `DATABASE_CA_CERT`
+
+Locally you need nothing. The generated `DATABASE_URL` points at `127.0.0.1`,
+and an explicit loopback host is the only case the application lets connect
+without TLS. Three literals qualify and nothing else:
+
+| Host                                                                       | Connects without TLS? |
+| -------------------------------------------------------------------------- | --------------------- |
+| `localhost`, `127.0.0.1`, `::1` (written `[::1]` in a URL)                 | yes                   |
+| `127.0.0.2`, `0.0.0.0`, `::`, `10.x`, `192.168.x`, `localhost.example.com` | **no**                |
+
+There is no `NODE_ENV` check and no "is this local" flag — the host in the URL
+is the only input, because a flag can be set by accident and a hostname suffix
+can be registered by somebody else.
+
+For any other host, `DATABASE_CA_CERT` is **required** and holds the PEM text
+of the certificate authority that signs the database server's certificate:
+
+- **server-only** — never give it a `NEXT_PUBLIC_` prefix;
+- a **public certificate**, not a password and not a private key. A
+  `-----BEGIN PRIVATE KEY-----` block in this variable is refused;
+- parsed with `node:crypto`'s `X509Certificate`, not matched as a substring, so
+  truncated or non-certificate base64 is rejected rather than quietly accepted;
+- never repaired. A malformed value is an error, not something to re-flow.
+
+Set it in your deployment platform's environment settings — not in
+`.env.local`, not in the repository. For Supabase it comes from Dashboard →
+Project Settings → Database → SSL Configuration → Download certificate; paste
+the file's whole contents including the BEGIN/END lines. Multiline values are
+accepted directly by most platforms; what matters is that the line breaks
+survive.
+
+**Why an explicit certificate rather than `sslmode` in the URL.** postgres.js
+does not read `sslmode` the way libpq does. From the installed 3.4.9 source,
+`sslmode=require|allow|prefer` sets `rejectUnauthorized: false` — encrypted but
+unverified — and `sslmode=verify-full` as a string falls through to Node's
+built-in CA store, which does not contain Supabase's private root. Only an
+`ssl` **object** carrying the CA verifies the chain. The application therefore
+builds that object itself, and refuses a URL that carries `sslmode`,
+`sslrootcert`, `host`, `port`, `user`, `options` or any other parameter that
+would steer TLS or the connection target, rather than ignoring it.
+
+If a valid CA is configured while pointing at a loopback host, verified TLS is
+used there too — configuring one is taken at face value.
+
+### What is proven locally
+
+**203 tests** run on every `npm run test:db` and none may skip. Of those,
+**198 are database-backed**; the remaining 5 are the fixture-cleanup runner
+cases in `src/server/db/schema.test.ts`, which drive that logic with test
+doubles and need no connection — they are counted here only because they live
+in a gated file. (This figure is the one reported for commit `90db9e4`; it
+grows as suites are added, and the runner lists the nine files it covers.)
+
+The database-backed tests cover absent, empty and malformed context; identity
+resolution end to end through `resolveVerifiedIdentity()` — including that it
+leaves no context behind on a reused pooled connection after either commit or
+rollback, that concurrent users cannot see each other, and that it never
+acquires a transaction ID and so writes nothing; cross-tenant attempts;
+inactive membership; role-gated updates; column-level refusals; the browser
+roles; the owner under FORCE; the bootstrap routine, including that its
+privileges are exactly the allow-list above, that `limenzy_app` still cannot
+INSERT or `SET ROLE limenzy_bootstrap`, and that a failure part-way through
+leaves no profile behind; the Phase 4A → Phase 4B → `withTenant()` chain,
+including that deactivating a membership or changing a role after a context has
+been minted is enforced by the database anyway; and a catalogue-based proof that
+the policy dependency graph
+(`workspaces → workspace_memberships → user_profiles → context readers`) is
+acyclic and references nothing outside those three tables.
+
+### The request path (Phase 4D — implemented)
+
+The three bullets that used to sit here — “no route calls any of this”,
+“nothing persists or offers a choice”, “nothing calls the bootstrap routine” —
+are all out of date. The request path exists:
+
+- **`requireWorkspaceContext()`** (`src/server/auth/require-workspace.ts`) is
+  called by the `(app)` layout **and by every page beneath it**, because a
+  layout is not re-executed on client-side navigation between sibling routes.
+  It re-resolves identity and active membership on every request and caches
+  nothing.
+- **Account routes** live in `src/app/(account)/` — setup, `/select-workspace`,
+  `/no-access`. They need authentication and deliberately no workspace.
+- **The choice is remembered** in a `limenzy_ws` cookie (`HttpOnly`,
+  `SameSite=Lax`, `Path=/`, no `Domain`, 30 days, `Secure` derived from server
+  configuration only). It is a hint: every request re-validates it against
+  active memberships under RLS, so a stale or forged value is simply refused.
+- **Recovery** goes through `GET /workspace/reset`, which expires the cookie
+  and returns a **root-relative** `Location` so your browser keeps the origin
+  you typed — `127.0.0.1` stays `127.0.0.1`, which matters locally because the
+  Supabase session cookie is host-scoped.
+- **Chooser names** are read one workspace at a time through `withTenant()`,
+  never with the tooling connection.
+
+What is still **not** done: a second workspace for an existing member,
+invitations, and every CRM business module — the pages under `(app)` remain
+placeholders that say so.
+
+### Fixture cleanup in the database suites
+
+Every suite removes its fixtures in an `afterAll`, in foreign-key-safe order.
+How strictly it does so differs, and the difference is worth knowing before you
+read anything into a local row count:
+
+| Suite                                          | Cleanup                                                                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `schema.test.ts`, `workspace-names.db.test.ts` | Records inserted ids, deletes them, **reads back** to confirm, **fails** the run if anything survives or a delete errors |
+| the other seven database suites                | Best-effort: each `catch` is swallowed and nothing is read back, so a failed cleanup is silent                           |
+
+Memberships are removed through the **parent ids the suite tracked** — its own
+workspace ids and profile ids — rather than by tracking each membership row's
+primary key.
+
+This prevents **new** leakage from the two verifying suites only. Synthetic
+rows left behind by runs from before that work were deliberately **not**
+removed, so your local counts will still include that historical residue. Do
+not treat a non-zero row count on a long-lived local database as a bug on its
+own.
+
+### Hosted status
+
+The §6.1 proof gate has since been run against the hosted development project
+and passed in full, including the transaction pooler with the Drizzle driver
+and genuinely separate hosted credentials. The evidence is recorded in
+[architecture-decisions.md](./architecture-decisions.md) §6.1 and
+[build-plan.md](./build-plan.md); it is not repeated here.
+
+Nothing in this guide is evidence about a hosted environment. Everything below
+is what the local stack can establish on its own.
+
+## Migration source of truth
+
+**`supabase/migrations/` is the single authoritative applied migration
+history.** One history, applied by one tool.
+
+- The Supabase CLI applies and resets the database from that directory.
+- `src/server/db/schema/` holds the typed Drizzle schema definitions.
+- `drizzle-kit generate` may produce **candidate** SQL into `./drizzle`, which
+  is git-ignored scratch output for review only.
+- Reviewed SQL is then committed into `supabase/migrations/`. Candidate output
+  is never applied and never committed.
+
+Two things must never happen, because both create a second, divergent history:
+
+- **Never** run `drizzle-kit migrate` against a database the Supabase CLI also
+  migrates.
+- **Never** use `drizzle-kit push` as a migration mechanism. It mutates a
+  database without leaving a reviewable, replayable file. There is deliberately
+  no npm script for it.
+
+The CLI prints `Skipping migration .gitkeep…` on start and reset — the
+placeholder that keeps the directory tracked. That message is expected and
+harmless.
+
+### Verifying the schema against a real database
+
+`src/server/db/schema.test.ts` checks the schema against the **real** local
+database: it creates rows, violates constraints on purpose, and switches to the
+`anon` and `authenticated` roles to confirm access is denied. It reads the
+connection string from `DRIZZLE_TOOLING_DATABASE_URL` in `.env.local`.
+
+Run the full verification with:
+
+```bash
+npm run db:start
+npm run db:reset
+npm run db:role:local
+npm run test:db
+npm run db:stop
+```
+
+### Why `db:role:local` is a separate step
+
+The application connects as **`limenzy_app`** — a non-owner role with
+`NOBYPASSRLS`, so row-level security applies to it in full. The migration
+creates that role as `NOLOGIN` and gives it no password, because a password must
+never live in a migration or in Git.
+
+`npm run db:role:local` generates a local-only password, enables the login and
+writes `DATABASE_URL` into `.env.local`. It prints nothing identifying, and the
+file is rewritten atomically with mode `0600`, preserving every other entry.
+
+**`npm run db:reset` returns the role to `NOLOGIN`** — verified, not assumed —
+so provisioning must follow every reset. It is a separate step rather than being
+chained into `db:reset` for two reasons: a reset should not silently rotate a
+credential, and nesting npm scripts inside one another invites recursion. If you
+forget it, `npm run test:db` fails immediately with a message naming the command
+to run; nothing skips.
+
+Re-running is always safe. If the database password is changed but the file
+write then fails, the two disagree and the application cannot connect — the
+recovery is simply to run `npm run db:role:local` again, which generates a fresh
+password and rewrites the file. No manual database repair is ever needed.
+
+The tooling connection (`DRIZZLE_TOOLING_DATABASE_URL`) is a superuser that
+**bypasses RLS**. It is for `drizzle-kit` and test fixtures only, and runtime
+code never falls back to it: `src/lib/env.ts` rejects a `DATABASE_URL` that
+names a superuser or owner account.
+
+**`npm test` does not replace `npm run test:db`.** With the stack stopped the
+schema tests **skip themselves** and print a note, so the ordinary suite stays
+green on a machine that has never started the database — which also means a
+green `npm test` is no evidence that the schema was checked at all.
+
+`npm run test:db` removes that tolerance. It runs only the schema suite, and
+fails with a clear message and a non-zero exit when:
+
+- `DRIZZLE_TOOLING_DATABASE_URL` is unavailable;
+- PostgreSQL cannot be reached;
+- the schema tests would otherwise have skipped;
+- zero database tests executed, or any test was skipped or failed.
+
+It never prints the connection string. Use it before committing a schema
+change, and treat it — not `npm test` — as the schema's verification gate.
+
+---
+
+## Seed data
+
+`supabase/seed.sql` runs automatically at the end of `db:reset`. It is
+committed, so treat it as public:
+
+- synthetic data only — no real person, business, client or A&S Fincare record;
+- no real email addresses or phone numbers (use `@example.com` and `555`-range
+  numbers);
+- no passwords, tokens, API keys or connection strings;
+- no production UUIDs;
+- deterministic, so `db:reset` produces the same state for everyone.
+
+It is currently empty of data: no application table exists yet to seed.
+
+---
+
+## Troubleshooting
+
+**`Cannot connect to the Docker daemon`** — Docker Desktop is not running.
+Start it, wait for the whale icon to settle, then retry.
+
+**A port is already in use (54321–54324, 54327)** — another Supabase project is
+probably running. Find it and stop it from _its own_ directory:
+
+```bash
+docker ps --filter "label=com.supabase.cli.project"   # see which project owns it
+cd /path/to/that/project && npx supabase stop
+```
+
+`supabase stop` only affects the project directory you run it from, so running
+it here will not stop a different project's stack.
+
+**First start is slow** — it downloads several hundred MB of images. Later
+starts take seconds.
+
+**No confirmation email arrives** — it never leaves your machine. Open Mailpit
+at `http://127.0.0.1:54324`. Local auth is also rate-limited to 2 emails per
+hour by default (`[auth.rate_limit] email_sent` in `supabase/config.toml`); if
+you are testing repeatedly, `npm run db:reset` clears the local users.
+
+**Studio returns 307** — that is a redirect, not an error. Open it in a browser.
+
+---
+
+## Local verification vs hosted verification
+
+Passing locally proves the **code** works. It does not prove the deployment.
+
+The local stack is a CLI-managed container set with its own generated keys and
+a single superuser role. It is not the company's Supabase project, and it does
+not exercise that project's pooler, roles, credentials, network configuration
+or backups.
+
+**The RLS proof gate has been run hosted.** On 2026-10-14, run `fab69fd8`
+against the development project `limenzy-crm-dev` passed all ten §6.1 checks
+(46 passed, 0 failed, exit 0), including check 9 — the transaction pooler with
+the Drizzle driver, through the real `withTenantDb()` gateway — and check 10,
+migration and runtime credentials genuinely separate. Evidence is in
+[architecture-decisions.md §6.1](./architecture-decisions.md).
+
+That run used a harness outside this repository which set `DATABASE_URL` and
+`DATABASE_CA_CERT` **in its own process only**. **`.env.local` was not
+switched**, and no hosted credential was exported to a parent shell or written
+to disk. Keep it that way: pointing your `.env.local` at a hosted project is not
+how hosted checks are run here.
+
+Still requiring company Supabase access:
+
+- the integration-verification gate once real credentials are supplied;
+- backup and restore validation;
+- anything depending on a CTO decision in specification §180.1, including the
+  object-storage provider and the WhatsApp and Email providers.
+
+Still unverified anywhere, and **not** a §6.1 check: HTTPS `Secure` cookie
+behaviour in a browser. The flag's derivation is unit-tested and is correctly
+`false` over local HTTP; confirming a browser receives it as `Secure` needs a
+deployed HTTPS origin. The CRM business modules also remain placeholder
+screens — the gate is a database-layer proof and says nothing about them.
+
+Never describe a local pass as proof that production is configured correctly.
+
+---
+
+## Tenant query gateways
+
+Two supported ways to run a tenant-scoped query. Both open one transaction on
+the runtime pool and set the three tenant settings before your callback runs.
+
+```ts
+// Tagged-template SQL
+const rows = await withTenant(
+  context,
+  async (tx) => tx<{ id: string }[]>`select id from public.workspaces`,
+);
+
+// Drizzle query builder
+const rows = await withTenantDb(context, async (tx) =>
+  tx.select().from(workspaces),
+);
+```
+
+Pick one per operation. Nesting one gateway inside the other throws
+`TenantGatewayConflict` — they cannot share a transaction, and opening a second
+would run two tenant contexts at once. Nesting the _same_ gateway with the same
+context reuses the running transaction.
+
+**Timestamps in raw SQL come back as strings.** Every runtime pool carries a
+Drizzle handle from creation, and Drizzle installs transparent type parsers, so
+`tx\`select created_at ...\``yields`"2026-10-14 03:00:00+00"`, not a `Date`.
+Read timestamps through Drizzle, or parse the string yourself. The full contract
+is in `docs/architecture-decisions.md` §6.3.
+
+## Known local limitation: the stack is reachable from your network
+
+The Supabase CLI publishes its container ports without specifying a host
+address, so Docker Desktop for Mac forwards them on **all interfaces**. The
+local API, database, Studio and mail UI are therefore reachable from other
+machines on your network, not only from `localhost`.
+
+This has been measured, not assumed:
+
+- `docker inspect` reports `HostIp=0.0.0.0` for 54321, 54322, 54323, 54324 and
+  54327;
+- `lsof` shows `com.docker.backend` listening on `*:<port>`;
+- the API answers on the machine's LAN address, and Postgres accepts a
+  connection there.
+
+### What does not fix it
+
+Setting `{ "ip": "127.0.0.1" }` in **Settings → Docker Engine** does **not**
+work on Docker Desktop for Mac. It was tried and verified: with that setting
+applied and the daemon restarted, freshly created containers still bound to
+`0.0.0.0`. The option configures the Linux daemon inside Docker Desktop's VM,
+while the host-side forwarder (`com.docker.backend`) binds every interface
+unless a port binding names an address explicitly. Supabase CLI 2.117.0 offers
+no `config.toml` setting or `supabase start` flag to name one, and Docker
+Desktop exposes no equivalent UI setting.
+
+### What to do instead
+
+- **Stop the stack when you are not using it**: `npm run db:stop`. This is the
+  reliable control and costs a few seconds to restart.
+- **Do not run it on an untrusted network** — a café, a client site, a
+  conference. The local database has no password you chose and Studio has no
+  authentication at all.
+- Treat everything in the local stack as disposable. It holds only synthetic
+  seed data, and `npm run db:reset` rebuilds it.
+
+If this needs a stronger guarantee later, the options are a host firewall rule
+or a Supabase CLI that lets the bind address be configured. Both are decisions
+for the team rather than something this repository can set, which is why the
+limitation is written down here rather than worked around silently.

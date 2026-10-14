@@ -27,12 +27,14 @@ import {
  * them. No gating behaviour exists yet — module state is loaded and enforced in
  * Milestone 1D. Until then every item renders.
  */
-export type ModuleKey =
-  | "leads"
-  | "customer_followups"
-  | "products_services"
-  | "renewals_reminders"
-  | "whatsapp";
+/**
+ * Re-exported so navigation keeps one import for consumers, while the
+ * canonical list, labels, defaults and §172 dependencies live in
+ * `@/lib/modules` — the module registry this navigation is gated by.
+ */
+import { MODULE_KEYS, type ModuleKey } from "@/lib/modules";
+
+export type { ModuleKey } from "@/lib/modules";
 
 export type NavItem = {
   /** Stable identifier, also used as a React key and test handle. */
@@ -151,13 +153,9 @@ export const MOBILE_DIRECT_SLOTS = 4;
  * so the shell renders the full navigation. Milestone 1D replaces this constant
  * at the call sites with the authenticated workspace's real module set.
  */
-export const ALL_MODULES_ENABLED: ReadonlySet<ModuleKey> = new Set<ModuleKey>([
-  "leads",
-  "customer_followups",
-  "products_services",
-  "renewals_reminders",
-  "whatsapp",
-]);
+export const ALL_MODULES_ENABLED: ReadonlySet<ModuleKey> = new Set<ModuleKey>(
+  MODULE_KEYS,
+);
 
 /**
  * Approved interpretation of the Follow-ups module rules.

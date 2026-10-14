@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   EnvConfigurationError,
-  isSupabaseConfigured,
   OPTIONAL_ENV,
-  publicEnv,
   REQUIRED_PUBLIC_ENV,
+  databaseEnv,
+  isSupabaseConfigured,
+  publicEnv,
   resetEnvCacheForTests,
   serverEnv,
 } from "@/lib/env";
@@ -190,6 +191,48 @@ describe("the legacy key model is not supported", () => {
     expect(() => publicEnv()).toThrow(EnvConfigurationError);
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   });
+
+  // The local Supabase stack prints legacy anon/service_role JWTs alongside
+  // the current keys, so pasting the wrong one is an easy mistake. A JWT here
+  // must fail loudly rather than appear to work under a different trust model.
+  // Structurally shaped fake — not a real token from anywhere.
+  const FAKE_LEGACY_JWT =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ZmFrZS1wYXlsb2FkLW5vdC1hLXJlYWwta2V5.ZmFrZS1zaWduYXR1cmU";
+
+  it("rejects a legacy JWT in the publishable-key variable", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = FAKE_LEGACY_JWT;
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("names the variable and explains why, without echoing the value", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = FAKE_LEGACY_JWT;
+    try {
+      publicEnv();
+      expect.unreachable("publicEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+      expect(message).toContain("legacy");
+      expect(message).not.toContain(FAKE_LEGACY_JWT);
+    }
+  });
+
+  it("rejects a malformed value that is neither form", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "not-a-supabase-key";
+    expect(isSupabaseConfigured()).toBe(false);
+    expect(() => publicEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts the current publishable form", () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+    expect(isSupabaseConfigured()).toBe(true);
+    expect(() => publicEnv()).not.toThrow();
+  });
 });
 
 describe("documented variable names", () => {
@@ -224,5 +267,324 @@ describe("documented variable names", () => {
     // empty secret invites someone to fill it in on the browser-safe side.
     expect(example).toMatch(/#\s*SUPABASE_SECRET_KEY=/);
     expect(example).not.toMatch(/^SUPABASE_SECRET_KEY=.+$/m);
+  });
+});
+
+describe("databaseEnv", () => {
+  // Fixtures only. No real password or host appears in this file.
+  const url = (user: string, scheme = "postgresql") =>
+    `${scheme}://${user}:FixturePasswordNotReal@127.0.0.1:54322/postgres`;
+
+  beforeEach(() => {
+    delete process.env.DATABASE_URL;
+    delete process.env.DRIZZLE_TOOLING_DATABASE_URL;
+    delete process.env.DATABASE_CA_CERT;
+  });
+
+  it("is not required by the rest of the configuration", () => {
+    // Lazy on purpose: build, lint, typecheck and the ordinary unit suite must
+    // work on a machine with no database and no .env.local.
+    process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+    expect(isSupabaseConfigured()).toBe(true);
+    expect(() => publicEnv()).not.toThrow();
+    expect(() => serverEnv()).not.toThrow();
+  });
+
+  it("throws only when the database is actually used", () => {
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it.each(["postgres", "postgresql"])("accepts the %s:// scheme", (scheme) => {
+    process.env.DATABASE_URL = url("limenzy_app", scheme);
+    expect(databaseEnv().DATABASE_URL).toBe(url("limenzy_app", scheme));
+  });
+
+  it.each(["mysql", "http", "https", "postgres+ssh", "file"])(
+    "rejects the %s:// scheme",
+    (scheme) => {
+      process.env.DATABASE_URL = url("limenzy_app", scheme);
+      expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+    },
+  );
+
+  it.each([
+    "postgres",
+    "supabase_admin",
+    "limenzy_owner",
+    "limenzy_bootstrap",
+    "service_role",
+    "authenticated",
+    "anon",
+    "limenzy_app2",
+    "LIMENZY_APP",
+  ])("rejects the %s role", (user) => {
+    process.env.DATABASE_URL = url(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  /**
+   * Supabase documents the shared-pooler username as `[ROLE].[PROJECT-REF]`;
+   * direct and dedicated-pooler connections use the plain role name. These
+   * cases pin both forms, and — more importantly — the near-misses that must
+   * not pass as a result.
+   *
+   * Syntax only: none of this proves which role the database authenticates.
+   */
+  const pooled = (user: string) =>
+    `postgresql://${user}:FixturePasswordNotReal@aws-0-ap-south-1.pooler.supabase.com:6543/postgres`;
+
+  it.each([
+    "abcdefghijklmnopqrst",
+    "xvljpkujuwroxcuvossw",
+    "abc123def456ghi789jk",
+    "a",
+  ])("accepts the shared-pooler form for project ref %s", (ref) => {
+    process.env.DATABASE_URL = pooled(`limenzy_app.${ref}`);
+    expect(databaseEnv().DATABASE_URL).toBe(pooled(`limenzy_app.${ref}`));
+  });
+
+  it("still accepts the plain role on a direct connection", () => {
+    process.env.DATABASE_URL = url("limenzy_app");
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  it.each([
+    // A privileged or arbitrary role does not become acceptable by acquiring
+    // a project-ref suffix.
+    "postgres.abcdefghijklmnopqrst",
+    "supabase_admin.abcdefghijklmnopqrst",
+    "limenzy_owner.abcdefghijklmnopqrst",
+    "limenzy_bootstrap.abcdefghijklmnopqrst",
+    "service_role.abcdefghijklmnopqrst",
+    "anon.abcdefghijklmnopqrst",
+  ])("rejects the suffixed %s role", (user) => {
+    process.env.DATABASE_URL = pooled(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it.each([
+    // Empty, repeated or malformed suffixes.
+    "limenzy_app.",
+    "limenzy_app..abcdefghijklmnopqrst",
+    "limenzy_app.abcdefghijklmnopqrst.extra",
+    "limenzy_app.ABCDEFGHIJKLMNOPQRST",
+    "limenzy_app.abc-def",
+    "limenzy_app.abc_def",
+    "limenzy_app.abc def",
+    "limenzy_app. abcdefghijklmnopqrst",
+    // Deceptive near-matches on the role half.
+    ".limenzy_app",
+    "limenzy_app2.abcdefghijklmnopqrst",
+    "xlimenzy_app.abcdefghijklmnopqrst",
+    "limenzy_app_admin.abcdefghijklmnopqrst",
+    "LIMENZY_APP.abcdefghijklmnopqrst",
+    "limenzy_app.limenzy_owner",
+  ])("rejects the malformed or deceptive username %s", (user) => {
+    process.env.DATABASE_URL = pooled(user);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("reads the suffix as a project reference, never as a second role", () => {
+    /**
+     * `limenzy_app.postgres` is accepted, and that is correct rather than a
+     * gap: in `[ROLE].[PROJECT-REF]` the authority is decided by the half
+     * BEFORE the dot, which is the approved runtime role. The suffix names a
+     * project, so a project reference that happens to read like a role name
+     * grants nothing. `postgres.<ref>` — the role half actually being
+     * `postgres` — is refused above.
+     */
+    process.env.DATABASE_URL = pooled("limenzy_app.postgres");
+    expect(() => databaseEnv()).not.toThrow();
+
+    // The first call memoises, so the cache is cleared before asserting the
+    // mirror image — otherwise the second expectation would read the first
+    // result and pass for the wrong reason.
+    resetEnvCacheForTests();
+    process.env.DATABASE_URL = pooled("postgres.limenzy_app");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts a percent-encoded pooler username", () => {
+    // `limenzy_app.abcdefghijklmnopqrst` with the underscore encoded.
+    process.env.DATABASE_URL = pooled("limenzy%5Fapp.abcdefghijklmnopqrst");
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  /**
+   * Line terminators smuggled in through percent-encoding.
+   *
+   * A RAW newline never survives: WHATWG URL parsing strips tab, LF and CR
+   * from the input, so `limenzy_app.abc\ndef` arrives as `limenzy_app.abcdef`.
+   * The encoded forms do survive parsing and only become terminators after
+   * `decodeURIComponent`, which is exactly where the project-reference syntax
+   * has to hold. U+2028 and U+2029 are included because they are line
+   * terminators to a JavaScript regex engine even though the URL parser leaves
+   * them alone.
+   */
+  it.each([
+    ["LF", "%0A"],
+    ["CR", "%0D"],
+    ["CRLF", "%0D%0A"],
+    ["U+2028", "%E2%80%A8"],
+    ["U+2029", "%E2%80%A9"],
+  ])(
+    "rejects a trailing encoded %s in the project reference",
+    (_name, tail) => {
+      const value = pooled(`limenzy_app.abcdefghijklmnopqrst${tail}`);
+      process.env.DATABASE_URL = value;
+
+      try {
+        databaseEnv();
+        expect.unreachable("databaseEnv should have thrown");
+      } catch (error) {
+        expect(error).toBeInstanceOf(EnvConfigurationError);
+        const message = (error as Error).message;
+        expect(message).toContain("DATABASE_URL");
+        // Sanitized: neither the smuggled sequence nor anything else from the URL.
+        expect(message).not.toContain(tail);
+        expect(message).not.toContain(value);
+        expect(message).not.toContain("FixturePasswordNotReal");
+        expect(message).not.toContain("pooler.supabase.com");
+        expect(/[\u000A\u000D\u2028\u2029]/.test(message)).toBe(false);
+      }
+    },
+  );
+
+  it.each([
+    ["LF", "%0A"],
+    ["CR", "%0D"],
+    ["U+2028", "%E2%80%A8"],
+    ["U+2029", "%E2%80%A9"],
+  ])("rejects a leading or embedded encoded %s too", (_name, mid) => {
+    process.env.DATABASE_URL = pooled(`limenzy_app.${mid}abcdefghijklmnopqrst`);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+
+    resetEnvCacheForTests();
+    process.env.DATABASE_URL = pooled(`limenzy_app.abcdef${mid}ghijklmnop`);
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects an encoded separator that would smuggle a second dot", () => {
+    // `%2E` decodes to ".", so this is `limenzy_app..ref` once decoded.
+    process.env.DATABASE_URL = pooled("limenzy_app%2E.abcdefghijklmnopqrst");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects malformed percent-encoding without echoing it", () => {
+    const malformed = pooled("limenzy_app%ZZ.abcdefghijklmnopqrst");
+    process.env.DATABASE_URL = malformed;
+    try {
+      databaseEnv();
+      expect.unreachable("databaseEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("DATABASE_URL");
+      expect(message).not.toContain("%ZZ");
+      expect(message).not.toContain("FixturePasswordNotReal");
+      expect(message).not.toContain("pooler.supabase.com");
+    }
+  });
+
+  it("adds no query-parameter or option bypass", () => {
+    process.env.DATABASE_URL = `${pooled("postgres.abcdefghijklmnopqrst")}?options=-c%20role%3Dlimenzy_app`;
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("keeps the pooler form subject to every other rule", () => {
+    // Scheme is still checked.
+    process.env.DATABASE_URL = pooled(
+      "limenzy_app.abcdefghijklmnopqrst",
+    ).replace("postgresql://", "mysql://");
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("rejects an empty username", () => {
+    process.env.DATABASE_URL =
+      "postgresql://:FixturePasswordNotReal@127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+    process.env.DATABASE_URL = "postgresql://127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("accepts a percent-encoded form of the approved role", () => {
+    process.env.DATABASE_URL =
+      "postgresql://limenzy%5Fapp:FixturePasswordNotReal@127.0.0.1:54322/postgres";
+    expect(() => databaseEnv()).not.toThrow();
+  });
+
+  it("rejects a value that is not a URL at all", () => {
+    process.env.DATABASE_URL = "not a connection string";
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("never falls back to the tooling connection", () => {
+    process.env.DRIZZLE_TOOLING_DATABASE_URL = url("postgres");
+    // Tooling set, runtime absent: must still fail rather than borrow it.
+    expect(() => databaseEnv()).toThrow(EnvConfigurationError);
+  });
+
+  it("names the variable in errors without echoing its value", () => {
+    const secretish = url("postgres");
+    process.env.DATABASE_URL = secretish;
+    try {
+      databaseEnv();
+      expect.unreachable("databaseEnv should have thrown");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("DATABASE_URL");
+      expect(message).not.toContain(secretish);
+      expect(message).not.toContain("FixturePasswordNotReal");
+      expect(message).not.toContain("127.0.0.1");
+    }
+  });
+
+  // DATABASE_CA_CERT is optional *here* and required in practice for any host
+  // that is not an explicit loopback literal. That rule depends on the host,
+  // so it lives in server/db/tls.ts and is tested in tls.unit.test.ts; this
+  // module only carries the value, and must not need Node built-ins to do it.
+  describe("DATABASE_CA_CERT", () => {
+    const CERT_TEXT =
+      "-----BEGIN CERTIFICATE-----\nSyntheticFixtureNotARealCertificate\n-----END CERTIFICATE-----";
+
+    it("is optional, so local development needs no certificate", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      expect(databaseEnv().DATABASE_CA_CERT).toBeUndefined();
+    });
+
+    it("treats an empty string as unset rather than invalid", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      process.env.DATABASE_CA_CERT = "";
+      expect(databaseEnv().DATABASE_CA_CERT).toBeUndefined();
+    });
+
+    it("carries multiline PEM text through unchanged", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      expect(databaseEnv().DATABASE_CA_CERT).toBe(CERT_TEXT);
+    });
+
+    it("never reaches the browser-facing configuration", () => {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      const published = JSON.stringify(publicEnv());
+      expect(published).not.toContain("CERTIFICATE");
+      expect(published).not.toContain("SyntheticFixtureNotARealCertificate");
+      expect(Object.keys(publicEnv())).not.toContain("DATABASE_CA_CERT");
+    });
+
+    it("is not echoed when another variable fails validation", () => {
+      process.env.DATABASE_URL = url("postgres");
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      try {
+        databaseEnv();
+        expect.unreachable("databaseEnv should have thrown");
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).not.toContain("SyntheticFixtureNotARealCertificate");
+        expect(message).not.toContain("BEGIN CERTIFICATE");
+      }
+    });
   });
 });

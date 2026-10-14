@@ -24,6 +24,7 @@ import {
 } from "@/lib/auth/schemas";
 import { serverEnv } from "@/lib/env";
 import { createClient } from "@/lib/supabase/server";
+import { clearWorkspacePreference } from "@/server/auth/workspace-selection";
 
 /**
  * Authentication Server Actions.
@@ -275,5 +276,17 @@ export async function signOutAction(): Promise<void> {
   // Clears the session server-side and expires the auth cookies through the
   // SSR cookie adapter, so protected routes stop resolving a user immediately.
   await supabase.auth.signOut();
+
+  /**
+   * The saved workspace preference goes with the session.
+   *
+   * Leaving it would hand the next person to sign in on this browser a
+   * pre-chosen workspace. It grants them nothing — every request re-resolves
+   * membership, and theirs would not match — but they would meet a pointless
+   * refusal on the way in. A Server Action is one of the two places the
+   * platform permits a cookie to be cleared, so this is where it belongs.
+   */
+  await clearWorkspacePreference();
+
   redirect(SIGN_IN_PATH);
 }

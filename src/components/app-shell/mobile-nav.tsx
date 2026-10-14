@@ -5,11 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { NavDrawer } from "@/components/app-shell/nav-drawer";
-import {
-  ALL_MODULES_ENABLED,
-  findActiveNavItem,
-  resolveMobileNav,
-} from "@/config/navigation";
+import { findActiveNavItem, resolveMobileNav } from "@/config/navigation";
+import type { ModuleKey } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,16 +15,20 @@ import { cn } from "@/lib/utils";
  * Shows the direct destinations resolved from the shared navigation config
  * plus a trailing "More" entry that opens the same drawer used on tablet.
  *
- * Milestone 1A passes the full module set, so the bar renders the §25 default
- * (`Home | Leads | Customers | WhatsApp | More`). The substitution rule — when
- * Leads is unavailable its slot is taken by Follow-ups — is already implemented
- * and unit-tested in `resolveMobileNav`; Milestone 1D supplies the workspace's
- * real module configuration in place of the constant.
+ * The workspace's real module configuration arrives from the server (spec
+ * §171). With all modules enabled the bar renders the §25 default
+ * (`Home | Leads | Customers | WhatsApp | More`); when Leads is unavailable its
+ * slot is taken by Follow-ups, which `resolveMobileNav` implements.
  */
-export function MobileNav() {
+export function MobileNav({
+  enabledModules,
+}: {
+  /** Resolved on the server. Required for the same reason as in NavList. */
+  enabledModules: readonly ModuleKey[];
+}) {
   const pathname = usePathname();
   const active = findActiveNavItem(pathname);
-  const items = resolveMobileNav(ALL_MODULES_ENABLED);
+  const items = resolveMobileNav(new Set(enabledModules));
 
   return (
     <nav
@@ -75,6 +76,7 @@ export function MobileNav() {
       })}
 
       <NavDrawer
+        enabledModules={enabledModules}
         trigger={
           <button
             type="button"

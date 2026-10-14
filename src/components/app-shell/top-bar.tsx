@@ -3,6 +3,7 @@
 import { Bell, Search } from "lucide-react";
 
 import { NavDrawer } from "@/components/app-shell/nav-drawer";
+import type { ModuleKey } from "@/lib/modules";
 import { PageTitle } from "@/components/app-shell/page-title";
 import {
   NotAvailableChip,
@@ -12,6 +13,7 @@ import { UserMenu } from "@/components/app-shell/user-menu";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import type { AuthenticatedUser } from "@/server/auth/require-user";
+import type { WorkspaceRole } from "@/server/db/identity";
 
 /**
  * Global top bar (spec §4).
@@ -40,11 +42,24 @@ import type { AuthenticatedUser } from "@/server/auth/require-user";
  * active workspace) they will be passed in from the `(app)` layout as plain
  * serializable props rather than by making this a Server Component again.
  */
-export function TopBar({ user }: { user: AuthenticatedUser }) {
+export function TopBar({
+  user,
+  workspaceName,
+  role,
+  enabledModules,
+}: {
+  /** The workspace's enabled modules (spec §171), resolved on the server. */
+  enabledModules: readonly ModuleKey[];
+  user: AuthenticatedUser;
+  /** Display only; resolved per request by the `(app)` layout. */
+  workspaceName: string | null;
+  /** Presentation only — never an authorization decision. */
+  role: WorkspaceRole;
+}) {
   return (
     <header className="surface-glass sticky top-0 z-20 rounded-none border-x-0 border-t-0">
       <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
-        <NavDrawer user={user} />
+        <NavDrawer user={user} enabledModules={enabledModules} />
 
         {/* The sidebar carries the brand on desktop; below `lg` the top bar
             does — compactly on phones, in full from `sm`. */}
@@ -98,7 +113,12 @@ export function TopBar({ user }: { user: AuthenticatedUser }) {
           {/* Moved into the drawer below `sm`, so the phone header keeps four
               comfortable targets instead of six cramped ones. */}
           <ThemeToggle className="hidden sm:inline-flex" />
-          <UserMenu user={user} className="hidden sm:inline-flex" />
+          <UserMenu
+            user={user}
+            workspaceName={workspaceName}
+            role={role}
+            className="hidden sm:inline-flex"
+          />
         </div>
       </div>
     </header>

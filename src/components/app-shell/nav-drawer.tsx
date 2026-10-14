@@ -4,6 +4,7 @@ import { Menu } from "lucide-react";
 import { useState } from "react";
 
 import { NavList } from "@/components/app-shell/nav-list";
+import type { ModuleKey } from "@/lib/modules";
 import { UserMenu } from "@/components/app-shell/user-menu";
 import type { AuthenticatedUser } from "@/server/auth/require-user";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
@@ -30,10 +31,13 @@ import { cn } from "@/lib/utils";
  * as the "More" entry — both reuse this one component and the one nav config.
  */
 export function NavDrawer({
+  enabledModules,
   trigger,
   triggerClassName,
   user,
 }: {
+  /** The workspace's enabled modules, resolved on the server (spec §171). */
+  enabledModules: readonly ModuleKey[];
   trigger?: React.ReactNode;
   triggerClassName?: string;
   /** Absent in the mobile bottom bar, which renders no account control. */
@@ -71,7 +75,10 @@ export function NavDrawer({
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-3 pb-4">
-          <NavList onNavigate={() => setOpen(false)} />
+          <NavList
+            enabledModules={enabledModules}
+            onNavigate={() => setOpen(false)}
+          />
         </div>
 
         {/* Theme and account live here below `sm`, where the phone header has
