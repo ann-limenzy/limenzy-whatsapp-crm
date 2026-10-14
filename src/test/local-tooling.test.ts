@@ -74,8 +74,11 @@ const MILESTONE_1C_MIGRATIONS = [
   "20260921025321_tenant_rls.sql",
   "20260921064437_workspace_bootstrap.sql",
 ];
-/** Milestone 1D — workspace module configuration (spec §171, §172). */
-const MILESTONE_1D_MIGRATIONS = ["20261014071500_workspace_modules.sql"];
+/** Milestone 1D — workspace module and permission configuration. */
+const MILESTONE_1D_MIGRATIONS = [
+  "20261014071500_workspace_modules.sql",
+  "20261014140000_workspace_permissions.sql",
+];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
@@ -543,6 +546,8 @@ describe("the tenant gateway import boundary", () => {
     // describe what it is handed, and reads through withTenant(); it mints no
     // context and never touches the pool.
     "src/server/auth/workspace-modules.ts": ["the context constructor"],
+    // Workspace permission configuration (spec §162, §162.1). Same shape.
+    "src/server/auth/workspace-permissions.ts": ["the context constructor"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -599,6 +604,7 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/create-initial-workspace.ts",
       "src/server/auth/workspace-context.ts",
       "src/server/auth/workspace-modules.ts",
+      "src/server/auth/workspace-permissions.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
       "src/server/db/tenant-db.ts",
@@ -780,6 +786,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/auth.ts",
       // Milestone 1D — module enable/disable (spec §171).
       "src/app/actions/modules.ts",
+      // Milestone 1D — permission configuration (spec §162, §162.1).
+      "src/app/actions/permissions.ts",
     ]);
 
     for (const file of withDirective) {
