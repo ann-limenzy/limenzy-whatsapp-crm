@@ -13,6 +13,12 @@ export const metadata: Metadata = { title: "Link problem" };
  * The reason is mapped from a small allow-list. No Supabase error text, token
  * or identifier is rendered — an unrecognised reason falls back to the generic
  * message rather than being echoed to the page.
+ *
+ * `flow` says what the link was for, so the page can offer the remedy that
+ * matches: a fresh confirmation email for a signup, a fresh reset link for a
+ * password recovery. Both values arrive in a URL anyone can edit, so both are
+ * checked against a fixed set; anything else is treated as unknown and the
+ * page offers both choices, clearly labelled, rather than guessing.
  */
 const REASONS: Record<string, { title: string; body: string }> = {
   invalid_link: {
@@ -30,12 +36,24 @@ const FALLBACK = {
   body: "The link could not be used. Request a new one and try again.",
 };
 
+/** The only two intents this page acts on. Anything else is unknown. */
+const FLOWS = ["signup", "recovery"] as const;
+type Flow = (typeof FLOWS)[number];
+
+function readFlow(value: unknown): Flow | null {
+  return typeof value === "string" &&
+    (FLOWS as readonly string[]).includes(value)
+    ? (value as Flow)
+    : null;
+}
+
 export default async function AuthErrorPage({
   searchParams,
 }: PageProps<"/auth/auth-error">) {
   const params = await searchParams;
   const key = typeof params.reason === "string" ? params.reason : "";
   const { title, body } = REASONS[key] ?? FALLBACK;
+  const flow = readFlow(params.flow);
 
   return (
     <div className="app-ambient flex min-h-dvh items-center justify-center px-4 py-10">
@@ -55,9 +73,35 @@ export default async function AuthErrorPage({
             <Button asChild className="w-full">
               <Link href="/sign-in">Back to sign in</Link>
             </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/forgot-password">Request a new link</Link>
-            </Button>
+
+            {flow === "signup" ? (
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/verify-email">Send a new confirmation email</Link>
+              </Button>
+            ) : null}
+
+            {flow === "recovery" ? (
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/forgot-password">
+                  Send a new password reset link
+                </Link>
+              </Button>
+            ) : null}
+
+            {flow === null ? (
+              <>
+                <Button asChild variant="outline" className="w-full">
+                  <Link href="/verify-email">
+                    Confirming a new account? Send a new confirmation email
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="w-full">
+                  <Link href="/forgot-password">
+                    Resetting your password? Send a new reset link
+                  </Link>
+                </Button>
+              </>
+            ) : null}
           </div>
         </AuthCard>
       </div>

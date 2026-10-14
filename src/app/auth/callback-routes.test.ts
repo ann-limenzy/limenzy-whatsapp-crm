@@ -78,24 +78,94 @@ beforeEach(() => {
 
 describe("/auth/confirm — rejects malformed links before any exchange", () => {
   it.each([
-    ["/auth/confirm", "nothing at all"],
-    [`/auth/confirm?type=signup`, "no token"],
-    [`/auth/confirm?token_hash=${TOKEN}`, "no type"],
+    ["/auth/confirm", "nothing at all", "/auth/auth-error?reason=invalid_link"],
+    [
+      `/auth/confirm?type=signup`,
+      "no token",
+      "/auth/auth-error?reason=invalid_link&flow=signup",
+    ],
+    [
+      `/auth/confirm?token_hash=${TOKEN}`,
+      "no type",
+      "/auth/auth-error?reason=invalid_link",
+    ],
     [
       "/auth/confirm?token_hash=short&type=signup",
       "an implausibly short token",
+      "/auth/auth-error?reason=invalid_link&flow=signup",
     ],
-    [`/auth/confirm?token_hash=${TOKEN}&type=`, "an empty type"],
-    [`/auth/confirm?token_hash=${TOKEN}&type=admin`, "a type we do not allow"],
+    [
+      `/auth/confirm?token_hash=${TOKEN}&type=`,
+      "an empty type",
+      "/auth/auth-error?reason=invalid_link",
+    ],
+    [
+      `/auth/confirm?token_hash=${TOKEN}&type=admin`,
+      "a type we do not allow",
+      "/auth/auth-error?reason=invalid_link",
+    ],
     [
       `/auth/confirm?token_hash=${TOKEN}&type=phone_change`,
       "a type outside the email set",
-    ],
-  ])("rejects a link with %s (%s)", async (url) => {
-    expect(await landsOn(confirmGET, url)).toBe(
       "/auth/auth-error?reason=invalid_link",
-    );
+    ],
+  ])("rejects a link with %s (%s)", async (url, _why, expected) => {
+    expect(await landsOn(confirmGET, url)).toBe(expected);
     expect(verifyOtp).not.toHaveBeenCalled();
+  });
+});
+
+describe("/auth/confirm — preserves what the link was for", () => {
+  it("tells the error page a failed signup was a signup", async () => {
+    verifyOtp.mockResolvedValue({ error: { message: "nope", status: 403 } });
+    expect(
+      await landsOn(
+        confirmGET,
+        `/auth/confirm?token_hash=${TOKEN}&type=signup`,
+      ),
+    ).toBe("/auth/auth-error?reason=expired_link&flow=signup");
+  });
+
+  it("tells the error page a failed recovery was a recovery", async () => {
+    verifyOtp.mockResolvedValue({ error: { message: "nope", status: 403 } });
+    expect(
+      await landsOn(
+        confirmGET,
+        `/auth/confirm?token_hash=${TOKEN}&type=recovery`,
+      ),
+    ).toBe("/auth/auth-error?reason=expired_link&flow=recovery");
+  });
+
+  it("treats the email type as a signup confirmation", async () => {
+    expect(await landsOn(confirmGET, "/auth/confirm?type=email")).toBe(
+      "/auth/auth-error?reason=invalid_link&flow=signup",
+    );
+  });
+
+  it.each(["invite", "magiclink", "email_change"])(
+    "claims no intent for %s, so the page can offer both",
+    async (type) => {
+      verifyOtp.mockResolvedValue({ error: { message: "nope", status: 403 } });
+      expect(
+        await landsOn(
+          confirmGET,
+          `/auth/confirm?token_hash=${TOKEN}&type=${type}`,
+        ),
+      ).toBe("/auth/auth-error?reason=expired_link");
+    },
+  );
+
+  it("never carries an identifier into the error URL", async () => {
+    verifyOtp.mockResolvedValue({ error: { message: "nope", status: 403 } });
+    const url = await landsOn(
+      confirmGET,
+      `/auth/confirm?token_hash=${TOKEN}&type=signup&email=ann.dev%40example.com`,
+    );
+    // The link carried an address and a token; neither may survive into a URL
+    // that gets pasted into support tickets and logged by proxies.
+    expect(url).not.toContain("@");
+    expect(url).not.toContain(TOKEN);
+    expect(url).toBe("/auth/auth-error?reason=expired_link&flow=signup");
   });
 });
 
@@ -153,7 +223,7 @@ describe("/auth/confirm — failed verification", () => {
       confirmGET,
       `/auth/confirm?token_hash=${TOKEN}&type=signup`,
     );
-    expect(url).toBe("/auth/auth-error?reason=expired_link");
+    expect(url).toBe("/auth/auth-error?reason=expired_link&flow=signup");
     expect(url).not.toMatch(/expired or is invalid/);
   });
 
@@ -163,7 +233,7 @@ describe("/auth/confirm — failed verification", () => {
       confirmGET,
       `/auth/confirm?token_hash=${TOKEN}&type=signup&next=%2Fleads`,
     );
-    expect(url).toBe("/auth/auth-error?reason=expired_link");
+    expect(url).toBe("/auth/auth-error?reason=expired_link&flow=signup");
   });
 });
 
