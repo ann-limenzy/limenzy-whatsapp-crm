@@ -15,8 +15,10 @@ import {
   PRIMARY_NAV,
   SECONDARY_NAV,
   findActiveNavItem,
+  resolveVisibleNav,
   type NavItem,
 } from "@/config/navigation";
+import type { ModuleKey } from "@/lib/modules";
 import { cn } from "@/lib/utils";
 
 /**
@@ -87,15 +89,26 @@ function NavLink({
  * exist.
  */
 export function NavList({
+  enabledModules,
   onNavigate,
   collapsible = false,
   className,
 }: {
+  /**
+   * The workspace's enabled modules, resolved on the server (spec §171).
+   *
+   * Required, not defaulted: a default would mean a caller that forgets it
+   * silently renders every module, which is exactly the failure this gate
+   * exists to prevent. Hiding a link is presentation only — the route itself
+   * re-checks with `requireModule()` (§172).
+   */
+  enabledModules: readonly ModuleKey[];
   onNavigate?: () => void;
   /** Enables rail styling and collapsed-state tooltips (desktop sidebar). */
   collapsible?: boolean;
   className?: string;
 }) {
+  const enabled = new Set(enabledModules);
   const pathname = usePathname();
   const active = findActiveNavItem(pathname);
   const { isCollapsed } = useSidebarState();
@@ -134,11 +147,11 @@ export function NavList({
 
   const content = (
     <nav className={cn("flex flex-col gap-1", className)} aria-label="Main">
-      {PRIMARY_NAV.map(render)}
+      {resolveVisibleNav(PRIMARY_NAV, enabled).map(render)}
 
       <hr className="my-3 border-border/70" />
 
-      {SECONDARY_NAV.map(render)}
+      {resolveVisibleNav(SECONDARY_NAV, enabled).map(render)}
     </nav>
   );
 

@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/app-shell/app-shell";
 import { requireUser } from "@/server/auth/require-user";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
+import { enabledModulesFor } from "@/server/auth/workspace-modules";
 import { workspaceNameFor } from "@/server/auth/workspace-names";
 
 /**
@@ -42,9 +43,17 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const { context, role } = await requireWorkspaceContext();
   const workspaceName = await workspaceNameFor(context);
+  // §171: navigation shows only the workspace's enabled modules. Read through
+  // the same authorised tenant path as the name, uncached, every request.
+  const { enabled } = await enabledModulesFor(context);
 
   return (
-    <AppShell user={user} workspaceName={workspaceName} role={role}>
+    <AppShell
+      user={user}
+      workspaceName={workspaceName}
+      role={role}
+      enabledModules={[...enabled]}
+    >
       {children}
     </AppShell>
   );

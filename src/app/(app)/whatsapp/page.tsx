@@ -2,7 +2,7 @@ import { MessageCircle } from "lucide-react";
 import type { Metadata } from "next";
 
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
-import { requireWorkspaceContext } from "@/server/auth/require-workspace";
+import { requireModule } from "@/server/auth/require-module";
 
 export const metadata: Metadata = { title: "WhatsApp" };
 
@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "WhatsApp" };
  * form's write into a different workspace.
  */
 export default async function WhatsappPage() {
-  await requireWorkspaceContext();
+  await requireModule("whatsapp");
 
   return (
     <ModulePlaceholder

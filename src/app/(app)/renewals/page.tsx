@@ -2,7 +2,7 @@ import { BellRing } from "lucide-react";
 import type { Metadata } from "next";
 
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
-import { requireWorkspaceContext } from "@/server/auth/require-workspace";
+import { requireModule } from "@/server/auth/require-module";
 
 export const metadata: Metadata = { title: "Renewals & Reminders" };
 
@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: "Renewals & Reminders" };
  * form's write into a different workspace.
  */
 export default async function RenewalsPage() {
-  await requireWorkspaceContext();
+  await requireModule("renewals_reminders");
 
   return (
     <ModulePlaceholder

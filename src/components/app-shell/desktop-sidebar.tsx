@@ -1,4 +1,5 @@
 import { NavList } from "@/components/app-shell/nav-list";
+import type { ModuleKey } from "@/lib/modules";
 import { SidebarToggle } from "@/components/app-shell/sidebar-toggle";
 import { LimenzyLogo } from "@/components/brand/limenzy-logo";
 
@@ -17,7 +18,12 @@ import { LimenzyLogo } from "@/components/brand/limenzy-logo";
  * Visible from `lg` up; below that the same navigation is reached through the
  * drawer, and on phones additionally through the bottom bar.
  */
-export function DesktopSidebar() {
+export function DesktopSidebar({
+  enabledModules,
+}: {
+  /** The workspace's enabled modules, resolved on the server (spec §171). */
+  enabledModules: readonly ModuleKey[];
+}) {
   return (
     <aside
       id="app-sidebar"
@@ -29,7 +35,7 @@ export function DesktopSidebar() {
       </div>
 
       <div className="flex-1 overflow-x-hidden overflow-y-auto px-3 pb-4">
-        <NavList collapsible />
+        <NavList collapsible enabledModules={enabledModules} />
       </div>
 
       <div className="flex shrink-0 items-center justify-end border-t border-border/70 px-3 py-3 [[data-sidebar='collapsed']_&]:justify-center">

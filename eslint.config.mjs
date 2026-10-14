@@ -107,6 +107,12 @@ const GATEWAY_FILES = {
   tenantDb: "src/server/db/tenant-db.ts",
   /** The transaction scope both gateways share. Imports no driver at all. */
   tenantScope: "src/server/db/tenant-scope.ts",
+  /**
+   * Workspace module configuration (spec §171). It names the `TenantContext`
+   * TYPE to describe what callers hand it and reads through `withTenant()`;
+   * it mints no context and never reaches the pool or the driver.
+   */
+  workspaceModules: "src/server/auth/workspace-modules.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -148,6 +154,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.tenant,
       GATEWAY_FILES.tenantDb,
       GATEWAY_FILES.tenantScope,
+      GATEWAY_FILES.workspaceModules,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -213,6 +220,23 @@ const eslintConfig = defineConfig([
     files: [GATEWAY_FILES.tenantScope],
     rules: {
       "no-restricted-imports": ["error", { paths: DRIVER_IMPORTS }],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * Workspace module configuration. It may name the context type and use the
+     * gateway, but not the driver, the raw pool or the tooling connection.
+     */
+    files: [GATEWAY_FILES.workspaceModules],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: DRIVER_IMPORTS,
+          patterns: [RAW_CLIENT_PATTERNS, TENANT_SCOPE_PATTERNS],
+        },
+      ],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
     },
   },

@@ -61,6 +61,26 @@ const packageJson = async () =>
     devDependencies: Record<string, string>;
   };
 
+/**
+ * The applied migration history, named once.
+ *
+ * Phase guards below assert that a milestone added nothing beyond its own
+ * reviewed migrations. Splitting the list by milestone keeps those guards
+ * working — a new file that is in neither list still fails every one of them.
+ */
+const MILESTONE_1C_MIGRATIONS = [
+  "20260919045005_workspace_foundation.sql",
+  "20260919073002_tenant_roles.sql",
+  "20260921025321_tenant_rls.sql",
+  "20260921064437_workspace_bootstrap.sql",
+];
+/** Milestone 1D — workspace module configuration (spec §171, §172). */
+const MILESTONE_1D_MIGRATIONS = ["20261014071500_workspace_modules.sql"];
+const APPLIED_MIGRATIONS = [
+  ...MILESTONE_1C_MIGRATIONS,
+  ...MILESTONE_1D_MIGRATIONS,
+];
+
 describe("database package scripts", () => {
   it("provides the documented local lifecycle commands", async () => {
     const { scripts } = await packageJson();
@@ -275,8 +295,11 @@ describe("dedicated live-database verification", () => {
 
 describe("the 1C-B migration file", () => {
   const readMigrations = async () => {
-    const names = (await readdir("supabase/migrations")).filter((n) =>
-      n.endsWith(".sql"),
+    // Scoped to the Milestone 1C files, because the assertions in this
+    // describe are about what *those* phases did. A later milestone's reviewed
+    // migration is admitted by MILESTONE_1D_MIGRATIONS and checked separately.
+    const names = (await readdir("supabase/migrations")).filter(
+      (n) => n.endsWith(".sql") && MILESTONE_1C_MIGRATIONS.includes(n),
     );
     const files = await Promise.all(
       names.map(async (name) => ({
@@ -516,6 +539,10 @@ describe("the tenant gateway import boundary", () => {
       "the runtime pool",
       "the context constructor",
     ],
+    // Workspace module configuration (spec §171). It names the context TYPE to
+    // describe what it is handed, and reads through withTenant(); it mints no
+    // context and never touches the pool.
+    "src/server/auth/workspace-modules.ts": ["the context constructor"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -571,6 +598,7 @@ describe("the tenant gateway import boundary", () => {
     expect(allowed).toEqual([
       "src/server/auth/create-initial-workspace.ts",
       "src/server/auth/workspace-context.ts",
+      "src/server/auth/workspace-modules.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
       "src/server/db/tenant-db.ts",
@@ -750,6 +778,8 @@ describe("the workspace setup screen", () => {
       "src/app/(account)/select-workspace/actions.ts",
       "src/app/(account)/setup/actions.ts",
       "src/app/actions/auth.ts",
+      // Milestone 1D — module enable/disable (spec §171).
+      "src/app/actions/modules.ts",
     ]);
 
     for (const file of withDirective) {
@@ -948,12 +978,7 @@ describe("the workspace setup screen", () => {
     const migrations = (await readdir("supabase/migrations")).filter((name) =>
       name.endsWith(".sql"),
     );
-    expect(migrations.sort()).toEqual([
-      "20260919045005_workspace_foundation.sql",
-      "20260919073002_tenant_roles.sql",
-      "20260921025321_tenant_rls.sql",
-      "20260921064437_workspace_bootstrap.sql",
-    ]);
+    expect(migrations.sort()).toEqual(APPLIED_MIGRATIONS);
 
     // The setup screen reaches earlier phases only through the one operation.
     for (const path of [PAGE, FORM, OPTIONS, STATE]) {
@@ -1230,12 +1255,7 @@ describe("the initial-workspace operation", () => {
       name.endsWith(".sql"),
     );
     // Phase 4C-2 is application code over the Phase 4C-1 routine.
-    expect(migrations.sort()).toEqual([
-      "20260919045005_workspace_foundation.sql",
-      "20260919073002_tenant_roles.sql",
-      "20260921025321_tenant_rls.sql",
-      "20260921064437_workspace_bootstrap.sql",
-    ]);
+    expect(migrations.sort()).toEqual(APPLIED_MIGRATIONS);
 
     // Phase 4C-3 adds exactly one caller: the /setup Server Action. Naming it
     // is stronger than "nothing calls it" — a second caller anywhere in the
@@ -1294,7 +1314,7 @@ describe("the initial-workspace bootstrap migration", () => {
     const names = (await readdir("supabase/migrations"))
       .filter((n) => n.endsWith(".sql"))
       .sort();
-    expect(names).toHaveLength(4);
+    expect(names).toHaveLength(APPLIED_MIGRATIONS.length);
     expect(names[3]).toBe("20260921064437_workspace_bootstrap.sql");
 
     // The bootstrap work lives entirely in the new file: none of the earlier
@@ -1681,12 +1701,7 @@ describe("workspace selection treats the candidate as a preference", () => {
       name.endsWith(".sql"),
     );
     // Phase 4B is application code over the Phase 2 policies, exactly as 4A was.
-    expect(migrations.sort()).toEqual([
-      "20260919045005_workspace_foundation.sql",
-      "20260919073002_tenant_roles.sql",
-      "20260921025321_tenant_rls.sql",
-      "20260921064437_workspace_bootstrap.sql",
-    ]);
+    expect(migrations.sort()).toEqual(APPLIED_MIGRATIONS);
   });
 
   it("is explained where a developer will look for it", async () => {
@@ -1871,12 +1886,7 @@ describe("identity resolution takes no identity from its caller", () => {
     );
     // Phase 4A is application code over the Phase 2 policies: the three
     // reviewed migrations are still the whole history.
-    expect(migrations.sort()).toEqual([
-      "20260919045005_workspace_foundation.sql",
-      "20260919073002_tenant_roles.sql",
-      "20260921025321_tenant_rls.sql",
-      "20260921064437_workspace_bootstrap.sql",
-    ]);
+    expect(migrations.sort()).toEqual(APPLIED_MIGRATIONS);
   });
 
   it("is explained where a developer will look for it", async () => {

@@ -1,3 +1,4 @@
+import { MODULE_KEYS } from "@/lib/modules";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -37,6 +38,10 @@ const TOP_BAR_PROPS = {
   user: TEST_USER,
   workspaceName: "Test Workspace",
   role: "owner_admin",
+  // Module gating (spec §171) is not what this file tests; the full set keeps
+  // the shell rendering every destination so the assertions stay about the
+  // controls themselves.
+  enabledModules: MODULE_KEYS,
 } as const;
 
 describe("top bar — unbuilt features are presented honestly", () => {

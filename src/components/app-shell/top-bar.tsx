@@ -3,6 +3,7 @@
 import { Bell, Search } from "lucide-react";
 
 import { NavDrawer } from "@/components/app-shell/nav-drawer";
+import type { ModuleKey } from "@/lib/modules";
 import { PageTitle } from "@/components/app-shell/page-title";
 import {
   NotAvailableChip,
@@ -45,7 +46,10 @@ export function TopBar({
   user,
   workspaceName,
   role,
+  enabledModules,
 }: {
+  /** The workspace's enabled modules (spec §171), resolved on the server. */
+  enabledModules: readonly ModuleKey[];
   user: AuthenticatedUser;
   /** Display only; resolved per request by the `(app)` layout. */
   workspaceName: string | null;
@@ -55,7 +59,7 @@ export function TopBar({
   return (
     <header className="surface-glass sticky top-0 z-20 rounded-none border-x-0 border-t-0">
       <div className="flex h-16 items-center gap-2 px-4 sm:gap-3 sm:px-6">
-        <NavDrawer user={user} />
+        <NavDrawer user={user} enabledModules={enabledModules} />
 
         {/* The sidebar carries the brand on desktop; below `lg` the top bar
             does — compactly on phones, in full from `sm`. */}
