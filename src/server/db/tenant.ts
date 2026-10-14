@@ -1,8 +1,12 @@
 import "server-only";
 
-import { AsyncLocalStorage } from "node:async_hooks";
-
 import { runtimeSql, type RuntimeTx } from "./client";
+import {
+  CONTEXT_FIELDS,
+  TenantGatewayConflict,
+  activeScope,
+  runInScope,
+} from "./tenant-scope";
 import { isIssuedTenantContext, type TenantContext } from "./tenant-context";
 
 /**
@@ -44,6 +48,8 @@ const SETTINGS = {
  */
 export type TenantTx = RuntimeTx;
 
+export { TenantGatewayConflict } from "./tenant-scope";
+
 export class TenantContextConflict extends Error {
   readonly field: "authUserId" | "userProfileId" | "workspaceId";
 
@@ -70,19 +76,6 @@ export class TenantContextUntrusted extends Error {
   }
 }
 
-type ActiveScope = { context: TenantContext; tx: TenantTx };
-
-/**
- * The transaction in flight for the current async execution path.
- *
- * AsyncLocalStorage rather than a module-level variable: a module-level value
- * would be shared by every concurrent request on the server and would produce
- * exactly the cross-tenant bleed this design exists to prevent. Storage is
- * per-async-context, server-only, and carries no value once the callback
- * returns.
- */
-const SCOPE = new AsyncLocalStorage<ActiveScope>();
-
 /**
  * Run `fn` inside one transaction carrying the given tenant context.
  *
@@ -90,7 +83,9 @@ const SCOPE = new AsyncLocalStorage<ActiveScope>();
  * transaction — no second transaction, no second `set_config`, the same handle.
  * A nested call whose context differs in any of the three identifiers throws
  * `TenantContextConflict` **before** the callback runs, so no statement is ever
- * executed under a context the caller did not intend.
+ * executed under a context the caller did not intend. A nested call made while
+ * `withTenantDb()` owns the transaction throws `TenantGatewayConflict`, for the
+ * same reason: no statement runs under an unintended arrangement.
  */
 export async function withTenant<T>(
   context: TenantContext,
@@ -99,21 +94,23 @@ export async function withTenant<T>(
   // Authenticity first: a forged object never reaches the database.
   if (!isIssuedTenantContext(context)) throw new TenantContextUntrusted();
 
-  const active = SCOPE.getStore();
+  const active = activeScope();
   if (active) {
     // Compare before anything executes, so a conflicting nested call cannot
     // run a single statement under a context the caller did not intend.
-    for (const field of [
-      "authUserId",
-      "userProfileId",
-      "workspaceId",
-    ] as const) {
+    for (const field of CONTEXT_FIELDS) {
       if (active.context[field] !== context[field]) {
         throw new TenantContextConflict(field);
       }
     }
-    // Same tenant: reuse the running transaction exactly as it is. No second
-    // BEGIN, no second set_config.
+    // The other gateway's handle is a different type over the same transaction
+    // and cannot be handed to this callback. Refuse rather than open a second
+    // transaction: see TenantGatewayConflict.
+    if (active.gateway !== "sql") {
+      throw new TenantGatewayConflict(active.gateway, "sql");
+    }
+    // Same tenant, same gateway: reuse the running transaction exactly as it
+    // is. No second BEGIN, no second set_config.
     return fn(active.tx);
   }
 
@@ -124,6 +121,6 @@ export async function withTenant<T>(
     await tx`select set_config(${SETTINGS.workspaceId}, ${context.workspaceId}, true)`;
 
     // Only `tx` crosses into the callback: the pool is not reachable from it.
-    return SCOPE.run({ context, tx }, () => fn(tx));
+    return runInScope({ gateway: "sql", context, tx }, () => fn(tx));
   }) as T;
 }

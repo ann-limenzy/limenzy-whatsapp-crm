@@ -124,9 +124,10 @@ Progress:
   `workspace_role_permissions` are deliberately **not** in 1C-B: invitations
   belong with the Settings → Users flow, and module and permission tables with
   Milestone 1D's gating work.
-- **1C-C — tenant isolation: built, gate not fully passed.** The code exists
-  and is committed; the milestone stays open because two of the §6.1 checks
-  cannot be demonstrated locally. In detail:
+- **1C-C — tenant isolation: built, gate passed.** The §6.1 proof gate passed
+  in full against the hosted development project on 2026-10-14 (run
+  `fab69fd8`), which closes the two checks that could not be demonstrated
+  locally. The pattern may now be propagated across the schema. In detail:
   - **Policies and roles (done).** `limenzy_owner` owns the objects and never
     logs in; `limenzy_app` is the runtime login, non-owner and NOBYPASSRLS;
     `limenzy_bootstrap` is NOLOGIN and exists only for the initial-workspace
@@ -154,14 +155,19 @@ Progress:
   - **Onboarding and selection (done).** Workspace creation, the chooser, the
     access-unavailable screen, the saved preference and its recovery — see
     “1C-C Phase 4D” below.
-  - **The RLS proof gate — 8 of 10 checks demonstrated locally.** Checks 1–8
-    were exercised against a real local PostgreSQL. **Check 9 (the Supabase
-    transaction pooler with the Drizzle driver) and check 10 (migration and
-    runtime credentials genuinely separate in a hosted project) remain
-    unverified**, because both need a hosted environment this project does not
-    yet have. They are not waived, reinterpreted or moved: until they pass,
-    1C-C is incomplete and the pattern is not propagated across the schema.
-    If any check fails, stop and report the exact failure.
+  - **The RLS proof gate — all 10 checks demonstrated.** Checks 1–8 were
+    exercised against a real local PostgreSQL and re-demonstrated hosted.
+    **Check 9 (the Supabase transaction pooler with the Drizzle driver) and
+    check 10 (migration and runtime credentials genuinely separate in a hosted
+    project) both passed** against `limenzy-crm-dev` on 2026-10-14. Neither was
+    waived or reinterpreted. See “Hosted verification” below and
+    architecture-decisions.md §6.1 for the evidence.
+  - **Two tenant gateways.** `withTenant()` (tagged-template SQL) and
+    `withTenantDb()` (Drizzle), both on the same restricted runtime pool, both
+    setting the same three transaction-local settings before any caller
+    statement. Nesting one inside the other is refused in both directions.
+    architecture-decisions.md §6.3 records the design and the parser contract
+    that comes with it.
 
 #### 1C-C Phase 4D — workspace routing and selection (implemented)
 
@@ -213,16 +219,42 @@ The 5 independent tests are the fixture-cleanup runner cases in
 they are counted by the strict runner because they live in a gated file.
 
 **Local only.** Every figure above comes from the local Supabase stack. It is
-not evidence about a hosted project, and in particular:
+not evidence about a hosted project. The two hosted gaps it left — §6.1 checks 9
+and 10 — have since been closed by the hosted run recorded below. One gap
+remains open and is **not** a §6.1 check:
 
-- the hosted transaction pooler (§6.1 check 9) is **unverified** — the local
-  pooler is disabled and was never in the connection path;
-- hosted credential separation (§6.1 check 10) is **unverified** — only the
-  local role split was observed;
 - **HTTPS `Secure` cookie behaviour in a browser is unverified.** The flag's
   derivation is covered by unit tests and was observed as `false` over local
   HTTP, which is correct there; no HTTPS origin was available to confirm the
-  browser receives it as `Secure` in a deployed environment.
+  browser receives it as `Secure` in a deployed environment. This needs a
+  deployed HTTPS origin, which is a deployment task, not a 1C-C requirement.
+
+#### Hosted verification (2026-10-14, run `fab69fd8`)
+
+Against the hosted development project `limenzy-crm-dev`.
+
+| What ran            | Result                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| Hosted §6.1 harness | **46 passed, 0 failed, 0 skipped, exit 0**                                              |
+| Gateways exercised  | `withTenant()` (SQL) and `withTenantDb()` (Drizzle)                                     |
+| Runtime connection  | `limenzy_app` through the transaction pooler, port 6543, verified TLS                   |
+| Tooling connection  | `postgres`, port 5432, fixtures and baselines only                                      |
+| Fixture cleanup     | every recorded identifier confirmed absent; all four table counts back to baseline zero |
+
+Both gateways passed workspace isolation, transaction-local context, rollback
+and concurrent-context separation. Runtime/tooling authority separation passed,
+with every permission denial required to be SQLSTATE 42501 specifically. The
+negative TLS controls — wrong CA, mismatched server name, no pinned CA — each
+failed the connection; verification was never disabled.
+
+**Configuration.** The harness is outside the repository and set `DATABASE_URL`
+and `DATABASE_CA_CERT` inside its own process only. **`.env.local` was not
+switched** and no hosted credential was exported to a parent shell or written to
+disk; both passwords were typed at hidden terminal prompts.
+
+**Still placeholders.** Every CRM business module remains a placeholder screen.
+This gate is a database-layer proof and says nothing about business
+functionality.
 
 ### 1D — Permissions, module gates and tenant-isolation test suite
 

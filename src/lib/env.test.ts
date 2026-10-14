@@ -278,6 +278,7 @@ describe("databaseEnv", () => {
   beforeEach(() => {
     delete process.env.DATABASE_URL;
     delete process.env.DRIZZLE_TOOLING_DATABASE_URL;
+    delete process.env.DATABASE_CA_CERT;
   });
 
   it("is not required by the rest of the configuration", () => {
@@ -536,5 +537,54 @@ describe("databaseEnv", () => {
       expect(message).not.toContain("FixturePasswordNotReal");
       expect(message).not.toContain("127.0.0.1");
     }
+  });
+
+  // DATABASE_CA_CERT is optional *here* and required in practice for any host
+  // that is not an explicit loopback literal. That rule depends on the host,
+  // so it lives in server/db/tls.ts and is tested in tls.unit.test.ts; this
+  // module only carries the value, and must not need Node built-ins to do it.
+  describe("DATABASE_CA_CERT", () => {
+    const CERT_TEXT =
+      "-----BEGIN CERTIFICATE-----\nSyntheticFixtureNotARealCertificate\n-----END CERTIFICATE-----";
+
+    it("is optional, so local development needs no certificate", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      expect(databaseEnv().DATABASE_CA_CERT).toBeUndefined();
+    });
+
+    it("treats an empty string as unset rather than invalid", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      process.env.DATABASE_CA_CERT = "";
+      expect(databaseEnv().DATABASE_CA_CERT).toBeUndefined();
+    });
+
+    it("carries multiline PEM text through unchanged", () => {
+      process.env.DATABASE_URL = url("limenzy_app");
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      expect(databaseEnv().DATABASE_CA_CERT).toBe(CERT_TEXT);
+    });
+
+    it("never reaches the browser-facing configuration", () => {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = URL_VALUE;
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = KEY_VALUE;
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      const published = JSON.stringify(publicEnv());
+      expect(published).not.toContain("CERTIFICATE");
+      expect(published).not.toContain("SyntheticFixtureNotARealCertificate");
+      expect(Object.keys(publicEnv())).not.toContain("DATABASE_CA_CERT");
+    });
+
+    it("is not echoed when another variable fails validation", () => {
+      process.env.DATABASE_URL = url("postgres");
+      process.env.DATABASE_CA_CERT = CERT_TEXT;
+      try {
+        databaseEnv();
+        expect.unreachable("databaseEnv should have thrown");
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).not.toContain("SyntheticFixtureNotARealCertificate");
+        expect(message).not.toContain("BEGIN CERTIFICATE");
+      }
+    });
   });
 });

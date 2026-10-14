@@ -503,6 +503,19 @@ describe("the tenant gateway import boundary", () => {
     "src/server/db/client.ts": ["the postgres driver", "a Drizzle client"],
     // The gateway: consumes the pool and the context marker.
     "src/server/db/tenant.ts": ["the runtime pool", "the context constructor"],
+    // The Drizzle gateway: same contract, different handle. It consumes the
+    // pool's Drizzle handle and names the context type, but builds no client.
+    "src/server/db/tenant-db.ts": [
+      "the runtime pool",
+      "the context constructor",
+    ],
+    // The transaction scope both gateways share. It holds a live transaction
+    // handle, so it names the pool's types and the context type, and nothing
+    // else may import it — see the ESLint boundary.
+    "src/server/db/tenant-scope.ts": [
+      "the runtime pool",
+      "the context constructor",
+    ],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -560,6 +573,8 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/workspace-context.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
+      "src/server/db/tenant-db.ts",
+      "src/server/db/tenant-scope.ts",
       "src/server/db/tenant.ts",
     ]);
     // The bootstrap operation gets the pool and nothing else: it must not be

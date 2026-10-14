@@ -313,6 +313,65 @@ Checks 9 and 10 are **not waived, reinterpreted or moved to a later
 milestone**. They are blocked on a hosted project existing, and 1C-C stays open
 until they pass.
 
+**Hosted status: the gate is passed.** Run `fab69fd8` on 2026-10-14 against the
+hosted development project `limenzy-crm-dev` completed **46 passed, 0 failed, 0
+skipped, exit 0**. The runtime role connected as `limenzy_app` through the
+Supabase transaction pooler on port 6543 with verified TLS; the tooling role
+connected as `postgres` on 5432 and was used only to create, read and remove
+fixtures. An earlier run, `c29c8e63`, established checks 1–8 and 10 by the same
+method; `fab69fd8` repeated them and added the Drizzle gateway.
+
+| #   | Check                                                                                                             | Status                  |
+| --- | ----------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| 1–8 | Connection, ownership, BYPASSRLS, FORCE RLS, unset and wrong GUC, transaction-locality, pooled-connection leakage | demonstrated hosted     |
+| 9   | Supabase transaction pooler + Drizzle                                                                             | **demonstrated hosted** |
+| 10  | Migration and runtime credentials separate                                                                        | **demonstrated hosted** |
+
+**Check 9.** Exercised through the real `withTenantDb()` gateway of §6.3 over
+the 6543 pooler: the Drizzle query builder returned only the context workspace;
+an `owner_admin` `UPDATE … RETURNING` affected exactly one row and the stored
+value was confirmed by the tooling connection; a `staff_sales` `UPDATE` affected
+zero rows and left the stored value unchanged; a cross-workspace context
+returned zero rows; a thrown callback rolled its `UPDATE` back; the setting was
+absent after the transaction; and sequential and concurrent transactions each
+saw only their own workspace. The same isolation was demonstrated through the
+raw-SQL `withTenant()` gateway in the same run, and nesting one gateway inside
+the other was refused in both directions with `TenantGatewayConflict`.
+
+**Check 10.** The two connections authenticate as different roles; the runtime
+role holds no membership of `limenzy_owner`, `limenzy_bootstrap`, `postgres`,
+`service_role`, `supabase_admin` or `pg_read_all_data` (`MEMBER`, `USAGE` and
+`SET` all false); `SET ROLE` to the privileged roles is refused with SQLSTATE
+42501; the migration history is unreadable to it; and only the tooling role
+holds `BYPASSRLS`. Every permission-denial assertion requires SQLSTATE 42501
+specifically, so a missing object or a constraint violation cannot be mistaken
+for access control.
+
+**Negative TLS controls.** A wrong certificate authority, a mismatched server
+name and the absence of a pinned CA each failed the connection. Verification was
+never disabled, for any check.
+
+**Fixtures and cleanup.** The run created synthetic fixtures only — two
+`auth.users` rows, two profiles, three workspaces and four memberships,
+including an inactive membership — each recorded by primary key as it was
+created. Cleanup ran in a `finally` block, deleted only those recorded
+identifiers in foreign-key-safe order, re-read each one individually to confirm
+absence, and compared both row counts and the pre-existing identifier sets
+against baselines captured before the fixtures existed. All four table counts
+returned to their baseline of zero and no pre-existing row was touched. No
+`TRUNCATE`, prefix match or reset was used at any point.
+
+**How the hosted run was configured.** The harness lives outside the repository
+and set `DATABASE_URL` and `DATABASE_CA_CERT` **inside its own process only**.
+`.env.local` was neither read nor switched, no hosted credential was exported to
+a parent shell or written to disk, and both passwords were typed at hidden
+terminal prompts. The repository's own configuration is unchanged.
+
+**What this gate does not cover.** It is a database-layer proof. HTTPS `Secure`
+cookie behaviour in a browser remains unverified — no HTTPS origin was
+available — and the CRM business modules remain placeholder screens. Neither is
+a §6.1 check; both are tracked in `docs/build-plan.md`.
+
 ### 6.2 Workspace routing and selection (implemented, Milestone 1C-C)
 
 How a request gets from a verified person to a workspace. This records what the
@@ -384,6 +443,70 @@ the driver, raw-client and context-constructor imports per directory and
 forbids naming the tooling connection outside the places that may, and a
 contract test in `src/test/local-tooling.test.ts` enumerates the exact files
 allowed each exemption, so a new file cannot quietly acquire one.
+
+### 6.3 Tenant query gateways (implemented, Milestone 1C-C)
+
+Two gateways, one contract. Both open a transaction on the same restricted
+runtime pool (`limenzy_app`, no `BYPASSRLS`, verified TLS, `prepare: false`),
+establish the same three transaction-local settings before any caller statement
+runs, and leave the rest to the fail-closed policies.
+
+| Gateway                                         | Handle the callback receives | Use it for                             |
+| ----------------------------------------------- | ---------------------------- | -------------------------------------- |
+| `withTenant()` — `src/server/db/tenant.ts`      | postgres.js `TransactionSql` | tagged-template SQL                    |
+| `withTenantDb()` — `src/server/db/tenant-db.ts` | Drizzle transaction          | Drizzle query builder and `.execute()` |
+
+**Why two.** Drizzle's `drizzle()` factory writes type parsers to
+`client.options`, and a postgres.js `TransactionSql` has no `options` — it is
+built by an inner `Sql(handler)` that assigns only `types`, `typed`, `unsafe`,
+`notify`, `array`, `json` and `file`. So a Drizzle handle **cannot** be
+constructed over a transaction `withTenant()` already opened. What Drizzle does
+support is opening the transaction itself: its `transaction()` calls postgres.js
+`begin()` and builds its session over the resulting transaction client.
+`withTenantDb()` uses that supported path, which is why it owns its transaction
+rather than borrowing one. No `.options` is fabricated, no `TransactionSql` is
+cast into `drizzle()`, and no driver internals are copied.
+
+**Nesting.** Both gateways share one `AsyncLocalStorage` scope in
+`src/server/db/tenant-scope.ts`, which no other module may import. A nested call
+with an identical context reuses the running transaction; a differing context
+throws `TenantContextConflict`; a call made while the _other_ gateway owns the
+transaction throws `TenantGatewayConflict`. All three decisions happen **before**
+any statement runs. Two separate scopes would each be blind to the other, so a
+`withTenantDb()` inside a `withTenant()` would open a second transaction on a
+second pooled connection — two tenant contexts in flight at once, which is the
+failure this design exists to prevent.
+
+#### The parser contract
+
+`drizzle()` replaces the pool's type parsers and serializers as a side effect:
+transparent parsers for OIDs 1184, 1082, 1083, 1114, 1182, 1185, 1115 and 1231,
+and serializers for 114 and 3802. The practical effect is that **timestamp
+columns come back as raw strings rather than `Date`** — `"2026-10-14 03:00:00+00"`
+instead of a `Date` object.
+
+This applies to **raw SQL on the runtime pool**, including `withTenant()`
+callbacks. Drizzle's own schema-defined columns are unaffected: it maps them
+through the schema, which is why the transparent parsers are installed in the
+first place.
+
+The side effect is accepted deliberately, and made deterministic:
+`createRuntimePool()` builds the Drizzle handle **as it creates the pool**, so
+the contract is a fixed property of every runtime pool from its first statement,
+identical for both gateways, in every process. Deferring it to first use would
+mean the raw-SQL path behaved one way before the first `withTenantDb()` call and
+another way after it — a behaviour change that moves with traffic.
+
+No current raw-SQL caller selects a timestamp column
+(`workspace-names.ts`, `identity.ts`, `create-initial-workspace.ts` read
+`name`, `id`, `workspace_id`, `role` and `outcome`), so nothing needed
+converting. A future raw-SQL caller that wants a `Date` must parse the string
+itself, or read that column through Drizzle. `client-drizzle.unit.test.ts`
+pins this contract so it cannot change unnoticed.
+
+Each pool gets exactly one Drizzle handle, held in a `WeakMap` keyed by the pool,
+so a handle can never outlive the pool it is bound to or be served for a pool
+that has been closed and replaced.
 
 ## 7. Decisions taken during Milestone 1A
 

@@ -220,6 +220,22 @@ const databaseSchema = z.object({
           "Locally, run `npm run db:role:local` to provision it.",
       },
     ),
+
+  /**
+   * PEM text of the certificate authority that signs the database server's
+   * certificate. Server-only: it must never carry a `NEXT_PUBLIC_` prefix.
+   *
+   * Optional **here**, and required in practice for every host that is not an
+   * explicit loopback literal. That rule is enforced where the connection is
+   * actually built, in `server/db/tls.ts`, because it depends on the host —
+   * and so is the authoritative parse, which uses `node:crypto`'s
+   * X509Certificate. This module is imported by browser code for
+   * `publicEnv()`, so it stays free of Node built-ins; the check below is
+   * only "present means non-empty".
+   *
+   * It is a PUBLIC certificate, not a secret: no private key, no password.
+   */
+  DATABASE_CA_CERT: z.string().min(1, "must not be empty when set").optional(),
 });
 
 export type DatabaseEnv = z.infer<typeof databaseSchema>;
@@ -301,6 +317,9 @@ export function databaseEnv(): DatabaseEnv {
   if (databaseCache) return databaseCache;
   const parsed = databaseSchema.safeParse({
     DATABASE_URL: process.env.DATABASE_URL,
+    // An empty string is "not configured", not "configured as empty" — the
+    // same treatment NEXT_PUBLIC_SITE_URL already gets.
+    DATABASE_CA_CERT: process.env.DATABASE_CA_CERT || undefined,
   });
   if (!parsed.success) {
     throw new EnvConfigurationError(describeIssues(parsed.error));

@@ -28,9 +28,28 @@ const DRIVER_IMPORTS = [
     name: "drizzle-orm/postgres-js",
     message:
       "Do not construct a Drizzle client. Use withTenant() in " +
-      "@/server/db/tenant; repositories receive the transaction handle.",
+      "@/server/db/tenant or withTenantDb() in @/server/db/tenant-db; " +
+      "repositories receive the transaction handle.",
   },
 ];
+
+/**
+ * The internal transaction scope. It carries a live transaction handle, so a
+ * caller holding it could run statements outside the gateway that established
+ * the tenant context. Only the two gateways may import it.
+ */
+const TENANT_SCOPE_PATTERNS = {
+  group: [
+    "**/server/db/tenant-scope",
+    "./tenant-scope",
+    "../tenant-scope",
+    "../db/tenant-scope",
+    "./db/tenant-scope",
+  ],
+  message:
+    "The transaction scope is internal to the gateways. Use withTenant() in " +
+    "@/server/db/tenant or withTenantDb() in @/server/db/tenant-db.",
+};
 
 /**
  * The runtime pool, by every spelling that reaches it — aliased or relative.
@@ -46,7 +65,7 @@ const RAW_CLIENT_PATTERNS = {
   ],
   message:
     "The runtime pool is not application API. Use withTenant() in " +
-    "@/server/db/tenant.",
+    "@/server/db/tenant, or withTenantDb() in @/server/db/tenant-db.",
 };
 
 /** The trusted context constructor. */
@@ -84,6 +103,10 @@ const GATEWAY_FILES = {
   client: "src/server/db/client.ts",
   /** Consumes the pool and the context marker: the gateway itself. */
   tenant: "src/server/db/tenant.ts",
+  /** The Drizzle gateway. Same contract as `tenant`, different handle. */
+  tenantDb: "src/server/db/tenant-db.ts",
+  /** The transaction scope both gateways share. Imports no driver at all. */
+  tenantScope: "src/server/db/tenant-scope.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -123,6 +146,8 @@ const eslintConfig = defineConfig([
       ...TEST_FILES,
       GATEWAY_FILES.client,
       GATEWAY_FILES.tenant,
+      GATEWAY_FILES.tenantDb,
+      GATEWAY_FILES.tenantScope,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -132,7 +157,11 @@ const eslintConfig = defineConfig([
         "error",
         {
           paths: DRIVER_IMPORTS,
-          patterns: [RAW_CLIENT_PATTERNS, CONTEXT_PATTERNS],
+          patterns: [
+            RAW_CLIENT_PATTERNS,
+            TENANT_SCOPE_PATTERNS,
+            CONTEXT_PATTERNS,
+          ],
         },
       ],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
@@ -157,6 +186,31 @@ const eslintConfig = defineConfig([
      * connection.
      */
     files: [GATEWAY_FILES.tenant],
+    rules: {
+      "no-restricted-imports": ["error", { paths: DRIVER_IMPORTS }],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * The Drizzle gateway. It consumes the pool's Drizzle handle through
+     * `runtimeDb()` and needs `drizzle-orm`'s `sql` tag to parameterise
+     * set_config, but it must not reach the postgres-js driver itself, mint a
+     * tenant context, or name the tooling connection.
+     */
+    files: [GATEWAY_FILES.tenantDb],
+    rules: {
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * The shared transaction scope. It imports the `TenantContext` *type* to
+     * describe what it stores — the same type the gateways name — but no
+     * driver and no tooling connection. It mints nothing: `createTenantContext`
+     * is not reachable from here, and the whole-tree rule still guards it.
+     */
+    files: [GATEWAY_FILES.tenantScope],
     rules: {
       "no-restricted-imports": ["error", { paths: DRIVER_IMPORTS }],
       "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],

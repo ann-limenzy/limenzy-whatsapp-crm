@@ -562,6 +562,51 @@ connection, not Supabase's hosted transaction pooler (`db.pooler` is disabled in
 anticipation of it, but hosted pooler compatibility — §6.1 gate check 9 —
 remains unverified until company Supabase access.
 
+### Transport security: `DATABASE_CA_CERT`
+
+Locally you need nothing. The generated `DATABASE_URL` points at `127.0.0.1`,
+and an explicit loopback host is the only case the application lets connect
+without TLS. Three literals qualify and nothing else:
+
+| Host                                                                       | Connects without TLS? |
+| -------------------------------------------------------------------------- | --------------------- |
+| `localhost`, `127.0.0.1`, `::1` (written `[::1]` in a URL)                 | yes                   |
+| `127.0.0.2`, `0.0.0.0`, `::`, `10.x`, `192.168.x`, `localhost.example.com` | **no**                |
+
+There is no `NODE_ENV` check and no "is this local" flag — the host in the URL
+is the only input, because a flag can be set by accident and a hostname suffix
+can be registered by somebody else.
+
+For any other host, `DATABASE_CA_CERT` is **required** and holds the PEM text
+of the certificate authority that signs the database server's certificate:
+
+- **server-only** — never give it a `NEXT_PUBLIC_` prefix;
+- a **public certificate**, not a password and not a private key. A
+  `-----BEGIN PRIVATE KEY-----` block in this variable is refused;
+- parsed with `node:crypto`'s `X509Certificate`, not matched as a substring, so
+  truncated or non-certificate base64 is rejected rather than quietly accepted;
+- never repaired. A malformed value is an error, not something to re-flow.
+
+Set it in your deployment platform's environment settings — not in
+`.env.local`, not in the repository. For Supabase it comes from Dashboard →
+Project Settings → Database → SSL Configuration → Download certificate; paste
+the file's whole contents including the BEGIN/END lines. Multiline values are
+accepted directly by most platforms; what matters is that the line breaks
+survive.
+
+**Why an explicit certificate rather than `sslmode` in the URL.** postgres.js
+does not read `sslmode` the way libpq does. From the installed 3.4.9 source,
+`sslmode=require|allow|prefer` sets `rejectUnauthorized: false` — encrypted but
+unverified — and `sslmode=verify-full` as a string falls through to Node's
+built-in CA store, which does not contain Supabase's private root. Only an
+`ssl` **object** carrying the CA verifies the chain. The application therefore
+builds that object itself, and refuses a URL that carries `sslmode`,
+`sslrootcert`, `host`, `port`, `user`, `options` or any other parameter that
+would steer TLS or the connection target, rather than ignoring it.
+
+If a valid CA is configured while pointing at a loopback host, verified TLS is
+used there too — configuring one is taken at face value.
+
 ### What is proven locally
 
 **203 tests** run on every `npm run test:db` and none may skip. Of those,
@@ -786,20 +831,64 @@ a single superuser role. It is not the company's Supabase project, and it does
 not exercise that project's pooler, roles, credentials, network configuration
 or backups.
 
+**The RLS proof gate has been run hosted.** On 2026-10-14, run `fab69fd8`
+against the development project `limenzy-crm-dev` passed all ten §6.1 checks
+(46 passed, 0 failed, exit 0), including check 9 — the transaction pooler with
+the Drizzle driver, through the real `withTenantDb()` gateway — and check 10,
+migration and runtime credentials genuinely separate. Evidence is in
+[architecture-decisions.md §6.1](./architecture-decisions.md).
+
+That run used a harness outside this repository which set `DATABASE_URL` and
+`DATABASE_CA_CERT` **in its own process only**. **`.env.local` was not
+switched**, and no hosted credential was exported to a parent shell or written
+to disk. Keep it that way: pointing your `.env.local` at a hosted project is not
+how hosted checks are run here.
+
 Still requiring company Supabase access:
 
 - the integration-verification gate once real credentials are supplied;
-- the RLS proof gate ([architecture-decisions.md §6.1](./architecture-decisions.md)) —
-  checks 9 and 10 in particular name the selected transaction pooler and
-  genuinely separate migration/runtime credentials, which local emulation
-  cannot stand in for;
 - backup and restore validation;
 - anything depending on a CTO decision in specification §180.1, including the
   object-storage provider and the WhatsApp and Email providers.
 
+Still unverified anywhere, and **not** a §6.1 check: HTTPS `Secure` cookie
+behaviour in a browser. The flag's derivation is unit-tested and is correctly
+`false` over local HTTP; confirming a browser receives it as `Secure` needs a
+deployed HTTPS origin. The CRM business modules also remain placeholder
+screens — the gate is a database-layer proof and says nothing about them.
+
 Never describe a local pass as proof that production is configured correctly.
 
 ---
+
+## Tenant query gateways
+
+Two supported ways to run a tenant-scoped query. Both open one transaction on
+the runtime pool and set the three tenant settings before your callback runs.
+
+```ts
+// Tagged-template SQL
+const rows = await withTenant(
+  context,
+  async (tx) => tx<{ id: string }[]>`select id from public.workspaces`,
+);
+
+// Drizzle query builder
+const rows = await withTenantDb(context, async (tx) =>
+  tx.select().from(workspaces),
+);
+```
+
+Pick one per operation. Nesting one gateway inside the other throws
+`TenantGatewayConflict` — they cannot share a transaction, and opening a second
+would run two tenant contexts at once. Nesting the _same_ gateway with the same
+context reuses the running transaction.
+
+**Timestamps in raw SQL come back as strings.** Every runtime pool carries a
+Drizzle handle from creation, and Drizzle installs transparent type parsers, so
+`tx\`select created_at ...\``yields`"2026-10-14 03:00:00+00"`, not a `Date`.
+Read timestamps through Drizzle, or parse the string yourself. The full contract
+is in `docs/architecture-decisions.md` §6.3.
 
 ## Known local limitation: the stack is reachable from your network
 
