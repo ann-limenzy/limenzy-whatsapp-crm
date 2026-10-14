@@ -60,7 +60,7 @@ is not a reason to stall the foundation.
   rejects a legacy `anon`/`service_role` JWT.
 
 Setup, daily commands and troubleshooting live in
-[local-development.md](./local-development.md).
+[development.md](./development.md).
 
 **Local emulation proves the code, not the deployment.** Passing locally does
 not demonstrate that production provider configuration is correct. A separate
@@ -115,7 +115,7 @@ Progress:
 
 - **1C-A — local Supabase and Drizzle tooling: done.** Pinned CLI and Drizzle,
   `supabase/config.toml`, the single migration history, safe seed, `db:*`
-  scripts and [local-development.md](./local-development.md).
+  scripts and [development.md](./development.md).
 - **1C-B — multi-tenant foundation schema: done.** `workspaces`,
   `user_profiles` and `workspace_memberships`, with the three specification
   roles (§2, §159), Active/Inactive membership status (§159), deactivate-never-
@@ -580,34 +580,45 @@ a secure context. Its one job is the offline fallback.
 | Served HTML                                    | `viewport-fit=cover`, both `theme-color` values, Apple web-app metadata, `<link rel="manifest">`                                                                                                                                                                                                                                                                                                                                                                                                 |
 | typecheck · lint · format · `git diff --check` | passed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
-#### 1E — what still needs an HTTPS deployment
+#### 1E — what is still pending, and why
 
-None of the following can be completed locally, and none is claimed:
+Nothing below is passed, and none of it blocks unrelated business-feature work:
+these gate claims about installed behaviour, not development.
 
-- **Installability.** A service worker needs a secure context. `localhost` is
-  treated as secure, so registration works in local production; a deployed
-  **HTTP** origin would silently not register. Confirming the install prompt,
-  the launcher entry and the splash screen needs a real HTTPS origin.
+**Pending, but testable locally — no deployment required.** `localhost` is a
+secure context, so a production build served locally can register a service
+worker and be installed from desktop Chrome. These are outstanding because no
+browser run has been performed and no browser automation is installed here, not
+because they need a deployed origin:
+
+- **In-browser registration.** The worker's logic is executed and asserted in
+  Node against a stubbed scope, and the file is served correctly by a local
+  production server, but `navigator.serviceWorker.register` actually resolving
+  has not been observed.
+- **A genuine offline navigation.** The fallback is proved by dispatching a
+  failed fetch at the worker; a real network-down navigation in a browser has
+  not been watched.
+- **Desktop installability** — the install affordance, the launcher entry and
+  the splash screen, all of which Chrome offers from `localhost`.
+- **The update cycle.** `/sw.js` is served `max-age=0` so the browser
+  re-fetches it, and `activate` provably deletes every non-current cache. Two
+  successive local production builds with a bumped cache version would
+  demonstrate the swap end to end.
+
+**Pending and genuinely requiring a deployed HTTPS origin.** A phone cannot
+reach `localhost`, and the `Secure` attribute cannot be exercised over HTTP:
+
 - **Real-device installation** on Android Chrome and iPhone Safari, which the
-  1E scope lists explicitly. This needs a URL a phone can reach.
-- **Standalone launch and session behaviour** — whether the installed window
-  inherits the browser session, and how sign-out behaves inside it. This is the
-  highest-risk item in 1E and the reason it was sequenced after 1B.
+  1E scope lists explicitly.
+- **Standalone launch and session behaviour on a device** — whether the
+  installed window inherits the browser session, and how sign-out behaves
+  inside it. This is the highest-risk item in 1E and the reason it was
+  sequenced after 1B.
 - **HTTPS `Secure` cookie behaviour**, still open from earlier milestones. The
   flag's derivation is unit-tested and is correctly `false` over local HTTP.
-- **Update strategy in practice** — that a new deployment replaces the previous
-  worker and its cache. The mechanism is verified as far as it can be locally:
-  `/sw.js` is served `max-age=0` so the browser re-fetches it, and `activate`
-  provably deletes every non-current cache. Observing the cycle across two real
-  deployments needs deployments.
-- **In-browser registration and a genuine offline navigation.** The worker's
-  logic is executed and asserted in Node, but no browser automation is installed
-  here, so `navigator.serviceWorker.register` actually succeeding, and a real
-  network-down navigation falling back, have not been observed.
 
-**None of these is passed, and none of them blocks unrelated business-feature
-work.** They gate claims about installed behaviour, not development: the
-application runs, and every other milestone's checks are independent of them.
+A deployed **HTTP** origin would be worse than localhost, not better: the
+worker would silently fail to register.
 
 No deployment provider has been chosen and nothing has been deployed.
 

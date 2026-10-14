@@ -78,17 +78,14 @@ const runtimeUrlForGuard = connectionString(RUNTIME_VARIABLE);
 {
   const problem = describeTargetMismatch(url, runtimeUrlForGuard);
   if (problem !== null) {
-    fail(
-      problem,
-      "Set both to the same database — see docs/local-development.md.",
-    );
+    fail(problem, "Set both to the same database — see docs/development.md.");
   }
 }
 
 if (!url) {
   fail(
     `${VARIABLE} is not available.`,
-    `Start the local stack with "npm run db:start" and copy its printed values into .env.local (see docs/local-development.md).`,
+    `Start the local stack with "npm run db:start" and copy its printed values into .env.local (see docs/development.md).`,
   );
 }
 

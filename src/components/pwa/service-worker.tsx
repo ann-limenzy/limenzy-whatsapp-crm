@@ -13,9 +13,11 @@ import { useEffect } from "react";
  * across hot reloads produces confusing staleness, and Milestone 1E's own
  * caching rules are what need testing in a production build anyway.
  *
- * Service workers require a secure context: HTTPS, or localhost. On a deployed
- * HTTP origin this quietly does nothing, which is correct — see the HTTPS note
- * in docs/build-plan.md.
+ * Service workers require a secure context: HTTPS, **or localhost**. A local
+ * production build therefore registers normally, which is why the browser
+ * checks for this are testable without deploying. A deployed HTTP origin would
+ * quietly do nothing, which is correct — see the 1E pending-checks note in
+ * docs/build-plan.md.
  */
 export function ServiceWorkerRegistration() {
   useEffect(() => {

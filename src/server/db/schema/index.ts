@@ -8,7 +8,7 @@
  * isolation arrive in 1C-C — the tables below are created with RLS enabled and
  * **no policies**, so nothing reaches them until those policies exist.
  *
- * Process reminder (see `docs/local-development.md`): Drizzle may *generate*
+ * Process reminder (see `docs/development.md`): Drizzle may *generate*
  * candidate SQL from these definitions, but the reviewed SQL must land in
  * `supabase/migrations/`, which is the one authoritative applied history.
  */

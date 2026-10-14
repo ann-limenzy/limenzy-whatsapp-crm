@@ -56,7 +56,7 @@ supabase/.env
 
 # Drizzle Kit candidate output. Scratch SQL generated for review only — never
 # an applied migration history. Reviewed SQL belongs in supabase/migrations/,
-# which stays tracked. See docs/local-development.md.
+# which stays tracked. See docs/development.md.
 /drizzle/
 
 # local database dumps and generated state (never committed).

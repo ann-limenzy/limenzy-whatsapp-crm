@@ -204,7 +204,7 @@ async function main() {
     console.error(
       `\n✗ db:role:local — ${TOOLING_KEY} is not available.\n` +
         `  Start the local stack with "npm run db:start" first ` +
-        `(see docs/local-development.md).\n`,
+        `(see docs/development.md).\n`,
     );
     process.exit(1);
   }

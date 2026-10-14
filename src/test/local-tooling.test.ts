@@ -165,7 +165,7 @@ describe("local runtime-role provisioning", () => {
   });
 
   it("keeps the documented reset sequence in the developer guide", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     const order = [
       "npm run db:start",
       "npm run db:reset",
@@ -230,7 +230,7 @@ describe("one applied migration history", () => {
   });
 
   it("documents the rule where a developer will look for it", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     expect(guide).toContain("supabase/migrations/");
     expect(guide).toContain("drizzle-kit push");
   });
@@ -994,17 +994,6 @@ describe("the workspace setup screen", () => {
       expect(source).not.toContain("@/server/db/");
     }
   });
-
-  it("keeps the temporary-documentation rule visible", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
-    for (const phrase of [
-      "deleted before integration",
-      "squash-merge",
-      "must **not** be fast-forwarded",
-    ]) {
-      expect(guide).toContain(phrase);
-    }
-  });
 });
 
 describe("the initial-workspace operation", () => {
@@ -1279,7 +1268,7 @@ describe("the initial-workspace operation", () => {
   });
 
   it("is explained where a developer will look for it", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     expect(guide).toContain("createInitialWorkspace");
     for (const phrase of [
       "invalid_input",
@@ -1575,7 +1564,7 @@ describe("the initial-workspace bootstrap migration", () => {
   });
 
   it("is explained where a developer will look for it", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     expect(guide).toContain("app.create_initial_workspace");
     for (const phrase of [
       "limenzy_bootstrap",
@@ -1713,7 +1702,7 @@ describe("workspace selection treats the candidate as a preference", () => {
   });
 
   it("is explained where a developer will look for it", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     expect(guide).toContain("resolveWorkspaceContext");
     for (const phrase of [
       "access_unavailable",
@@ -1898,7 +1887,7 @@ describe("identity resolution takes no identity from its caller", () => {
   });
 
   it("is explained where a developer will look for it", async () => {
-    const guide = await readRepoFile("docs/local-development.md");
+    const guide = await readRepoFile("docs/development.md");
     expect(guide).toContain("resolveVerifiedIdentity");
     for (const phrase of [
       "does not select a workspace",

@@ -138,7 +138,7 @@ Consequently `drizzle-kit migrate` is never run against a database the Supabase
 CLI migrates, and `drizzle-kit push` is not a migration mechanism — it mutates a
 database without leaving a reviewable, replayable file. Neither has an npm
 script. The reasoning and the day-to-day commands are in
-[local-development.md](./local-development.md).
+[development.md](./development.md).
 
 ## 3. Approved interpretations of ambiguous specification points
 

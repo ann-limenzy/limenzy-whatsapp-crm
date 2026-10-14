@@ -1,4 +1,4 @@
-# Local Development
+# Development
 
 How to run Limenzy CRM's database and authentication stack on your own machine,
 with no company Supabase credentials and no hosted project.
@@ -6,18 +6,11 @@ with no company Supabase credentials and no hosted project.
 Everything here is local. Nothing in this guide connects to a hosted
 environment, and no command in `package.json` can target one.
 
-> **This file is temporary and personal to the feature branch.**
->
-> It exists to keep the 1C-C work reviewable while it is in progress, and it is
-> **not** the permanent authority for any production security decision — the
-> migrations, the tests and `docs/architecture-decisions.md` are.
->
-> - It must be **deleted before integration**.
-> - This branch must **not** be fast-forwarded or normally merged into `main`.
-> - Final integration will remove this file and **squash-merge** the net
->   production changes, so it never enters `main`.
-> - It contains no credential and no machine-specific secret, and must not
->   acquire one.
+This is the permanent developer runbook: how to run the system, and what each
+part of the tenancy foundation does and returns. It is not the authority for
+_why_ anything is designed as it is — that is
+[architecture-decisions.md](./architecture-decisions.md), and where the two ever
+disagree, the decisions document and the migrations win.
 
 ---
 
@@ -105,84 +98,6 @@ Rules that the code enforces, not just convention:
   guide, a commit message or a test.
 
 ---
-
-## Tenant security: what exists today
-
-The database enforces tenant scoping for the application's runtime role. This is
-the second of the two layers spec §177 requires — it does **not** replace
-server-side authorization, and it is **not** finished.
-
-**Roles.** `limenzy_owner` owns the objects and never logs in.
-`limenzy_bootstrap` is reserved for a later phase and owns nothing.
-**`limenzy_app`** is the application's only connection: a non-owner,
-non-superuser, `NOBYPASSRLS` role, so row-level security applies to it in full.
-
-**Context readers** (`app.current_auth_user_id()`,
-`app.current_user_profile_id()`, `app.current_workspace_id()`) each read one
-transaction setting — `app.auth_user_id`, `app.user_profile_id`,
-`app.workspace_id` — and return `uuid` or NULL. They are `STABLE`,
-`SECURITY INVOKER`, own no privilege, touch no table, and are executable only by
-`limenzy_owner` and `limenzy_app`. An unset setting yields NULL, so every policy
-comparison yields NULL and nothing is visible: **the resting state is deny**. A
-malformed value raises rather than resolving to some other identity.
-
-**Policies**, all scoped `TO limenzy_app`:
-
-| Table                   | SELECT                                                                            | UPDATE                    | INSERT / DELETE |
-| ----------------------- | --------------------------------------------------------------------------------- | ------------------------- | --------------- |
-| `user_profiles`         | own profile, keyed on the auth setting                                            | —                         | none            |
-| `workspace_memberships` | own rows, and the profile setting must match the auth setting against stored data | —                         | none            |
-| `workspaces`            | the selected workspace, with an active membership                                 | active `owner_admin` only | none            |
-
-Column privileges are an independent second layer: `limenzy_app` may update only
-`name`, `business_type`, `country`, `currency` and `time_zone`. It holds no grant
-on `id`, `created_at` or `updated_at`, so those cannot be written even if a
-policy were wrong. `updated_at` is maintained by its trigger.
-
-**`FORCE ROW LEVEL SECURITY`** is enabled on all three tables, so the owner is
-subject to the policies too. Stated accurately: FORCE does **not** constrain a
-superuser or a `BYPASSRLS` role — locally `postgres` holds `BYPASSRLS` and still
-sees everything, which is what lets migrations and tooling work.
-
-### The runtime gateway
-
-Two database connections exist, and they are not interchangeable:
-
-| Connection                     | Role            | Bypasses RLS? | Used by                                  |
-| ------------------------------ | --------------- | ------------- | ---------------------------------------- |
-| `DATABASE_URL`                 | `limenzy_app`   | **no**        | the application, through `withTenant()`  |
-| `DRIZZLE_TOOLING_DATABASE_URL` | local superuser | **yes**       | `drizzle-kit`, migrations, test fixtures |
-
-**Every tenant query must go through `withTenant()`** (`src/server/db/tenant.ts`):
-
-```ts
-await withTenant(context, async (tx) => {
-  // every protected statement uses `tx`
-});
-```
-
-It opens one transaction on the runtime pool and sets `app.auth_user_id`,
-`app.user_profile_id` and `app.workspace_id` with
-`set_config(name, value, true)` — the third argument makes each setting
-**transaction-local**. A session-scoped `SET` would survive the transaction and
-leak the tenant to whichever request borrowed the same pooled connection next.
-The settings are gone at COMMIT and at ROLLBACK alike.
-
-A query run outside the gateway sees no context, so the policies match nothing
-and it returns zero rows. That is fail-closed, but it reads like an empty
-database rather than like a mistake — which is why an ESLint rule and contract
-tests stop application code importing the pool, the `postgres` driver, a Drizzle
-client, or the context constructor.
-
-A context is minted by `createTenantContext()`, which validates three UUIDs,
-freezes the object and records it; `withTenant()` accepts nothing else. That
-rejects accidental fabrication — a plain object built from request data, or a
-copy that lost its provenance — but it is **not** a defence against deliberately
-malicious server code, which could import the constructor directly. What closes
-that gap is the import boundary, code review of the few modules allowed to call
-it, and Phase 4's resolver, which will derive every value from verified Supabase
-claims and a live membership read. Phase 3 reads no request, so no browser input
-is authoritative anywhere in it.
 
 ### Identity resolution
 
@@ -681,15 +596,16 @@ removed, so your local counts will still include that historical residue. Do
 not treat a non-zero row count on a long-lived local database as a bug on its
 own.
 
-### Still pending on hosted Supabase
+### Hosted status
 
-Hosted role creation and ownership transfer, transaction-pooler behaviour with
-the Drizzle driver, and genuinely separate hosted credentials. Phase 4C-1 adds
-two more: granting the migration executor `limenzy_bootstrap WITH SET OPTION`
-and transferring function ownership to a NOLOGIN role both depend on the
-executor's relationship to that role, which only the hosted project can settle.
-None of these can be established locally, and **no hosted compatibility is
-claimed**.
+The §6.1 proof gate has since been run against the hosted development project
+and passed in full, including the transaction pooler with the Drizzle driver
+and genuinely separate hosted credentials. The evidence is recorded in
+[architecture-decisions.md](./architecture-decisions.md) §6.1 and
+[build-plan.md](./build-plan.md); it is not repeated here.
+
+Nothing in this guide is evidence about a hosted environment. Everything below
+is what the local stack can establish on its own.
 
 ## Migration source of truth
 
