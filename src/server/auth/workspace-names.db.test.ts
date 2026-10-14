@@ -1,5 +1,6 @@
 // @vitest-environment node
 import postgres from "postgres";
+import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
@@ -62,6 +63,16 @@ const tooling = await probe(TOOLING);
 const runtimeProbe = await probe(RUNTIME);
 await runtimeProbe?.end({ timeout: 1 }).catch(() => {});
 const reachable = tooling !== undefined && runtimeProbe !== undefined;
+
+/**
+ * Mixed targets are a hard stop, not a skip.
+ *
+ * If both connections answer but name different databases, this suite would
+ * create fixtures in one and assert against the other — and the writes would
+ * still happen, possibly in a hosted project. Checked before the first fixture
+ * exists, and deliberately not dependent on a container being stopped.
+ */
+if (reachable) assertMatchedDatabaseTargets(RUNTIME, TOOLING);
 
 if (!reachable && REQUIRED) {
   throw new Error(

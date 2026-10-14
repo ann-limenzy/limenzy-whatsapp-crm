@@ -17,6 +17,7 @@
  * The connection string is never printed, logged or included in an error.
  */
 import { spawnSync } from "node:child_process";
+import { describeTargetMismatch } from "./database-target.mjs";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +63,26 @@ function connectionString(variable = VARIABLE) {
 }
 
 const url = connectionString();
+const runtimeUrlForGuard = connectionString(RUNTIME_VARIABLE);
+
+/**
+ * Mixed targets are rejected BEFORE any probe, fixture or write.
+ *
+ * A runtime pointed at a hosted project while tooling points at the local
+ * stack would create rows in one database and assert against the other — and
+ * the writes still land. Checked here, first, rather than relying on a
+ * container being stopped.
+ */
+{
+  const problem = describeTargetMismatch(url, runtimeUrlForGuard);
+  if (problem !== null) {
+    fail(
+      problem,
+      "Set both to the same database — see docs/local-development.md.",
+    );
+  }
+}
+
 if (!url) {
   fail(
     `${VARIABLE} is not available.`,
