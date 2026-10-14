@@ -258,6 +258,59 @@ functionality.
 
 ### 1D — Permissions, module gates and tenant-isolation test suite
 
+**Progress — permission policy slice (implemented).** `src/lib/permissions.ts`
+holds the §162 matrix as typed, reusable policy: 67 actions × 3 roles, with
+"Configurable", "Decision required" and Team-Lead-conditional cells kept
+distinct rather than flattened to booleans. `evaluateRecordAccess()` implements
+§162.1 separately, because a role permission is never authority over a record.
+Evaluation is deterministic and database-free; unknown roles and actions,
+unconfigured workspace toggles, an unset Manager record scope and unverified
+conditions all deny. `src/lib/permissions.test.ts` checks it against a
+hand-transcribed reading of §162 (230 tests).
+
+**Not implemented by this slice**: module gating and the §172 dependency engine,
+record-access enforcement, the workspace settings that supply the toggles and
+the Manager scope, Sales Teams, explicit record shares, the two-workspace
+fixture and the tenant-isolation contract test. The policy helpers decide; no
+server operation consults them yet.
+
+**Progress — module gating slice (implemented).** `src/lib/modules.ts` holds the
+§171 registry: the six switchable modules, §8's recommended-setup default and
+the §172 dependency rules, all as pure functions. A workspace's configuration
+is read through the restricted tenant gateway by
+`src/server/auth/workspace-modules.ts`; navigation renders only enabled modules
+in the sidebar, drawer and mobile bar, and each module route re-checks for
+itself with `requireModule()`, so a disabled module is 404 by URL and not merely
+unlinked. Settings → Modules & Features lets an Owner/Admin change one module at
+a time; the role is re-checked on the server through the §162 policy, §172
+blocks a dependent change with the specification's own wording instead of
+cascading, and row-level security refuses the write for anyone else.
+
+An unconfigured workspace — `enabled_modules IS NULL`, which is every workspace
+until someone changes a setting — reads as §8's recommended setup. Absence of
+the column is detected by asking `information_schema` first rather than by
+catching `42703`: PostgreSQL marks a transaction failed after that error and the
+driver re-raises it once the callback resolves, so catching it does not work.
+Nothing else is absorbed, so a permission or connection failure surfaces instead
+of silently enabling every module.
+
+**Hosted migration applied.** `20261014071500_workspace_modules.sql` was applied
+to `limenzy-crm-dev` through the migration runner, so the history records it. It
+adds a nullable `workspaces.enabled_modules text[]`, a known-keys check, the
+§172 dependency check and a column-scoped UPDATE grant for `limenzy_app`; no
+table, policy or row changed. Confirmed afterwards by a read-only check: the
+column is present on hosted and the application's own read path succeeds against
+it. Browser verification of disabling and re-enabling a module is **not recorded
+here** — it has not been reported back.
+
+**Not implemented by this slice**: record-access enforcement, the workspace-level
+"Configurable" toggles the §162 matrix reads, the Manager visibility setting,
+Sales Teams, explicit record shares, the §172 dependencies that are about
+configuration rather than modules (an active WhatsApp connection, a verified
+email sender, an eligible template), §172.1 in-flight work, the two-workspace
+fixture and the tenant-isolation contract test. Module gating decides whether a
+module is available; it is not a permission and does not enforce one.
+
 - The spec §162 permission matrix as executable data, with the workspace-level
   "Configurable" toggles (D5).
 - Visibility resolution against the specification's own wording (§162.1), not a
