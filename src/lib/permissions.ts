@@ -647,6 +647,55 @@ const MATRIX = {
 /** Every action in the §162 matrix. */
 export type PermissionAction = keyof typeof MATRIX;
 
+/**
+ * The cells a workspace may actually configure — every §162 "Configurable".
+ *
+ * **Derived from the matrix, never written out.** That is what makes it
+ * impossible for a "Decision required" cell to become a toggle: §163.18 says
+ * such a permission "must never be assumed, and it is denied until approved",
+ * and nothing a workspace stores can reach a rule whose cell is not
+ * `configurable`. A settings screen built from this list cannot offer one by
+ * mistake, and `evaluatePermission` would ignore the toggle even if it did.
+ *
+ * Exactly one role per action is configurable in §162, which is why the role
+ * travels with the action rather than needing a second key.
+ */
+export type ConfigurablePermission = {
+  readonly action: PermissionAction;
+  readonly role: WorkspaceRole;
+  /** Conditions the cell still requires once the workspace turns it on. */
+  readonly requires: readonly PermissionCondition[];
+  readonly source: string;
+};
+
+export const CONFIGURABLE_PERMISSIONS: readonly ConfigurablePermission[] =
+  Object.entries(MATRIX).flatMap(([action, row]) =>
+    WORKSPACE_ROLES.flatMap((role) => {
+      const rule: Rule = (row as MatrixRow)[role];
+      return rule.kind === "configurable"
+        ? [
+            {
+              action: action as PermissionAction,
+              role,
+              requires: rule.requires,
+              source: (row as MatrixRow).source,
+            },
+          ]
+        : [];
+    }),
+  );
+
+/** Is this action one a workspace may configure, for this role? */
+export function isConfigurablePermission(
+  action: unknown,
+  role?: unknown,
+): action is PermissionAction {
+  return CONFIGURABLE_PERMISSIONS.some(
+    (entry) =>
+      entry.action === action && (role === undefined || entry.role === role),
+  );
+}
+
 /** The action identifiers, for exhaustive iteration in tests and tooling. */
 export const PERMISSION_ACTIONS = Object.keys(
   MATRIX,

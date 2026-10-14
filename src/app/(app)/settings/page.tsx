@@ -3,12 +3,14 @@ import type { Metadata } from "next";
 
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
-import { can } from "@/lib/permissions";
+import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
+import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import {
   CONFIGURABLE_MODULES,
   enabledModulesFor,
 } from "@/server/auth/workspace-modules";
+import { workspacePermissionSettings } from "@/server/auth/workspace-permissions";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -27,6 +29,7 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage() {
   const { context, role } = await requireWorkspaceContext();
   const { enabled, usingDefaults } = await enabledModulesFor(context);
+  const permissions = await workspacePermissionSettings(context);
   // §171 routes this through §162: configuring the CRM is Owner/Admin only.
   // The Server Action re-checks the same thing — this only decides whether to
   // render controls that would be refused anyway.
@@ -48,6 +51,26 @@ export default async function SettingsPage() {
             modules={CONFIGURABLE_MODULES}
             enabled={[...enabled]}
             usingDefaults={usingDefaults}
+          />
+        </section>
+      ) : null}
+
+      {mayConfigure ? (
+        <section aria-labelledby="permissions-heading" className="grid gap-4">
+          <div className="grid gap-1">
+            <h2 id="permissions-heading" className="text-lg font-semibold">
+              Roles &amp; Permissions
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              The permission cells this workspace may decide, and Manager record
+              visibility. Spec §162, §162.1.
+            </p>
+          </div>
+          <PermissionSettingsForm
+            configurable={CONFIGURABLE_PERMISSIONS}
+            granted={[...permissions.granted]}
+            isConfigured={permissions.isConfigured}
+            managerRecordScope={permissions.managerRecordScope}
           />
         </section>
       ) : null}

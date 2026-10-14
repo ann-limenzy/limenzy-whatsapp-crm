@@ -113,6 +113,12 @@ const GATEWAY_FILES = {
    * it mints no context and never reaches the pool or the driver.
    */
   workspaceModules: "src/server/auth/workspace-modules.ts",
+  /**
+   * Workspace permission configuration (spec §162, §162.1). Same shape as
+   * `workspaceModules`: it names the `TenantContext` TYPE and reads through
+   * `withTenant()`, mints no context and never reaches the pool.
+   */
+  workspacePermissions: "src/server/auth/workspace-permissions.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -155,6 +161,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.tenantDb,
       GATEWAY_FILES.tenantScope,
       GATEWAY_FILES.workspaceModules,
+      GATEWAY_FILES.workspacePermissions,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -228,7 +235,7 @@ const eslintConfig = defineConfig([
      * Workspace module configuration. It may name the context type and use the
      * gateway, but not the driver, the raw pool or the tooling connection.
      */
-    files: [GATEWAY_FILES.workspaceModules],
+    files: [GATEWAY_FILES.workspaceModules, GATEWAY_FILES.workspacePermissions],
     rules: {
       "no-restricted-imports": [
         "error",
