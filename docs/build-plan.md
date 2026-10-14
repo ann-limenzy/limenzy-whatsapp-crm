@@ -300,8 +300,22 @@ adds a nullable `workspaces.enabled_modules text[]`, a known-keys check, the
 §172 dependency check and a column-scoped UPDATE grant for `limenzy_app`; no
 table, policy or row changed. Confirmed afterwards by a read-only check: the
 column is present on hosted and the application's own read path succeeds against
-it. Browser verification of disabling and re-enabling a module is **not recorded
-here** — it has not been reported back.
+it.
+
+**Browser checks — user-reported.** Against `http://localhost:3001` in the
+"Test Business" workspace, the developer reports that:
+
+- disabling Leads removed it from navigation;
+- `/leads` then returned 404 when typed directly, so the route refuses rather
+  than merely being unlinked;
+- re-enabling Leads restored both the navigation entry and access;
+- disabling Products & Services while Renewals & Reminders was enabled was
+  blocked, which is the §172 dependency behaviour.
+
+These are **reported by the developer, not independently observed** by the
+verification pass that recorded them, and they are quoted rather than
+re-measured. They cover the behaviour a user sees; they are not a substitute
+for the automated checks above.
 
 **Not implemented by this slice**: record-access enforcement, the workspace-level
 "Configurable" toggles the §162 matrix reads, the Manager visibility setting,
@@ -310,6 +324,128 @@ configuration rather than modules (an active WhatsApp connection, a verified
 email sender, an eligible template), §172.1 in-flight work, the two-workspace
 fixture and the tenant-isolation contract test. Module gating decides whether a
 module is available; it is not a permission and does not enforce one.
+
+**Progress — permission settings slice (implemented).** The §162 cells a
+workspace may decide, and the §162.1 Manager record scope, are now persisted and
+configurable. `CONFIGURABLE_PERMISSIONS` is derived from the matrix itself
+rather than written out, so it lists exactly the 19 "Configurable" cells — 17
+Manager, 2 Staff/Sales, none for Owner/Admin — and a "Decision required" rule
+cannot appear in it. `src/server/auth/workspace-permissions.ts` reads the
+configuration through the tenant gateway and feeds it to the existing evaluator;
+Settings → Roles & Permissions exposes both settings to an Owner/Admin, with the
+role re-checked on the server through §162 and row-level security refusing the
+write for anyone else.
+
+Neither setting has a specification-defined default. §162 says "Configurable"
+without naming one, and §162.1 says the workspace "configures" the scope without
+saying what it starts as. Inventing one would be inventing product policy, so an
+unconfigured workspace keeps the fail-closed behaviour — every configurable cell
+denied, Manager record access denied — and the settings screen says plainly that
+a decision is needed rather than looking like a workspace where everything
+happens to be off.
+
+A "Decision required" cell is kept out by four independent layers: it is absent
+from the derived list the screen is built from, the Server Action refuses it
+before the database is touched, the column's check constraint rejects it, and
+the evaluator would ignore a stored value anyway. The second and third were
+confirmed against a real database — `manage_sales_teams` and `manage_users` are
+both refused with SQLSTATE 23514.
+
+Validated against a matched local runtime/tooling pair (15/15): the constraints
+reject unknown, Decision-required and fixed cells and an invalid scope; stored
+configuration reaches the evaluator; an Owner/Admin may change a cell while a
+Manager of the same workspace and an Owner/Admin of another workspace are both
+refused by row-level security; and the two workspaces keep separate
+configurations.
+
+**Not implemented by this slice**: any business operation that consults the
+evaluator. `permissionFor()` and `recordAccess()` are available and tested, and
+nothing calls them — there is no Leads or Customers operation to call them from.
+The scope conditions a granted cell still requires are the caller's to verify;
+no caller exists yet.
+
+**Hosted permission migration applied.** `20261014140000_workspace_permissions.sql`
+was applied to `limenzy-crm-dev` through the migration runner. Verification
+passed 10 of 10 checks: the history entry, both nullable columns, both check
+constraints, the permission constraint listing exactly the 19 §162 Configurable
+cells, the scope constraint limited to the two §162.1 values, the runtime role's
+UPDATE grants being exactly the eight intended columns and not `id`, the
+existing account, workspace, profile and membership all preserved, module
+configuration untouched, every workspace starting NULL on both new columns, and
+the constraints refusing a Decision-required cell, a fixed cell and an invalid
+scope with SQLSTATE 23514 inside rolled-back transactions. The application's own
+permission-settings read path succeeded afterwards, and the temporary credential
+file was removed.
+
+**Browser persistence check — user-reported.** In the "Test Business" workspace
+at `http://localhost:3001`, the developer reports that a Manager record
+visibility choice and a configurable permission were saved and both survived a
+page reload. **Reported by the developer, not independently observed** by the
+pass that recorded it.
+
+#### Milestone 1D acceptance criteria — status
+
+Measured against the six criteria listed above, not against a wider reading:
+
+| #   | Criterion                                                                      | Status                                                             |
+| --- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 1   | §162 matrix as executable data, with the workspace "Configurable" toggles (D5) | done                                                               |
+| 2   | §162.1 visibility resolution, Manager scope per workspace (D6, D7, D8)         | resolution done; no operation consults it                          |
+| 3   | Module gating and the §172 dependency engine, replacing `ALL_MODULES_ENABLED`  | done                                                               |
+| 4   | Two-workspace, multi-role fixture including a member of both                   | **done** — `src/test/fixtures/tenant-fixture.ts`                   |
+| 5   | Tenant-isolation contract test enumerating every repository function           | **structure done**; business inventory empty, which proves nothing |
+| 6   | RLS backstop test with no GUC and with a wrong GUC                             | **done** — `rls.test.ts` 1–3, 9, 10 + settings columns             |
+
+**Criterion 4.** `createTenantFixture()` builds two workspaces and four people,
+including a user who is an **active member of both** with a different role in
+each — staff_sales in A, owner_admin in B — plus an inactive membership, because
+an inactive membership must behave as no membership rather than as a missing
+row. Every identifier is recorded as it is created and `cleanupTenantFixture()`
+removes exactly those, reading each back to confirm absence. It is written for a
+tooling connection, which is why a fixture is never itself evidence: the proof
+comes from reading the result back through the restricted runtime role.
+
+**Criterion 6.** Already satisfied by `rls.test.ts`, which issues raw SQL as
+`limenzy_app` with no tenant settings (item 1), empty settings (2), a non-UUID
+setting (3), a wrong workspace (9) and an inactive membership (10).
+Re-implementing it would add a second place to keep correct. The Milestone 1D
+settings columns are new surface on the same table, so they are covered in
+`settings-isolation.db.test.ts`: no tenant settings reads nothing and writes
+nothing, a mismatched workspace reads nothing, and a profile setting naming
+another person reads nothing.
+
+**Criterion 5 — structure, with an honest gap.**
+`src/test/tenant-access-contract.test.ts` discovers every exported server
+function in a file that reaches the tenant gateways or the runtime pool, and
+fails unless each is registered with the suite that demonstrates its isolation.
+Thirteen functions are registered today, eleven with database evidence. The
+registry rejects an unregistered function, a stale entry, an evidence file that
+does not exist, and an entry claiming database evidence from a suite that is not
+a database suite.
+
+**There are no business repositories yet**, and the test says so in its own
+header and asserts that the statement is still there. Everything recorded as
+isolation evidence anywhere in this plan is **foundation** evidence — identity,
+workspace selection, names, module settings and permission settings. None of it
+is evidence about Leads, Customers, Follow-ups, Renewals, WhatsApp or documents,
+because no such data access exists to be evidence about. No Leads, Customers,
+Follow-ups, Renewals or WhatsApp data access exists, so **nothing here is
+evidence that business records are isolated**. The contract is the mechanism
+that makes the first such repository fail the suite until it is registered with
+real evidence.
+
+A design point found while writing these tests: a membership row is visible to
+the person it belongs to **regardless of the selected workspace**, because
+`workspace_memberships_self_select` is keyed on the profile with no workspace
+predicate. That is deliberate — the workspace chooser must list every workspace
+you belong to — and `rls.test.ts` item 5 already asserted it. The scoped thing is
+the `workspaces` row. A first draft of the new suite asserted the opposite and
+was wrong.
+
+Sales Teams, explicit record shares, messaging and reminder workflows, the
+§172.1 in-flight rules and the §163.18 decisions are **not** 1D criteria. They
+appear in the notes above only as things a slice did not do, and adding them
+here would widen the milestone.
 
 - The spec §162 permission matrix as executable data, with the workspace-level
   "Configurable" toggles (D5).
@@ -321,8 +457,9 @@ module is available; it is not a permission and does not enforce one.
   Customers they own, operational items assigned to them once the
   related-record permission has been validated, and Leads and Customers
   explicitly shared with them (D7, D8). Sales Team membership alone grants
-  access to nothing. **None of this is implemented**; no permission behaviour
-  exists in the product yet.
+  access to nothing. **Resolution is implemented** — see the permission
+  settings slice below — but no business operation consults it yet, because no
+  Leads or Customers operation exists to consult it.
 - Module gating and the §172 dependency engine, replacing
   `ALL_MODULES_ENABLED` in the navigation config with the workspace's real
   module set.
@@ -372,6 +509,107 @@ screens.
 
 Not in scope: Web Push, background sync, offline mutations, offline CRM
 data, workspace-specific branding, app-store packaging.
+
+#### 1E progress — foundation implemented
+
+Everything in 1E that can be verified without a deployed HTTPS origin is done.
+
+**Installable manifest.** `src/app/manifest.ts` with `start_url: "/"` and
+`scope: "/"`, `display: "standalone"` and `display_override: ["minimal-ui",
+"standalone"]`. `start_url` is the root rather than `/dashboard` because
+§179.1 requires an installed launch to _resolve_ where the user belongs: a
+launch after sign-out reaches sign-in, and one with no workspace selected
+reaches the chooser. No `shortcuts`, `share_target`, `protocol_handlers` or
+`file_handlers` — a shortcut is an unauthenticated launcher entry point, and
+pointing one at a workspace screen would advertise structure and strand a
+signed-out user on a redirect.
+
+**Icons.** `scripts/generate-app-icons.mjs` derives them from
+`public/brand/limenzy-glass-logo-light.svg`, which it reads and never writes.
+The chevron is isolated by rendering and cropping rather than by parsing path
+geometry, then composited at two safe zones: 78% for `purpose: "any"` and 60%
+for `maskable`, so an aggressive circular or squircle mask cannot clip the
+symbol. Five files under `public/icons/`, plus an Apple touch icon.
+
+**The safe-area defect is fixed.** `viewportFit: "cover"` is now set, and the
+served HTML carries `viewport-fit=cover`. Without it the three existing
+`env(safe-area-inset-bottom)` paddings — the mobile bar, the drawer footer and
+the main column — resolved to 0 on iOS, so the bottom bar sat under the home
+indicator.
+
+**Theme colours corrected.** The literals in the root layout had drifted from
+the tokens during the ambient-field revision: `#fafbfe`/`#0b0f1a` against a
+`--background` that converts to `#f5fafe`/`#0f1728`. Both now come from
+`src/lib/brand-colors.ts`, and a test converts the oklch tokens and compares,
+so the next drift fails a check rather than waiting to be noticed.
+
+**Offline screen.** `/offline`, static, showing no workspace content — no name,
+no counts, no cached records, not even whether anyone is signed in. That is
+structural rather than promised: the page performs no data access at all, which
+matters because the precached copy is shared by everyone using the browser
+profile and outlives a sign-out.
+
+**Install guidance.** `/install`, public and static, covering Android Chrome
+and iOS Safari separately rather than flattening them, and stating that the
+installed app may or may not inherit the browser session — on iOS it usually
+does not.
+
+**Service worker.** `public/sw.js`, registered only in production and only from
+a secure context. Its one job is the offline fallback.
+
+> **Navigations are never cached.** They are network-only with the offline page
+> as the fallback, so a real screen can never be stored and replayed to the next
+> person at this device. Only GET is handled, cross-origin is untouched (which
+> excludes every Supabase call), `/api/` and `/auth/` are refused outright, and
+> the only cacheable prefixes are `/_next/static/` and `/icons/` — content-hashed
+> build output and public branding. A response is stored only if it is `ok`,
+> `basic` (so never opaque), carries no `Set-Cookie` and is not `no-store`.
+> There is no push, sync or notification listener.
+
+#### 1E checks performed
+
+| Check                                          | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/app/pwa.test.ts`                          | 27 passed — manifest shape, icon files present and non-empty, caching-rule shape, offline-page data access, install guidance, safe-area fix, token-to-hex colour agreement                                                                                                                                                                                                                                                                                                                       |
+| `src/app/sw-behaviour.test.ts`                 | 20 passed — the worker **executed** in a stubbed scope, not read: a navigation returns the live response and is **not** written to the cache, a failed navigation returns the precached offline page, POST / `/api/` / `/auth/` / `/_next/image` / cross-origin are left untouched, build output and icons are cached then served from cache, and a response is refused if it carries `Set-Cookie`, says `no-store`, is opaque or is an error. `activate` deletes every previous version's cache |
+| Precache reachability                          | `/offline`, `/icons/icon-192.png` and `/manifest.webmanifest` all 200 on a production server, so `install()` succeeds rather than failing and leaving no fallback                                                                                                                                                                                                                                                                                                                                |
+| Authenticated-route headers                    | `/`, `/dashboard` and `/settings` are served `private, no-cache, no-store, max-age=0, must-revalidate`, so no HTTP cache keeps them either — independent of the worker, which never caches a navigation at all                                                                                                                                                                                                                                                                                   |
+| `/sw.js` headers                               | `Cache-Control: public, max-age=0`, so a new deployment's worker is revalidated on the next load rather than pinned                                                                                                                                                                                                                                                                                                                                                                              |
+| `npm run build`                                | passed; `/offline`, `/install` and `/manifest.webmanifest` all build **static**, which is what keeps the precached copies user-independent                                                                                                                                                                                                                                                                                                                                                       |
+| Production server smoke                        | manifest served with the expected fields and four icons; `/sw.js` served as `application/javascript`; `/offline` and `/install` reachable unauthenticated; all five icons served                                                                                                                                                                                                                                                                                                                 |
+| Served HTML                                    | `viewport-fit=cover`, both `theme-color` values, Apple web-app metadata, `<link rel="manifest">`                                                                                                                                                                                                                                                                                                                                                                                                 |
+| typecheck · lint · format · `git diff --check` | passed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+
+#### 1E — what still needs an HTTPS deployment
+
+None of the following can be completed locally, and none is claimed:
+
+- **Installability.** A service worker needs a secure context. `localhost` is
+  treated as secure, so registration works in local production; a deployed
+  **HTTP** origin would silently not register. Confirming the install prompt,
+  the launcher entry and the splash screen needs a real HTTPS origin.
+- **Real-device installation** on Android Chrome and iPhone Safari, which the
+  1E scope lists explicitly. This needs a URL a phone can reach.
+- **Standalone launch and session behaviour** — whether the installed window
+  inherits the browser session, and how sign-out behaves inside it. This is the
+  highest-risk item in 1E and the reason it was sequenced after 1B.
+- **HTTPS `Secure` cookie behaviour**, still open from earlier milestones. The
+  flag's derivation is unit-tested and is correctly `false` over local HTTP.
+- **Update strategy in practice** — that a new deployment replaces the previous
+  worker and its cache. The mechanism is verified as far as it can be locally:
+  `/sw.js` is served `max-age=0` so the browser re-fetches it, and `activate`
+  provably deletes every non-current cache. Observing the cycle across two real
+  deployments needs deployments.
+- **In-browser registration and a genuine offline navigation.** The worker's
+  logic is executed and asserted in Node, but no browser automation is installed
+  here, so `navigator.serviceWorker.register` actually succeeding, and a real
+  network-down navigation falling back, have not been observed.
+
+**None of these is passed, and none of them blocks unrelated business-feature
+work.** They gate claims about installed behaviour, not development: the
+application runs, and every other milestone's checks are independent of them.
+
+No deployment provider has been chosen and nothing has been deployed.
 
 ---
 
