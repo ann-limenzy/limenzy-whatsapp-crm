@@ -877,7 +877,7 @@ nothing above should be read as progress on either:
 
 Settings → Users: the list, Change Role, Deactivate and Reactivate, for
 Owner/Admins only. **Applied locally and to the hosted development project on
-2026-10-18.** Inviting people is deliberately not here — see 2C below.
+2026-10-15.** Inviting people is deliberately not here — see 2C below.
 
 **Why this is routines and not policies.** The obvious implementation is a
 co-member SELECT policy for `limenzy_app`: "you may read a membership row when
@@ -1073,7 +1073,7 @@ membership and Team Lead (Milestone 4), and the §160 reassignment workflow.
 
 #### 2B and 2D — hosted application
 
-**Both migrations applied and recorded on 2026-10-18**, in order, through the
+**Both migrations applied and recorded on 2026-10-15**, in order, through the
 migration runner, so `supabase_migrations.schema_migrations` carries both
 versions rather than the schema drifting ahead of its history:
 
@@ -1162,7 +1162,7 @@ nothing above should be read as progress on any of it.
 
 The Email column, filled for every member of the selected workspace, active
 and inactive alike. **Applied locally and to the hosted development project on
-2026-10-18.**
+2026-10-15.**
 
 **The database route is closed, and that is not a matter of effort.**
 `auth.users` has row-level security with no policies and is owned by
