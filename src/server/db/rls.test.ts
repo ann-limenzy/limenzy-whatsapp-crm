@@ -614,26 +614,71 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
         join pg_catalog.pg_namespace n on n.oid = p.pronamespace
        where n.nspname = 'app' order by p.proname`;
 
-    // Schema `app` holds the three readers plus, since Phase 4C-1, exactly one
-    // bootstrap routine. Naming all four means a fifth function — especially a
-    // second SECURITY DEFINER one — cannot appear without failing here.
+    // Schema `app` holds the three context readers, the Phase 4C-1 bootstrap
+    // routine, and since Milestone 2B the three Settings → Users routines plus
+    // the authorisation predicate they share. Naming all of them means a new
+    // function — especially another SECURITY DEFINER one — cannot appear
+    // without failing here.
     expect(rows.map((r) => r.proname)).toEqual([
       "create_initial_workspace",
       "current_auth_user_id",
+      "current_user_is_owner_admin",
       "current_user_profile_id",
       "current_workspace_id",
+      "set_member_role",
+      "set_member_status",
+      "workspace_members",
     ]);
 
-    // The bootstrap routine is the ONLY SECURITY DEFINER function in the
-    // schema, and it is owned by the reserved role, never by limenzy_owner.
-    const definers = rows.filter((r) => r.secdef);
-    expect(definers.map((r) => `${r.proname}:${r.owner}`)).toEqual([
+    // Every SECURITY DEFINER function, and the role it runs as. A definer
+    // routine is a privilege boundary, so each is named with its owner rather
+    // than merely counted — and none is owned by limenzy_owner, which owns
+    // the tables.
+    const definers = rows
+      .filter((r) => r.secdef)
+      .map((r) => `${r.proname}:${r.owner}`)
+      .sort();
+    expect(definers).toEqual([
       "create_initial_workspace:limenzy_bootstrap",
+      "set_member_role:limenzy_members",
+      "set_member_status:limenzy_members",
+      "workspace_members:limenzy_members",
     ]);
 
-    const readers = rows.filter(
-      (r) => r.proname !== "create_initial_workspace",
+    // The predicate the Users routines share is deliberately NOT a definer: it
+    // carries no privilege of its own and is only ever evaluated inside one.
+    const predicate = rows.find(
+      (r) => r.proname === "current_user_is_owner_admin",
     );
+    expect(
+      `${predicate?.proname} secdef:${predicate?.secdef} owner:${predicate?.owner}`,
+    ).toBe("current_user_is_owner_admin secdef:false owner:limenzy_owner");
+
+    // Every function in the schema pins an empty search_path, so no schema
+    // shadowing can change what its body resolves to.
+    for (const row of rows) {
+      // PostgreSQL records the empty search_path as `search_path=` for SQL
+      // bodies and `search_path=""` for plpgsql ones. Both mean "empty"; what
+      // matters is that one is pinned and that it resolves to nothing.
+      const pinned = (row.config ?? []).some((entry) =>
+        /^search_path=("")?$/.test(entry),
+      );
+      expect(`${row.proname} empty search_path: ${pinned}`).toBe(
+        `${row.proname} empty search_path: true`,
+      );
+    }
+
+    // The three context readers, held to the contract that makes policy
+    // evaluation terminate. The routines that reach tables are excluded; they
+    // have their own assertions above and in the graph test below.
+    const readers = rows.filter((r) =>
+      [
+        "current_auth_user_id",
+        "current_user_profile_id",
+        "current_workspace_id",
+      ].includes(r.proname),
+    );
+    expect(readers).toHaveLength(3);
     for (const row of readers) {
       expect(`${row.proname}:owner`).toBe(`${row.proname}:owner`);
       expect(row.owner).toBe("limenzy_owner");
@@ -702,13 +747,19 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
 
   /** PostgreSQL's own normalised rendering of each policy expression. */
   const expressions = async () =>
-    admin()<{ policy: string; on_table: string; expr: string }[]>`
+    admin()<{ policy: string; on_table: string; expr: string; role: string }[]>`
       select pol.polname as policy,
              polrel.relname as on_table,
              coalesce(pg_catalog.pg_get_expr(pol.polqual, pol.polrelid), '')
                || ' ' ||
              coalesce(pg_catalog.pg_get_expr(pol.polwithcheck, pol.polrelid), '')
-               as expr
+               as expr,
+             coalesce(
+               (select pg_catalog.string_agg(r.rolname, ',' order by r.rolname)
+                  from pg_catalog.pg_roles r
+                 where r.oid = any (pol.polroles)),
+               'PUBLIC'
+             ) as role
         from pg_catalog.pg_policy pol
         join pg_catalog.pg_class polrel on polrel.oid = pol.polrelid`;
 
@@ -780,29 +831,76 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
   });
 
   it("forms an acyclic graph with the expected shape", async () => {
+    /*
+     * The graph is built PER ROLE, and that granularity is the whole point.
+     *
+     * A policy applies only to the roles it is scoped to, so when a policy
+     * expression subqueries another table, the policies re-applied there are
+     * the ones for the SAME role. Collapsing every role into one graph would
+     * therefore invent edges that no single evaluation ever follows.
+     *
+     * It matters from Milestone 2B onward. limenzy_app reads
+     * workspace_memberships through a policy that subqueries user_profiles;
+     * limenzy_members reads user_profiles through a policy that subqueries
+     * workspace_memberships. Collapsed, those two look like a cycle between
+     * the tables. Per role, each is a straight line of length one, and neither
+     * evaluation can reach the other's policy at all.
+     */
     const rows = await expressions();
-    const graph = new Map<string, Set<string>>();
-    for (const table of APPROVED_TABLES) graph.set(table, new Set());
+    const byRole = new Map<string, Map<string, Set<string>>>();
     for (const row of rows) {
+      const graph =
+        byRole.get(row.role) ??
+        new Map<string, Set<string>>(
+          [...APPROVED_TABLES].map((table) => [table, new Set<string>()]),
+        );
+      byRole.set(row.role, graph);
       for (const target of fromTables(row.expr)) {
         if (target === row.on_table) continue; // column refs, not an edge
         graph.get(row.on_table)!.add(target);
       }
     }
 
-    // The documented shape.
-    expect([...(graph.get("workspaces") ?? [])].sort()).toEqual([
+    // Exactly the three roles that hold policies, and no other.
+    expect([...byRole.keys()].sort()).toEqual([
+      "limenzy_app",
+      "limenzy_bootstrap",
+      "limenzy_members",
+    ]);
+
+    const shape = (role: string, table: string) =>
+      [...(byRole.get(role)?.get(table) ?? [])].sort();
+
+    // The runtime role: workspaces -> memberships -> profiles -> (functions).
+    expect(shape("limenzy_app", "workspaces")).toEqual([
       "workspace_memberships",
     ]);
-    expect([...(graph.get("workspace_memberships") ?? [])].sort()).toEqual([
+    expect(shape("limenzy_app", "workspace_memberships")).toEqual([
       "user_profiles",
     ]);
-    expect([...(graph.get("user_profiles") ?? [])]).toEqual([]);
+    expect(shape("limenzy_app", "user_profiles")).toEqual([]);
+
+    // The bootstrap role: memberships -> profiles, and nothing from workspaces.
+    expect(shape("limenzy_bootstrap", "workspaces")).toEqual([]);
+    expect(shape("limenzy_bootstrap", "workspace_memberships")).toEqual([
+      "user_profiles",
+    ]);
+    expect(shape("limenzy_bootstrap", "user_profiles")).toEqual([]);
+
+    // The user-management role: profiles -> memberships, which terminates
+    // because its membership policies reference no table at all. This is the
+    // direction that would recurse if it were written for limenzy_app.
+    expect(shape("limenzy_members", "user_profiles")).toEqual([
+      "workspace_memberships",
+    ]);
+    expect(shape("limenzy_members", "workspace_memberships")).toEqual([]);
+    expect(shape("limenzy_members", "workspaces")).toEqual([]);
 
     // Cycle detection by depth-first search with an explicit recursion stack.
     const permanent = new Set<string>();
     const stack = new Set<string>();
     const longest = new Map<string, number>();
+    let current = new Map<string, Set<string>>();
     const visit = (node: string, path: string[]): number => {
       if (stack.has(node)) {
         throw new Error(
@@ -812,7 +910,7 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       if (permanent.has(node)) return longest.get(node) ?? 0;
       stack.add(node);
       let deepest = 0;
-      for (const next of graph.get(node) ?? []) {
+      for (const next of current.get(node) ?? []) {
         deepest = Math.max(deepest, 1 + visit(next, [...path, node]));
       }
       stack.delete(node);
@@ -821,9 +919,29 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       return deepest;
     };
 
-    for (const node of graph.keys())
-      expect(() => visit(node, [])).not.toThrow();
-    // workspaces -> workspace_memberships -> user_profiles -> (functions)
+    for (const [role, graph] of byRole) {
+      permanent.clear();
+      stack.clear();
+      longest.clear();
+      current = graph;
+      for (const node of graph.keys()) {
+        expect(() => visit(node, [`${role}:`])).not.toThrow();
+      }
+      // No evaluation for any role may be deeper than the three-table chain.
+      for (const [table, depth] of longest) {
+        expect(`${role} ${table} depth<=2: ${depth <= 2}`).toBe(
+          `${role} ${table} depth<=2: true`,
+        );
+      }
+    }
+
+    // The runtime role's chain, stated exactly: it is the one every request
+    // evaluates, and its depth is the cost of a tenant read.
+    current = byRole.get("limenzy_app")!;
+    permanent.clear();
+    stack.clear();
+    longest.clear();
+    for (const node of current.keys()) visit(node, []);
     expect(longest.get("workspaces")).toBe(2);
     expect(longest.get("workspace_memberships")).toBe(1);
     expect(longest.get("user_profiles")).toBe(0);
@@ -842,13 +960,18 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
        where n.nspname = 'app'`;
 
     // The three readers are what policy expressions call, and they must reach
-    // no table — that is what makes evaluation terminate. The Phase 4C-1
-    // bootstrap routine does touch tables, deliberately, and is excluded here
-    // because no policy expression calls it; that it is called by nothing in a
-    // policy is asserted immediately below.
-    const readers = rows.filter(
-      (r) => r.proname !== "create_initial_workspace",
-    );
+    // no table — that is what makes evaluation terminate. The routines that do
+    // touch tables, deliberately, are excluded here because no policy
+    // expression calls any of them; that none is reachable from a policy is
+    // asserted immediately below.
+    const TOUCHES_TABLES = new Set([
+      "create_initial_workspace",
+      "current_user_is_owner_admin",
+      "set_member_role",
+      "set_member_status",
+      "workspace_members",
+    ]);
+    const readers = rows.filter((r) => !TOUCHES_TABLES.has(r.proname));
     expect(readers.map((r) => r.proname).sort()).toEqual([
       "current_auth_user_id",
       "current_user_profile_id",
@@ -860,13 +983,26 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       );
     }
 
-    // No policy expression may call the bootstrap routine: a SECURITY DEFINER
-    // function inside a policy would evaluate with the definer's privileges
-    // every time a row is checked.
+    // No policy expression may call a routine that reaches a table. A
+    // SECURITY DEFINER function inside a policy would evaluate with the
+    // definer's privileges every time a row is checked, and a table-reading
+    // one would reopen the recursion the per-role graph rules out.
     for (const row of await expressions()) {
-      expect(`${row.policy} calls bootstrap: false`).toBe(
-        `${row.policy} calls bootstrap: ${row.expr.includes("create_initial_workspace")}`,
-      );
+      for (const routine of [
+        "create_initial_workspace",
+        "current_user_is_owner_admin",
+        "set_member_role",
+        "set_member_status",
+        "workspace_members",
+      ]) {
+        // A CALL, not a mention: `workspace_members` is a prefix of
+        // `workspace_memberships`, so a substring test would flag every
+        // policy that merely names the table.
+        const called = new RegExp(`\\b${routine}\\s*\\(`).test(row.expr);
+        expect(`${row.policy} calls ${routine}: false`).toBe(
+          `${row.policy} calls ${routine}: ${called}`,
+        );
+      }
     }
   });
 });

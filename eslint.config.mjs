@@ -125,6 +125,12 @@ const GATEWAY_FILES = {
    * and never reaches the pool.
    */
   workspaceBusinessSettings: "src/server/auth/workspace-business-settings.ts",
+  /**
+   * Settings → Users (spec §159, §160). Same shape again: it names the
+   * `TenantContext` TYPE and reads through `withTenant()`, mints no context
+   * and never reaches the pool.
+   */
+  workspaceMembers: "src/server/auth/workspace-members.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -169,6 +175,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceModules,
       GATEWAY_FILES.workspacePermissions,
       GATEWAY_FILES.workspaceBusinessSettings,
+      GATEWAY_FILES.workspaceMembers,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -247,6 +254,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceModules,
       GATEWAY_FILES.workspacePermissions,
       GATEWAY_FILES.workspaceBusinessSettings,
+      GATEWAY_FILES.workspaceMembers,
     ],
     rules: {
       "no-restricted-imports": [

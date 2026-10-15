@@ -1032,10 +1032,14 @@ describe.skipIf(!reachable)(
     });
 
     it("leaves the four Phase-2 application policies untouched", async () => {
+      // Scoped to the runtime role on purpose. Later milestones add policies
+      // for other reserved roles — 2B adds three for limenzy_members — and
+      // this assertion is about limenzy_app's four not having changed, which
+      // is what "Phase-2 application policies" means.
       const rows = await admin()<{ policyname: string; roles: string }[]>`
       select policyname, roles::text as roles
         from pg_policies
-       where schemaname = 'public' and policyname not like '%bootstrap%'
+       where schemaname = 'public' and roles::text = '{limenzy_app}'
        order by policyname`;
       expect(rows.map((r) => r.policyname)).toEqual([
         "user_profiles_self_select",

@@ -282,11 +282,16 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       expect(`${row.relname}:${row.force}`).toBe(`${row.relname}:true`);
   });
 
-  it("defines exactly the nine approved policies, each scoped to one role", async () => {
+  it("defines exactly the twelve approved policies, each scoped to one role", async () => {
     // Phase 1 had none; Phase 2 added four for the runtime role; Phase 4C-1
-    // adds five for the bootstrap role. Every policy is named here with the
-    // role it is scoped to, so neither a new policy nor a widened role
-    // assignment can pass unnoticed.
+    // adds five for the bootstrap role; Milestone 2B adds three for the
+    // user-management role. Every policy is named here with the role it is
+    // scoped to, so neither a new policy nor a widened role assignment can
+    // pass unnoticed.
+    //
+    // Note what limenzy_app did NOT gain in 2B: nothing. Settings → Users is
+    // served by SECURITY DEFINER routines precisely because a co-member policy
+    // for the runtime role would have to read the table it guards.
     const rows = await db()<{ policyname: string; roles: string }[]>`
       select policyname, roles::text as roles
         from pg_policies where schemaname = 'public' order by policyname`;
@@ -294,9 +299,12 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
       "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
       "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
+      "user_profiles_members_select -> {limenzy_members}",
       "user_profiles_self_select -> {limenzy_app}",
       "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
       "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
+      "workspace_memberships_members_select -> {limenzy_members}",
+      "workspace_memberships_members_update -> {limenzy_members}",
       "workspace_memberships_self_select -> {limenzy_app}",
       "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
       "workspaces_member_select -> {limenzy_app}",

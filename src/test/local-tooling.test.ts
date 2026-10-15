@@ -79,9 +79,10 @@ const MILESTONE_1D_MIGRATIONS = [
   "20261014071500_workspace_modules.sql",
   "20261014140000_workspace_permissions.sql",
 ];
-/** Milestone 2 — Business Settings contact fields (spec §158). */
+/** Milestone 2 — Business Settings (§158) and Users (§159, §160). */
 const MILESTONE_2_MIGRATIONS = [
   "20261015090000_workspace_business_contact.sql",
+  "20261016090000_workspace_users.sql",
 ];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
@@ -557,6 +558,8 @@ describe("the tenant gateway import boundary", () => {
     "src/server/auth/workspace-business-settings.ts": [
       "the context constructor",
     ],
+    // Settings → Users (spec §159, §160). Same shape again.
+    "src/server/auth/workspace-members.ts": ["the context constructor"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -613,6 +616,7 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/create-initial-workspace.ts",
       "src/server/auth/workspace-business-settings.ts",
       "src/server/auth/workspace-context.ts",
+      "src/server/auth/workspace-members.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
       "src/server/db/client.ts",
@@ -804,6 +808,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).
       "src/app/actions/permissions.ts",
+      // Milestone 2B — Settings → Users (spec §159, §160).
+      "src/app/actions/users.ts",
     ]);
 
     for (const file of withDirective) {

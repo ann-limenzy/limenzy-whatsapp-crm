@@ -5,9 +5,12 @@ import { countryOptions } from "@/lib/workspace-options";
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
+import { UserSettingsList } from "@/components/settings/user-settings-list";
 import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
 import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
+import { requireUser } from "@/server/auth/require-user";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
+import { workspaceMembers } from "@/server/auth/workspace-members";
 import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
 import {
   CONFIGURABLE_MODULES,
@@ -38,6 +41,15 @@ export default async function SettingsPage() {
   // for these values and no reason for the request to fetch them.
   const business = mayConfigure ? await businessSettingsFor(context) : null;
 
+  // §162 makes Manage Users a fixed Owner/Admin "Yes" — a different action
+  // from configuring the CRM, so it is asked separately rather than assumed
+  // to travel with it.
+  const mayManageUsers = can({ role, action: "manage_users" });
+  const members = mayManageUsers ? await workspaceMembers(context) : [];
+  // The signed-in person's own address, from their verified session. The CRM
+  // cannot read anyone else's — see the note the list renders.
+  const signedInEmail = mayManageUsers ? (await requireUser()).email : null;
+
   return (
     <div className="grid gap-8">
       {mayConfigure ? (
@@ -66,6 +78,25 @@ export default async function SettingsPage() {
               changed.
             </p>
           )}
+        </section>
+      ) : null}
+
+      {mayManageUsers ? (
+        <section aria-labelledby="users-heading" className="grid gap-4">
+          <div className="grid gap-1">
+            <h2 id="users-heading" className="text-lg font-semibold">
+              Users
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Everyone with a membership of this workspace, their role and
+              whether they are active. Spec §159, §160.
+            </p>
+          </div>
+          <UserSettingsList
+            members={members}
+            workspaceId={workspaceId}
+            signedInEmail={signedInEmail}
+          />
         </section>
       ) : null}
 
@@ -110,8 +141,8 @@ export default async function SettingsPage() {
       <ModulePlaceholder
         icon={Settings}
         title="Settings"
-        description="Workspace administration still to come: users, pipeline, products and services, custom fields and reminder defaults."
-        specSections="§159–§170, §173–§174"
+        description="Workspace administration still to come: inviting people, pipeline, products and services, custom fields and reminder defaults."
+        specSections="§163–§170, §173–§174"
         milestone="Milestone 2"
       />
     </div>
