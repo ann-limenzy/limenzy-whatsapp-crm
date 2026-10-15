@@ -508,6 +508,65 @@ Each pool gets exactly one Drizzle handle, held in a `WeakMap` keyed by the pool
 so a handle can never outlive the pool it is bound to or be served for a pool
 that has been closed and replaced.
 
+### 6.4 Member email addresses and the Auth Admin credential (Milestone 2B)
+
+**What changed.** The application server now holds `SUPABASE_SECRET_KEY`, a
+project-wide privileged Supabase credential. This is a real widening of what a
+compromise of the application server would yield, and it is recorded here
+rather than buried in a module comment.
+
+**Why the database could not do it.** §159 lists Email in the Users table. It
+lives in `auth.users`, which has row-level security enabled with **no
+policies** and is owned by `supabase_auth_admin`, so no role is able to read it
+unless it bypasses RLS. A dedicated `BYPASSRLS` role was designed, built and
+applied locally — and then abandoned, because the gate is elsewhere: the
+migration role holds `USAGE` on schema `auth` **without grant option**, so
+`GRANT USAGE ON SCHEMA auth TO <role>` emits `WARNING: no privileges were
+granted` and silently does nothing, while the column grants on `auth.users`
+succeed and make the failure easy to miss. The migration role is not a member
+of `supabase_admin`, so it cannot obtain grant option. The remaining database
+routes — `pg_read_all_data`, `BYPASSRLS` on a widely-granted role, or a policy
+on a Supabase-managed table — were each far larger than one column is worth,
+and were refused.
+
+**What the credential can do, stated plainly.** The secret key can administer
+every Auth user in the project and bypasses row-level security on the Data
+API. **The database-role separation remains exactly as it was — and it does
+not constrain this credential.** `limenzy_app` is still non-owner,
+NOBYPASSRLS, column-scoped and policy-bound, and every CRM read and write
+still goes through it via `withTenant()`. None of that applies to an HTTPS
+call to the Auth Admin API. §6.1 Check 10 is unaffected and remains true: it
+asserts the runtime **database** role holds no privileged membership, and the
+secret key is not a database role.
+
+**What constrains it instead**, and what the tests pin:
+
+- one module reads the key, and it is `server-only`;
+- one operation, `auth.admin.getUserById`. No project-wide user listing, no
+  `.from()`, `.rpc()` or `.storage`, no user creation, update, deletion or
+  link generation;
+- `manage_users` is checked **first**, so an unauthorised request never
+  reaches the credential;
+- the ids come **only** from `app.workspace_members()`, which re-derives
+  Owner/Admin from stored rows and returns only the selected workspace's
+  members. The helper is handed ids and nothing else — it has no workspace to
+  check them against, so where they come from is the whole of its safety;
+- only the displayed page is looked up, bounded concurrency (6), and timeouts
+  bound to the client's own `fetch` so an abort cancels the HTTP request
+  rather than abandoning a promise;
+- nothing is cached. A privileged result must not outlive the authorisation
+  that justified reading it;
+- the Auth user id stays on the server; the browser receives display data.
+
+**The cost accepted.** The workspace filter is now enforced by our code
+passing the right id set, rather than by a policy that cannot be bypassed.
+That is a genuine step down from the rest of the system, and it is why the
+ordering is asserted structurally rather than left to review.
+
+**Operationally.** Each displayed address is one Auth Admin request, so the
+Users list is paged (25 per page) and only the current page is resolved. There
+is no member-count cutoff — a large workspace is paged, never truncated.
+
 ## 7. Decisions taken during Milestone 1A
 
 | #   | Decision                                                                                                | Reason                                                                                                                                                                                                                         |
@@ -764,6 +823,10 @@ required — the pinned set is fully stable and mutually compatible on Node 20.
   The publishable key is the only Supabase key that may carry a
   `NEXT_PUBLIC_` prefix; `src/lib/env.ts` rejects an `sb_secret_` value in
   that variable rather than inlining it into the browser bundle.
+- **The application server holds a project-wide privileged credential**
+  (`SUPABASE_SECRET_KEY`), used by exactly one module
+  (`src/server/auth/member-emails.ts`) for exactly one operation
+  (`auth.admin.getUserById`). See §6.4.
 
 ## 10. Open decisions — client (§163.18) versus CTO (§180.1)
 

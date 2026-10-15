@@ -238,6 +238,50 @@ const databaseSchema = z.object({
   DATABASE_CA_CERT: z.string().min(1, "must not be empty when set").optional(),
 });
 
+/**
+ * The Supabase Auth Admin credential (Milestone 2B follow-up).
+ *
+ * Deliberately NOT part of `serverEnv()`, for the same reason `databaseEnv()`
+ * is not: it is validated only when the one feature that needs it is actually
+ * invoked, so `next build`, lint, typecheck and the ordinary unit suite keep
+ * working on a machine that has no secret key.
+ *
+ * **This key is project-wide and privileged.** It bypasses row-level security
+ * on the Data API and can administer every Auth user in the project. Exactly
+ * one module may read it — `src/server/auth/member-emails.ts` — and only to
+ * call `auth.admin.getUserById` for ids the authorised workspace-members
+ * routine has already returned. It is never used for CRM reads or writes:
+ * those stay on `limenzy_app` through `withTenant()`.
+ *
+ * It must never carry a `NEXT_PUBLIC_` prefix. The publishable schema above
+ * rejects an `sb_secret_` value in that variable, so a copy-and-paste mistake
+ * in the other direction is also caught.
+ */
+const authAdminSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url("must be a valid absolute URL"),
+
+  SUPABASE_SECRET_KEY: z
+    .string()
+    .min(1, "must not be empty")
+    /*
+     * The legacy `service_role` JWT is refused under this name too. It would
+     * appear to work while carrying a different trust model, and the local
+     * stack prints one beside the current key — the same copy-and-paste trap
+     * the publishable variable guards against.
+     */
+    .refine((value) => !LEGACY_JWT.test(value), {
+      message:
+        "looks like a legacy service_role JWT — that key model is not " +
+        "supported; use the current secret key (sb_secret_...)",
+    })
+    .refine((value) => value.startsWith("sb_secret_"), {
+      message:
+        "must be a current Supabase secret key beginning with 'sb_secret_'",
+    }),
+});
+
+export type AuthAdminEnv = z.infer<typeof authAdminSchema>;
+
 export type DatabaseEnv = z.infer<typeof databaseSchema>;
 
 export type PublicEnv = z.infer<typeof publicSchema>;
@@ -305,6 +349,40 @@ export function serverEnv(): ServerEnv {
   return serverCache;
 }
 
+let authAdminCache: AuthAdminEnv | null = null;
+
+/**
+ * Read the Auth Admin configuration.
+ *
+ * Throws `EnvConfigurationError` when the key is absent or malformed. Callers
+ * that must degrade rather than fail use `isAuthAdminConfigured()` first.
+ */
+export function authAdminEnv(): AuthAdminEnv {
+  if (authAdminCache) return authAdminCache;
+  const parsed = authAdminSchema.safeParse({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+  });
+  if (!parsed.success)
+    throw new EnvConfigurationError(describeIssues(parsed.error));
+  authAdminCache = parsed.data;
+  return authAdminCache;
+}
+
+/**
+ * Non-throwing check.
+ *
+ * A workspace without the key configured must still see its Users list; only
+ * the Email column goes unresolved. Turning a missing optional credential into
+ * a 500 on a settings page would be the wrong trade.
+ */
+export function isAuthAdminConfigured(): boolean {
+  return authAdminSchema.safeParse({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
+  }).success;
+}
+
 let databaseCache: DatabaseEnv | null = null;
 
 /**
@@ -349,6 +427,7 @@ export const OPTIONAL_ENV = ["NEXT_PUBLIC_SITE_URL"] as const;
 
 /** Test seam: clears memoised values so a test can vary the environment. */
 export function resetEnvCacheForTests(): void {
+  authAdminCache = null;
   publicCache = null;
   serverCache = null;
   databaseCache = null;

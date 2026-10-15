@@ -873,6 +873,367 @@ nothing above should be read as progress on either:
   Customers repository will fail that test until it is registered with evidence
   of its own, which is the point of it.
 
+### 2B — Users (§159, §160)
+
+Settings → Users: the list, Change Role, Deactivate and Reactivate, for
+Owner/Admins only. **Applied locally and to the hosted development project on
+2026-10-15.** Inviting people is deliberately not here — see 2C below.
+
+**Why this is routines and not policies.** The obvious implementation is a
+co-member SELECT policy for `limenzy_app`: "you may read a membership row when
+you hold an active owner_admin membership in the same workspace". That
+predicate has to read `workspace_memberships` to learn the reader's own role,
+and a policy on that table which reads that table re-applies itself —
+PostgreSQL raises `42P17`, infinite recursion. Routing through
+`public.workspaces` does not help, because `workspaces_member_select` already
+reads memberships, so the cycle closes one table further out.
+
+So user management follows the boundary the Phase 4C-1 bootstrap routine
+established: three SECURITY DEFINER routines owned by `limenzy_members`, a new
+NOLOGIN NOBYPASSRLS role that owns nothing else and to which nothing can
+connect. It is still constrained by row-level security — it is not the table
+owner, and FORCE applies to the owner anyway — so its statements are filtered
+by three narrow policies. `limenzy_app` receives EXECUTE on the three
+functions and **no new table privilege of any kind**; its four existing
+policies are untouched, and self-access behaves exactly as before.
+
+**Recursion, checked rather than argued.** `rls.test.ts` now builds the policy
+dependency graph **per role**, which is the accurate model: a policy applies
+only to the roles it is scoped to, so a subquery re-applies policies for the
+same role. Collapsed across roles the graph looks cyclic from 2B onward —
+`limenzy_app` reads memberships via a policy that subqueries profiles, while
+`limenzy_members` reads profiles via a policy that subqueries memberships. Per
+role each is a straight line, and neither evaluation can reach the other's
+policy. The test asserts each role's shape, runs cycle detection per role, and
+checks no policy expression calls any table-reading routine.
+
+**The last-Owner/Admin rule is atomic.** §159 requires at least one active
+Owner/Admin to remain, and §160 forbids deactivating the last one. Both
+routines take `FOR UPDATE` on every active owner_admin row of the workspace,
+**in `user_profile_id` order**, _before_ counting. The ordering is not
+cosmetic: `FOR UPDATE` locks rows as the plan returns them, so without a total
+order two callers can take the same rows in opposite orders and deadlock.
+Under READ COMMITTED a second transaction re-evaluates those rows once the
+first commits, so a row that stopped being an active Owner/Admin drops out of
+both the lock set and the count. Two concurrent demotions therefore end with
+exactly one success, and a concurrent demotion and deactivation likewise —
+both are asserted against a real database.
+
+**Authorisation is re-checked after the locks.** A pre-commit review found a
+genuine TOCTOU and reproduced it: each statement inside a VOLATILE function
+takes a fresh snapshot under READ COMMITTED, so a concurrent transaction can
+demote or deactivate the caller between the check at the top of a routine and
+its locks — and when it does, the caller's row drops out of the lock set, so
+the caller never blocks and the stale decision stays in force. With a delay
+injected at that point, a demoted actor completed a role change. Both routines
+now repeat `app.current_user_is_owner_admin()` immediately after acquiring the
+locks. After that point the answer is stable for the rest of the transaction:
+a caller who is still an active Owner/Admin holds a lock on their own row.
+
+**Transaction and isolation assumptions.** The routines are written for READ
+COMMITTED, which is what the pool uses, and the last-Owner rule depends on its
+re-evaluation behaviour. Under REPEATABLE READ or SERIALIZABLE the locking
+statement raises `40001` instead — safe, nothing is written, but an exception
+rather than one of the words a routine returns. A genuine deadlock raises
+`40P01` and aborts likewise. The gateway turns both into the ordinary
+`unavailable` result, exposes no database detail, and **does not retry**: a
+membership change is not idempotent from the person's point of view, so
+re-running one they did not re-request is worse than telling them it did not
+save. Every other SQLSTATE propagates, because a missing routine or a wrong
+grant is a fault to surface, not an outcome to report as "could not save".
+
+**Product decisions implemented.** Self-demotion and self-deactivation are
+allowed only while another active Owner/Admin remains, which falls out of the
+same rule rather than being a second code path. Both warn before acting and
+require a second, differently-labelled click; the role warning says the
+section will disappear, because a successful self-demotion re-renders this
+screen away and there is nowhere left to show a confirmation. Deactivation
+affects the workspace membership only — not the person's account, and not a
+membership of another workspace — and nothing is deleted, so history keeps
+the name.
+
+#### 2B — the email decision, escalated rather than worked around
+
+**Superseded by 2D, which implemented it.** The account below is kept because
+it records why the obvious route was refused, and that reasoning still governs
+what may be granted. §159's Email column was not implemented at the 2B
+checkpoint, and the screen said so rather than showing a blank.
+
+`auth.users` has ROW LEVEL SECURITY ENABLED WITH NO POLICIES and is owned by
+`supabase_auth_admin`. A non-owner role therefore reads zero rows from it
+however it is granted — a column-scoped `GRANT SELECT (id, email)` changes
+nothing. Verified against the local stack: the migration role is not a member
+of `supabase_auth_admin`, cannot `SET ROLE` to it and cannot take ownership of
+the table; it reads `auth.users` only through `pg_read_all_data`.
+
+Making email readable would need one of:
+
+1. **`pg_read_all_data` membership** for a new role — read every row in the
+   database, including every tenant's. Enormous blast radius for one column.
+2. **`BYPASSRLS`** — excluded by the Phase 1 role design, which asserts by
+   test that no limenzy role has it.
+3. **A new policy on Supabase's own `auth.users`** — modifying infrastructure
+   this project does not own, which Supabase may alter or reset, and which
+   would affect every role that reads that table.
+
+None is a routine implementation choice, so none was taken. The screen shows
+the signed-in person's own address — which the server already holds from their
+verified session, at no database privilege — and discloses that other
+addresses are unavailable and why. **This is the decision to make before
+2C**, because invitations are where an email first enters the product's own
+schema and the answer may change shape then.
+
+#### 2B — the §160 reassignment precondition
+
+None of the five record types §160 names exists: no Leads, Customers,
+Follow-ups, Renewals or WhatsApp conversations table. So the precondition is
+not passing, it is **vacuous** — nothing can be owned, so deactivation cannot
+strand anything.
+
+`src/server/auth/deactivation-responsibilities.ts` declares the sources rather
+than inferring them, and returns `no_sources_exist` — deliberately a different
+answer from "counted, and found none", so no caller can report "checked and
+clear" about a check that never ran. Registering a source without implementing
+its count throws rather than permitting a deactivation.
+
+`src/test/deactivation-responsibilities.test.ts` compares that declaration
+against the tables the Drizzle schema defines and **fails the build** when a
+table is neither registered as a responsibility source nor explicitly recorded
+as carrying none. A new Leads table will fail it until somebody decides.
+
+**What the guard does not cover**, recorded here and in the module:
+
+- it detects **tables, not columns** — adding `assigned_to` to an already
+  classified table creates a responsibility it will not notice;
+- it **cannot judge meaning**; it knows a table appeared, and the failure is a
+  request for a human decision;
+- it reads the **declared schema, not a database**;
+- it is **not the reassignment workflow** — offering a target user and moving
+  the work is Milestone 3 and later.
+
+#### 2B verification
+
+**Local database, matched runtime/tooling pair, process-scoped.** 275 database
+tests, none skipped, including 37 new ones: co-member visibility; a context
+naming workspace B seeing nothing of A; a reader whose profile setting names
+another person seeing nothing; Manager, staff_sales and an inactive membership
+all refused both the list and every mutation; an owner_admin of another
+workspace refused; the runtime role refused `UPDATE` on memberships with
+`42501` at the grant, before any policy; `auth.users` unreachable from both
+`limenzy_app` and `limenzy_members`; a deactivation in A leaving the same
+person's membership of B untouched; and the last-Owner rule under two
+concurrent demotions and under a concurrent demotion and deactivation.
+
+Four of those cover the TOCTOU specifically, made deterministic without
+touching the routines: a separate transaction takes exactly the locks they
+want, removes the actor's authority while holding them, and releases only once
+the actor's call is demonstrably waiting. The fourth is a control proving the
+routines still succeed when the actor keeps their authority, so a routine that
+refused everything after a lock wait could not pass. The other three were
+confirmed to FAIL against the pre-fix routine before being accepted.
+
+**Focused unit tests.** 21 gateway tests covering outcome mapping and aborted
+transactions — `40001` and `40P01` become `unavailable` with no retry and no
+database detail in the result, every other SQLSTATE propagates, an unknown
+outcome word is never read as success, and a failure in the read path is not
+absorbed into an empty workspace. Plus 38 Server Action authorization tests
+and 32 validation tests: Owner/Admin-only, role taken from the membership and never the form,
+authorization checked before anything the browser sent, the stale-workspace
+guard failing closed, every refusal mapped, and `selfAffected` decided from the
+resolved membership rather than the payload.
+
+**Browser walkthrough — observed, 27 of 27.** Chrome over the DevTools
+Protocol against a temporary dev server on port 3461, configured entirely from
+the process environment: the local stack for both database and authentication.
+`.env.local` was neither read for those values nor modified. Fixtures: one
+workspace and four people including two Owner/Admins; all removed afterwards
+and read back absent, with the 171 workspaces, 91 profiles, 81 memberships and
+2 auth users of development data untouched.
+
+| Area                     | Observed                                                                                                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| List                     | All six §159 columns; four rows; own email shown, **other members' email still not implemented** and disclosed as unavailable; Sales Team disclosed as not implemented. |
+| Change Role              | Saved, reached the database, survived a reload.                                                                                                                         |
+| Deactivate / Reactivate  | Stored, and the person stayed listed as Inactive with a Reactivate action.                                                                                              |
+| Last Owner/Admin         | The second could be deactivated; the last could not, and nothing changed.                                                                                               |
+| Self-actions             | Both warn and need a second click; self-demotion succeeded and the section disappeared immediately, without a manual reload.                                            |
+| Manager / staff_sales    | Neither is offered the screen, and the Owner's own submission replayed from their sessions changed nothing — the same replay from an Owner/Admin succeeded.             |
+| Desktop 1280 / phone 375 | No horizontal page overflow at either; at 375 the table scrolls itself rather than the page.                                                                            |
+
+**One defect found by the browser run and fixed**: a self-demotion re-rendered
+the screen away with no explanation, because the actor is no longer an
+Owner/Admin. The role form now carries the same confirmation the deactivate
+action had, and says the section will disappear.
+
+`tsc`, `eslint`, `prettier` and `git diff --check` clean, apart from the
+pre-existing `public/sw.js` formatting warning, which is left untouched.
+
+**Not included, deliberately.** Add User and invitations (2C), Sales Team
+membership and Team Lead (Milestone 4), and the §160 reassignment workflow.
+
+#### 2B and 2D — hosted application
+
+**Both migrations applied and recorded on 2026-10-15**, in order, through the
+migration runner, so `supabase_migrations.schema_migrations` carries both
+versions rather than the schema drifting ahead of its history:
+
+1. `20261016090000_workspace_users.sql` — SHA-256
+   `f586bc5a…42853f11`
+2. `20261018090000_workspace_members_auth_id.sql` — SHA-256
+   `4879126e…68b9b999`
+
+The second drops and recreates a routine the first creates, so the order was
+not optional and the apply script refused unless exactly those two were
+pending in exactly that order.
+
+**Hosted verification: 17 passed, 0 failed.** Both versions in the history;
+`limenzy_members` present as NOLOGIN, NOBYPASSRLS with no administrative
+attributes; `limenzy_app` not a member of it; **no role gained USAGE on schema
+`auth`** and no `limenzy*` role holds BYPASSRLS; the four `app` routines
+present with the intended owners and definer flags, each pinning an empty
+`search_path`; `workspace_members()` carrying the recreated six-column shape,
+which is what proves the second migration took effect and not merely the
+first; EXECUTE on it restored to `limenzy_app` alone with PUBLIC and the Data
+API roles excluded; the three new policies scoped to `limenzy_members`; the
+four Phase 2 policies untouched and still `{limenzy_app}`; `limenzy_app`
+holding no write privilege on memberships; `limenzy_members` holding SELECT on
+two tables, column `UPDATE (role, status)` only and no CREATE on schema `app`;
+the routines refusing a caller with no tenant context; development records
+preserved; no membership row altered; and the runtime role still refused a
+direct membership write with `42501`, rolled back.
+
+**The Users runtime read path passed** against hosted: `workspaceMembers()`
+through the real tenant gateway with a synthetic context returns no rows, the
+catalogue reports the expected return shape, both mutations refuse an
+unauthorised caller, and `auth.users` remains unreachable from the runtime
+role. The same probe fails with `42883` before the migrations, so it is
+sensitive to what they change rather than passing vacuously.
+
+One tooling defect was found and fixed during the attempt: the shared
+pre-apply target check had the Milestone 2A expectations hard-coded, so it
+refused the Users run because the §158 columns existed — which is exactly what
+2A was meant to leave behind. The check now takes its expectations from the
+caller and refuses a caller that declares none.
+
+#### 2B and 2D — hosted walkthrough, user-reported
+
+Against the hosted development project, the developer reports that:
+
+- name, email, role and status all display correctly;
+- the last active Owner/Admin cannot demote themselves, and cannot deactivate
+  themselves;
+- a reload confirms the membership is still Active and still Owner/Admin.
+
+These are **reported by the developer, not independently observed** by the
+pass that recorded them, and they are quoted rather than re-measured. That the
+Email column shows addresses at all also evidences that
+`SUPABASE_SECRET_KEY` is configured for this project.
+
+**Scope of the hosted walkthrough.** It exercised a single-member workspace.
+**Multi-member behaviour was verified locally, not here** — co-member
+visibility, cross-workspace refusal, Manager and staff_sales refusal, role
+changes and deactivation of other people, the concurrency cases, and another
+member's address being shown all rest on the local database suite and the
+local browser run recorded above.
+
+#### 2B — what remains outstanding
+
+Everything below is open after this checkpoint. None of it is started, and
+nothing above should be read as progress on any of it.
+
+- **Add User and invitations** — 2C. Not blocked by anything here: the
+  invited address is typed by an Owner/Admin, so nothing in that flow reads
+  another member's address out of Auth.
+- **Sales Team integration** — the §159 column renders "Not available" until
+  Sales Teams exist (Milestone 4), including Team Lead designation and the
+  §163.3 replacement rule that §160 defers to.
+- **The §160 responsibility checks AND the reassignment enforcement** — the
+  registry is empty because no business module exists; its guard fails the
+  build when the first table appears, and the workflow that offers a target
+  user and moves the work is Milestone 3 and later. Nothing today blocks a
+  deactivation on outstanding work, because no work can exist.
+- **The 1E PWA checks** remain pending; none has been run.
+- **Business-record isolation** remains open. The three new functions are
+  registered in the tenant-access contract with real database evidence, but
+  they are membership administration, not business records; the inventory that
+  would prove record isolation is still empty, which proves nothing.
+
+### 2D — Member email addresses (§159)
+
+The Email column, filled for every member of the selected workspace, active
+and inactive alike. **Applied locally and to the hosted development project on
+2026-10-15.**
+
+**The database route is closed, and that is not a matter of effort.**
+`auth.users` has row-level security with no policies and is owned by
+`supabase_auth_admin`. A dedicated `BYPASSRLS` role was designed, built and
+applied locally before the real gate surfaced: the migration role holds
+`USAGE` on schema `auth` **without grant option**, so granting that USAGE on
+emits `WARNING: no privileges were granted` and silently does nothing — while
+the column grants on `auth.users` succeed, which makes it easy to miss. That
+attempt was fully reverted. The remaining database routes each widened
+privilege far beyond one column and were refused.
+
+**So the address comes from the Auth Admin API, server-side.** The cost is
+recorded in [architecture-decisions §6.4](./architecture-decisions.md): the
+application server now holds a project-wide privileged credential. The
+database-role separation is unchanged and still governs every CRM read and
+write — and it does **not** constrain this credential. What constrains it is
+the single module that holds it, the single operation it performs, and the
+order the page does things in: `manage_users` first, then the
+workspace-scoped routine, then a lookup of only the ids that routine
+returned, for only the page being displayed.
+
+**One migration**, `20261018090000_workspace_members_auth_id.sql`: adds
+`auth_user_id` to `app.workspace_members()` so the server has something to
+look up. No new role, no new grant, no new policy. The routine is dropped and
+recreated because the return type changes, and its ownership and exact
+EXECUTE grants are restored — a dropped function takes its ACL with it, and
+PostgreSQL grants EXECUTE on a new function to PUBLIC by default.
+
+**Paged, not capped.** Each displayed address is one Auth request, so the list
+shows 25 per page and resolves only that page. There is no member-count
+cutoff: a large workspace is paged, never truncated, and a test walks every
+page asserting no member is lost or repeated.
+
+**States the screen shows.** Addresses where resolved; a dash where the
+account has none; "Unavailable" for one that could not be read; and a notice
+when the lookup was partial, unavailable, or the key is not configured in that
+environment. The list always renders — email never takes the screen down.
+
+**Verified.** 42 database tests including the recreated routine's grants,
+ownership and workspace-scoped ids; 17 tests on the Auth boundary covering
+every state, bounded concurrency, cancellation bound to the client's own
+`fetch`, and the operations it must never perform; 17 paging tests; 11
+structural tests on the call order and on what crosses to the browser; and a
+browser run of 11 checks confirming another member's address is shown, that it
+is re-read when Auth changes, and that no Auth user id appears in the
+delivered HTML.
+
+**Setup, now done for hosted development.** Both migrations are applied and
+`SUPABASE_SECRET_KEY` is configured for that project, which the hosted
+walkthrough evidences by showing addresses rather than the not-configured
+notice.
+
+For any **other** environment the same two steps apply, in this order: apply
+both migrations, then set `SUPABASE_SECRET_KEY` from the same project as
+`NEXT_PUBLIC_SUPABASE_URL`. No deployment platform has been chosen, and the
+local application runs against hosted Supabase, so the key lives in the
+git-ignored `.env.local` beside the hosted URL and publishable key. Until
+both are done the Email column shows the not-configured notice and everything
+else on the screen works normally.
+
+### 2C — Invitations (§159 Add User) — planned, not started
+
+**Invitations do NOT depend on member-email access.** An earlier note in this
+plan said 2C was blocked on the email decision; that was wrong. Invitations
+need an invitation record (address, role, token, expiry), a send through the
+existing email configuration, and redemption at sign-up. The invited address
+is typed by an Owner/Admin, so it is already in hand — nothing in that flow
+reads another member's address out of Auth. The only relationship is
+cosmetic: the Users list can also show a pending invitee's address once
+invitations exist. 2C can be built whenever it is scheduled.
+
 ## Milestone 3 — Leads, lifecycle and manual assignment
 
 Spec §30–§51, §26, §27, §29, §163.10, §163.11.

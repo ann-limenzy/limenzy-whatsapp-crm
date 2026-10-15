@@ -44,9 +44,16 @@ const GATEWAY_MODULES = new Set([
  * Every tenant-data-access function, and where its isolation is demonstrated.
  *
  * `evidence` names a suite that exercises the function against a real database
- * under row-level security. "policy only" means the function performs no
- * database access itself and is covered by offline tests — it is recorded so
- * the inventory stays complete, not to claim database evidence for it.
+ * under row-level security. Two notes exempt an entry from needing database
+ * evidence, and both are recorded so the inventory stays complete rather than
+ * to claim evidence that does not exist:
+ *
+ *   * "policy only" — the function performs no database access itself;
+ *   * "no tenant data" — the file matched discovery only because it NAMES a
+ *     gateway in prose. Discovery is deliberately a text search, so a comment
+ *     explaining that a module does not touch tenant data is enough to list
+ *     it. Registering it is the honest resolution; editing the comment to
+ *     dodge the search would not be.
  */
 const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/db/identity.ts#resolveVerifiedIdentity": {
@@ -72,6 +79,22 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   },
   "src/server/auth/workspace-business-settings.ts#updateBusinessSettings": {
     evidence: "src/server/db/settings-isolation.db.test.ts",
+  },
+  "src/server/auth/member-emails.ts#emailsForAuthUsers": {
+    evidence: "src/server/auth/member-emails.unit.test.ts",
+    note:
+      "no tenant data — reaches Supabase's Auth Admin API over HTTPS and no " +
+      "database at all. It is given auth user ids that app.workspace_members() " +
+      "already scoped to the caller's workspace.",
+  },
+  "src/server/auth/workspace-members.ts#workspaceMembers": {
+    evidence: "src/server/db/users-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-members.ts#setMemberRole": {
+    evidence: "src/server/db/users-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-members.ts#setMemberStatus": {
+    evidence: "src/server/db/users-isolation.db.test.ts",
   },
   "src/server/auth/workspace-modules.ts#enabledModulesFor": {
     evidence: "src/server/db/settings-isolation.db.test.ts",
@@ -181,7 +204,12 @@ describe("every tenant-data-access function is registered", () => {
 
   it("gives database evidence for every function that opens a transaction", async () => {
     for (const [key, entry] of Object.entries(REGISTRY)) {
-      if (entry.note?.startsWith("policy only")) continue;
+      if (
+        entry.note?.startsWith("policy only") ||
+        entry.note?.startsWith("no tenant data")
+      ) {
+        continue;
+      }
       expect(
         entry.evidence.includes(".db.test.ts") ||
           entry.evidence.includes("identity.test.ts"),

@@ -34,6 +34,9 @@ const SUITES = [
   "src/server/auth/workspace-names.db.test.ts",
   // Milestone 1D — the settings surface and the two-workspace fixture.
   "src/server/db/settings-isolation.db.test.ts",
+  // Milestone 2B — Settings → Users: co-member visibility and the last-Owner
+  // rule, including its behaviour under concurrency.
+  "src/server/db/users-isolation.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";
