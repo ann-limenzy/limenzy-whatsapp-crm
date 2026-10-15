@@ -48,6 +48,34 @@ export const workspaces = pgTable(
      */
     timeZone: text("time_zone").notNull(),
 
+    /**
+     * Business Phone, Business Email and Address (§158).
+     *
+     * All optional, and none is collected at onboarding — the bootstrap
+     * routine inserts the five fields above and nothing else — so a workspace
+     * that has never opened Business Settings holds NULL for all three.
+     * "Cleared" is always NULL, never an empty string; a check constraint
+     * enforces that so the column cannot hold two spellings of "not provided".
+     *
+     * `businessEmail` is a contact detail. It is not an identity, is never
+     * used to authenticate, and has no relationship to `auth.users.email`.
+     */
+    businessPhone: text("business_phone"),
+    businessEmail: text("business_email"),
+    address: text("address"),
+
+    /**
+     * Workspace configuration added in Milestone 1D.
+     *
+     * NULL means never configured, which the application reads as the
+     * specification's own defaults: §8's recommended module setup, and —
+     * for the two permission columns — fail-closed, because §162 and §162.1
+     * name no default.
+     */
+    enabledModules: text("enabled_modules").array(),
+    permissionsGranted: text("permissions_granted").array(),
+    managerRecordScope: text("manager_record_scope"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -63,6 +91,50 @@ export const workspaces = pgTable(
     check(
       "workspaces_time_zone_not_blank",
       sql`btrim(${table.timeZone}) <> ''`,
+    ),
+    // Optional contact fields: absent is NULL, never an empty string.
+    check(
+      "workspaces_business_phone_not_blank",
+      sql`${table.businessPhone} is null or btrim(${table.businessPhone}) <> ''`,
+    ),
+    check(
+      "workspaces_business_email_not_blank",
+      sql`${table.businessEmail} is null or btrim(${table.businessEmail}) <> ''`,
+    ),
+    check(
+      "workspaces_address_not_blank",
+      sql`${table.address} is null or btrim(${table.address}) <> ''`,
+    ),
+    check(
+      "workspaces_business_email_shape",
+      sql`${table.businessEmail} is null or (${table.businessEmail} like '%_@_%._%' and ${table.businessEmail} not like '% %')`,
+    ),
+
+    /*
+     * The Milestone 1D closed sets.
+     *
+     * Declared here for the same reason every other check on this table is:
+     * this file is meant to describe the live table, and a column restored
+     * without its constraints describes something more permissive than what
+     * the database actually enforces. The `permissions_granted` list is kept
+     * in step with `CONFIGURABLE_PERMISSIONS` by a test in
+     * `workspace-permissions.unit.test.ts`, which now checks this file too.
+     */
+    check(
+      "workspaces_enabled_modules_known",
+      sql`${table.enabledModules} is null or ${table.enabledModules} <@ array['leads', 'customer_followups', 'products_services', 'renewals_reminders', 'whatsapp', 'email']::text[]`,
+    ),
+    check(
+      "workspaces_enabled_modules_dependencies",
+      sql`${table.enabledModules} is null or not ('renewals_reminders' = any (${table.enabledModules})) or ('products_services' = any (${table.enabledModules}))`,
+    ),
+    check(
+      "workspaces_permissions_granted_known",
+      sql`${table.permissionsGranted} is null or ${table.permissionsGranted} <@ array['view_all_leads_customers', 'add_leads_customers', 'change_record_owner', 'reassign_follow_ups_renewals', 'assign_whatsapp_conversations', 'send_bulk_whatsapp_messages', 'import_export', 'send_manual_email_reminders', 'send_controlled_bulk_email_reminders', 'manually_assign_leads_within_team', 'view_assigned_whatsapp_conversation', 'archive_or_restore_lead', 'archive_or_restore_customer', 'grant_or_revoke_explicit_record_share', 'manually_resolve_lead_in_assignment_required', 'retry_automatic_assignment_for_waiting_lead', 'bulk_reprocess_leads_in_assignment_required', 'clear_undeliverable_email_address', 'resolve_ambiguous_whatsapp_conversation_identity']::text[]`,
+    ),
+    check(
+      "workspaces_manager_record_scope_known",
+      sql`${table.managerRecordScope} is null or ${table.managerRecordScope} in ('all_records', 'own_assigned_shared')`,
     ),
   ],
 );

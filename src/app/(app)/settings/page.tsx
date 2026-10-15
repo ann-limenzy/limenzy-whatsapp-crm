@@ -1,11 +1,14 @@
 import { Settings } from "lucide-react";
 import type { Metadata } from "next";
 
+import { countryOptions } from "@/lib/workspace-options";
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
+import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
 import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
 import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
+import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
 import {
   CONFIGURABLE_MODULES,
   enabledModulesFor,
@@ -20,23 +23,52 @@ export const metadata: Metadata = { title: "Settings" };
  * a layout-only check can be stale by the time this page renders. It resolves
  * identity and active membership from the database, uncached, every request.
  *
- * This placeholder reads no tenant data yet. When it does, the read goes
- * through `withTenant(context, …)` — and any future write resolves the
- * workspace of the RECORD it touches inside that context, never from the saved
- * preference, so a cookie changed in another tab cannot redirect an older
- * form's write into a different workspace.
+ * Every tenant read below goes through `withTenant(context, …)`, and the
+ * Server Actions behind these forms re-resolve the membership and re-check the
+ * role themselves. Hiding a section here is presentation, never the gate.
  */
 export default async function SettingsPage() {
-  const { context, role } = await requireWorkspaceContext();
+  const { context, role, workspaceId } = await requireWorkspaceContext();
+  // §171 routes this through §162: configuring the CRM is Owner/Admin only.
+  const mayConfigure = can({ role, action: "configure_crm_settings" });
+
   const { enabled, usingDefaults } = await enabledModulesFor(context);
   const permissions = await workspacePermissionSettings(context);
-  // §171 routes this through §162: configuring the CRM is Owner/Admin only.
-  // The Server Action re-checks the same thing — this only decides whether to
-  // render controls that would be refused anyway.
-  const mayConfigure = can({ role, action: "configure_crm_settings" });
+  // Read only when it will be rendered — a Manager or Staff member has no use
+  // for these values and no reason for the request to fetch them.
+  const business = mayConfigure ? await businessSettingsFor(context) : null;
 
   return (
     <div className="grid gap-8">
+      {mayConfigure ? (
+        <section aria-labelledby="business-heading" className="grid gap-4">
+          <div className="grid gap-1">
+            <h2 id="business-heading" className="text-lg font-semibold">
+              Business Settings
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Your business details, and the country, currency and time zone the
+              CRM works in. Spec §158.
+            </p>
+          </div>
+          {business ? (
+            <BusinessSettingsForm
+              settings={business}
+              workspaceId={workspaceId}
+              countries={countryOptions()}
+            />
+          ) : (
+            /* The workspace row was not readable in this context. Reported
+               rather than papered over with empty fields, which would invite a
+               save that replaced real details with blanks. */
+            <p className="text-sm text-danger-on-subtle">
+              These settings are not available right now. Nothing has been
+              changed.
+            </p>
+          )}
+        </section>
+      ) : null}
+
       {mayConfigure ? (
         <section aria-labelledby="modules-heading" className="grid gap-4">
           <div className="grid gap-1">
@@ -78,8 +110,8 @@ export default async function SettingsPage() {
       <ModulePlaceholder
         icon={Settings}
         title="Settings"
-        description="Workspace administration: business settings, users, roles and permissions, pipeline, products and services, custom fields, reminder defaults and modules."
-        specSections="§157–§174"
+        description="Workspace administration still to come: users, pipeline, products and services, custom fields and reminder defaults."
+        specSections="§159–§170, §173–§174"
         milestone="Milestone 2"
       />
     </div>

@@ -5,15 +5,20 @@ import {
 } from "@/lib/validation/workspace-setup";
 
 /**
- * Option data for the workspace setup form (spec 7, Screen 1).
+ * Country, currency and time-zone option data for the workspace pickers.
+ *
+ * Used by onboarding Screen 1 (spec 7) and by Settings -> Business Settings
+ * (spec 158). It lives in `lib/` rather than inside either route because a
+ * second screen needing it is the evidence that it was never one screen's
+ * data; a local-tooling guard keeps anything outside `/setup` from reaching
+ * into that route, and moving this out is what keeps that guard honest.
  *
  * **These are presentation defaults, never authorisation.** Nothing here is
- * consulted by the server when it decides what to create: the Phase 4C-2
- * parser validates whatever is submitted against its own frozen lists, and the
- * Phase 4C-1 routine decides the rest. A wrong suggestion here is a usability
- * bug, not a security one.
+ * consulted by the server when it decides what to create or store: the
+ * validation parsers check whatever is submitted against their own frozen
+ * lists. A wrong suggestion here is a usability bug, not a security one.
  *
- * Everything is derived from the approved validation lists, so the picker can
+ * Everything is derived from the approved validation lists, so a picker can
  * never offer a value the server would reject.
  */
 

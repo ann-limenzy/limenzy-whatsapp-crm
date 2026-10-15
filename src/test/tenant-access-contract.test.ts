@@ -67,6 +67,12 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/create-initial-workspace.ts#createInitialWorkspace": {
     evidence: "src/server/auth/create-initial-workspace.db.test.ts",
   },
+  "src/server/auth/workspace-business-settings.ts#businessSettingsFor": {
+    evidence: "src/server/db/settings-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-business-settings.ts#updateBusinessSettings": {
+    evidence: "src/server/db/settings-isolation.db.test.ts",
+  },
   "src/server/auth/workspace-modules.ts#enabledModulesFor": {
     evidence: "src/server/db/settings-isolation.db.test.ts",
   },
