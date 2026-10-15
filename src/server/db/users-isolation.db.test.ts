@@ -179,19 +179,130 @@ describe.skipIf(!reachable)("who an Owner/Admin can see", () => {
     expect(selves[0]?.userProfileId).toBe(fixture.owner.userProfileId);
   });
 
-  it("returns names, and never an email column", async () => {
+  it("returns the §159 columns, including the auth user id", async () => {
     const rows = await g.withTenant(
       ctx(fixture.owner, fixture.workspaceA),
       async (tx) =>
         tx<Record<string, unknown>[]>`select * from app.workspace_members()`,
     );
     expect(rows.length).toBeGreaterThan(0);
-    const columns = Object.keys(rows[0]!);
-    // Email is held by the authentication service and is deliberately not
-    // reachable from here — asserted so a later widening is a deliberate act.
-    expect(columns).not.toContain("email");
-    expect(columns.some((c) => c.includes("email"))).toBe(false);
-    expect(columns).toContain("full_name");
+    // No email column, deliberately: auth.users is unreadable from the
+    // database, so the address is resolved server-side through the Auth
+    // Admin API using the auth_user_id this routine returns.
+    expect(Object.keys(rows[0]!).sort()).toEqual([
+      "auth_user_id",
+      "full_name",
+      "is_self",
+      "member_role",
+      "member_status",
+      "user_profile_id",
+    ]);
+  });
+
+  it("returns each member's real auth user id", async () => {
+    const rows = await g.workspaceMembers(
+      ctx(fixture.owner, fixture.workspaceA),
+    );
+    for (const person of ["owner", "manager", "shared", "former"] as const) {
+      const member = rows.find(
+        (r) => r.userProfileId === fixture[person].userProfileId,
+      );
+      expect(member?.authUserId).toBe(fixture[person].authUserId);
+    }
+  });
+
+  it("returns a null auth user id rather than dropping the member", async () => {
+    // user_profiles.auth_user_id is ON DELETE SET NULL: the profile survives a
+    // deleted Auth account so history keeps the person's name. They stay in
+    // the list, with no address to look up.
+    const [profile] = (await admin()`
+      insert into public.user_profiles (auth_user_id, full_name)
+      values (null, ${`Orphan ${RUN}`}) returning id`) as unknown as {
+      id: string;
+    }[];
+    const [membership] = (await admin().unsafe(
+      `insert into public.workspace_memberships
+         (workspace_id, user_profile_id, role, status)
+       values ($1, $2, 'staff_sales'::public.workspace_role,
+               'active'::public.workspace_membership_status)
+       returning id`,
+      [fixture.workspaceA, profile!.id],
+    )) as unknown as { id: string }[];
+
+    try {
+      const rows = await g.workspaceMembers(
+        ctx(fixture.owner, fixture.workspaceA),
+      );
+      const orphan = rows.find((r) => r.userProfileId === profile!.id);
+      expect(orphan).toBeDefined();
+      expect(orphan?.authUserId).toBeNull();
+      expect(orphan?.fullName).toBe(`Orphan ${RUN}`);
+    } finally {
+      await admin()`delete from public.workspace_memberships where id = ${membership!.id}`;
+      await admin()`delete from public.user_profiles where id = ${profile!.id}`;
+    }
+  });
+
+  it("returns auth user ids of this workspace only", async () => {
+    // These ids are what the server hands to a project-wide Auth credential,
+    // so the workspace scoping of THIS result is what keeps that credential
+    // from being pointed at another tenant's people.
+    const inB = await g.workspaceMembers(
+      ctx(fixture.shared, fixture.workspaceB),
+    );
+    expect(inB.map((r) => r.authUserId)).toEqual([fixture.shared.authUserId]);
+    for (const person of ["owner", "manager", "former"] as const) {
+      expect(inB.some((r) => r.authUserId === fixture[person].authUserId)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("grants EXECUTE on the recreated routine to limenzy_app alone", async () => {
+    // The routine was dropped and recreated, which discards its ACL — and
+    // PostgreSQL grants EXECUTE on a new function to PUBLIC by default. This
+    // asserts the restore was complete.
+    const [row] = (await admin()`
+      select has_function_privilege('limenzy_app','app.workspace_members()','EXECUTE') as app,
+             has_function_privilege('public','app.workspace_members()','EXECUTE') as pub,
+             has_function_privilege('anon','app.workspace_members()','EXECUTE') as anon,
+             has_function_privilege('authenticated','app.workspace_members()','EXECUTE') as authed,
+             has_function_privilege('service_role','app.workspace_members()','EXECUTE') as svc,
+             pg_get_userbyid(p.proowner) as owner,
+             p.prosecdef as secdef
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'app' and p.proname = 'workspace_members'`) as unknown as {
+      app: boolean;
+      pub: boolean;
+      anon: boolean;
+      authed: boolean;
+      svc: boolean;
+      owner: string;
+      secdef: boolean;
+    }[];
+    expect(row).toEqual({
+      app: true,
+      pub: false,
+      anon: false,
+      authed: false,
+      svc: false,
+      owner: "limenzy_members",
+      secdef: true,
+    });
+  });
+
+  it("left no role with a reach into auth after the recreate", async () => {
+    const [row] = (await admin()`
+      select has_schema_privilege('limenzy_app','auth','USAGE') as app,
+             has_schema_privilege('limenzy_members','auth','USAGE') as members,
+             has_schema_privilege('limenzy_owner','auth','USAGE') as owner`) as unknown as {
+      app: boolean;
+      members: boolean;
+      owner: boolean;
+    }[];
+    // The database route to auth.users stays closed; addresses come from the
+    // Auth Admin API on the server instead.
+    expect(row).toEqual({ app: false, members: false, owner: false });
   });
 });
 

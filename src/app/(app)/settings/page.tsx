@@ -7,11 +7,12 @@ import { BusinessSettingsForm } from "@/components/settings/business-settings-fo
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
 import { UserSettingsList } from "@/components/settings/user-settings-list";
 import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
+import { MEMBERS_PER_PAGE, pageOf, parsePageParam } from "@/lib/member-list";
 import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
-import { requireUser } from "@/server/auth/require-user";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import { workspaceMembers } from "@/server/auth/workspace-members";
 import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
+import { emailsForAuthUsers } from "@/server/auth/member-emails";
 import {
   CONFIGURABLE_MODULES,
   enabledModulesFor,
@@ -30,7 +31,7 @@ export const metadata: Metadata = { title: "Settings" };
  * Server Actions behind these forms re-resolve the membership and re-check the
  * role themselves. Hiding a section here is presentation, never the gate.
  */
-export default async function SettingsPage() {
+export default async function SettingsPage(props: PageProps<"/settings">) {
   const { context, role, workspaceId } = await requireWorkspaceContext();
   // §171 routes this through §162: configuring the CRM is Owner/Admin only.
   const mayConfigure = can({ role, action: "configure_crm_settings" });
@@ -45,10 +46,55 @@ export default async function SettingsPage() {
   // from configuring the CRM, so it is asked separately rather than assumed
   // to travel with it.
   const mayManageUsers = can({ role, action: "manage_users" });
-  const members = mayManageUsers ? await workspaceMembers(context) : [];
-  // The signed-in person's own address, from their verified session. The CRM
-  // cannot read anyone else's — see the note the list renders.
-  const signedInEmail = mayManageUsers ? (await requireUser()).email : null;
+
+  /*
+   * §159, in the order that matters.
+   *
+   * 1. `manage_users` is checked FIRST, so an unauthorised caller never
+   *    reaches the Auth Admin credential at all.
+   * 2. The members come from the workspace-scoped database routine, which
+   *    re-derives Owner/Admin from stored rows and returns only this
+   *    workspace's rows.
+   * 3. Only then are addresses looked up, and only for the ids THAT ROUTINE
+   *    returned, for the page actually being displayed. The lookup is handed
+   *    ids and nothing else — it has no workspace to check them against, so
+   *    where they come from is the whole of its safety.
+   */
+  const allMembers = mayManageUsers ? await workspaceMembers(context) : [];
+  const { items: pageMembers, ...paging } = pageOf(
+    allMembers,
+    parsePageParam((await props.searchParams).users),
+    MEMBERS_PER_PAGE,
+  );
+  const lookup = mayManageUsers
+    ? await emailsForAuthUsers(
+        pageMembers
+          .map((member) => member.authUserId)
+          .filter((id): id is string => id !== null),
+      )
+    : null;
+
+  /*
+   * What crosses to the browser.
+   *
+   * `authUserId` is deliberately dropped here. The client needs a name, an
+   * address, a role and a status; the Auth identifier is a server detail and
+   * a test asserts it never appears in the client component's props.
+   */
+  const rows = pageMembers.map((member) => ({
+    userProfileId: member.userProfileId,
+    fullName: member.fullName,
+    email:
+      member.authUserId === null
+        ? null
+        : (lookup?.emails.get(member.authUserId) ?? null),
+    emailResolved:
+      member.authUserId === null ||
+      (lookup?.emails.has(member.authUserId) ?? false),
+    role: member.role,
+    status: member.status,
+    isSelf: member.isSelf,
+  }));
 
   return (
     <div className="grid gap-8">
@@ -93,9 +139,10 @@ export default async function SettingsPage() {
             </p>
           </div>
           <UserSettingsList
-            members={members}
+            members={rows}
             workspaceId={workspaceId}
-            signedInEmail={signedInEmail}
+            emailStatus={lookup?.status ?? "ok"}
+            paging={paging}
           />
         </section>
       ) : null}

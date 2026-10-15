@@ -1075,8 +1075,8 @@ Everything below is open after this checkpoint. None of it is started, and
 nothing above should be read as progress on any of it.
 
 - **Add User and invitations** — 2C, blocked on the email decision.
-- **Other members' email** — §159 lists the column; only the signed-in
-  person's own address is shown, and the rest is disclosed as unavailable.
+- ~~Other members' email~~ — **done.** §159's Email column now shows every
+  member's current Auth address, read at request time. See 2D below.
 - **Sales Team integration** — the §159 column renders "Not available" until
   Sales Teams exist (Milestone 4), including Team Lead designation and the
   §163.3 replacement rule that §160 defers to.
@@ -1089,13 +1089,82 @@ nothing above should be read as progress on any of it.
   they are membership administration, not business records; the inventory that
   would prove record isolation is still empty, which proves nothing.
 
+### 2D — Member email addresses (§159)
+
+The Email column, filled for every member of the selected workspace, active
+and inactive alike. **Applied locally; NOT applied to the hosted project.**
+
+**The database route is closed, and that is not a matter of effort.**
+`auth.users` has row-level security with no policies and is owned by
+`supabase_auth_admin`. A dedicated `BYPASSRLS` role was designed, built and
+applied locally before the real gate surfaced: the migration role holds
+`USAGE` on schema `auth` **without grant option**, so granting that USAGE on
+emits `WARNING: no privileges were granted` and silently does nothing — while
+the column grants on `auth.users` succeed, which makes it easy to miss. That
+attempt was fully reverted. The remaining database routes each widened
+privilege far beyond one column and were refused.
+
+**So the address comes from the Auth Admin API, server-side.** The cost is
+recorded in [architecture-decisions §6.4](./architecture-decisions.md): the
+application server now holds a project-wide privileged credential. The
+database-role separation is unchanged and still governs every CRM read and
+write — and it does **not** constrain this credential. What constrains it is
+the single module that holds it, the single operation it performs, and the
+order the page does things in: `manage_users` first, then the
+workspace-scoped routine, then a lookup of only the ids that routine
+returned, for only the page being displayed.
+
+**One migration**, `20261018090000_workspace_members_auth_id.sql`: adds
+`auth_user_id` to `app.workspace_members()` so the server has something to
+look up. No new role, no new grant, no new policy. The routine is dropped and
+recreated because the return type changes, and its ownership and exact
+EXECUTE grants are restored — a dropped function takes its ACL with it, and
+PostgreSQL grants EXECUTE on a new function to PUBLIC by default.
+
+**Paged, not capped.** Each displayed address is one Auth request, so the list
+shows 25 per page and resolves only that page. There is no member-count
+cutoff: a large workspace is paged, never truncated, and a test walks every
+page asserting no member is lost or repeated.
+
+**States the screen shows.** Addresses where resolved; a dash where the
+account has none; "Unavailable" for one that could not be read; and a notice
+when the lookup was partial, unavailable, or the key is not configured in that
+environment. The list always renders — email never takes the screen down.
+
+**Verified.** 42 database tests including the recreated routine's grants,
+ownership and workspace-scoped ids; 17 tests on the Auth boundary covering
+every state, bounded concurrency, cancellation bound to the client's own
+`fetch`, and the operations it must never perform; 17 paging tests; 11
+structural tests on the call order and on what crosses to the browser; and a
+browser run of 11 checks confirming another member's address is shown, that it
+is re-read when Auth changes, and that no Auth user id appears in the
+delivered HTML.
+
+**Still outstanding here.** Two things, in this order:
+
+1. Apply both pending migrations to the hosted development project —
+   `20261016090000_workspace_users.sql` then
+   `20261018090000_workspace_members_auth_id.sql`. The second recreates a
+   routine the first creates, so the order is not optional.
+2. Set `SUPABASE_SECRET_KEY` for the hosted development project. No
+   deployment platform has been chosen yet, and the local application already
+   runs against hosted Supabase, so this goes in the git-ignored `.env.local`
+   beside the hosted URL and publishable key that are already there. It must
+   come from the same project as `NEXT_PUBLIC_SUPABASE_URL`.
+
+Until both are done the Email column shows the not-configured notice and
+everything else on the screen works normally.
+
 ### 2C — Invitations (§159 Add User) — planned, not started
 
-Blocked on the email decision above, which determines whether a new person is
-created through Supabase's admin API — needing a privileged key the codebase
-has so far avoided — or through a workspace invitation table with a token
-emailed via the existing setup and redeemed at sign-up, which needs no
-privileged key.
+**Invitations do NOT depend on member-email access.** An earlier note in this
+plan said 2C was blocked on the email decision; that was wrong. Invitations
+need an invitation record (address, role, token, expiry), a send through the
+existing email configuration, and redemption at sign-up. The invited address
+is typed by an Owner/Admin, so it is already in hand — nothing in that flow
+reads another member's address out of Auth. The only relationship is
+cosmetic: the Users list can also show a pending invitee's address once
+invitations exist. 2C can be built whenever it is scheduled.
 
 ## Milestone 3 — Leads, lifecycle and manual assignment
 

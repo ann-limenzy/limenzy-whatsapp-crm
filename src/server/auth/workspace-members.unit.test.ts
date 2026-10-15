@@ -17,6 +17,7 @@ const { workspaceMembers, setMemberRole, setMemberStatus } =
 
 const CONTEXT = { workspaceId: "w", userProfileId: "p" } as never;
 const TARGET = "22222222-2222-4222-8222-222222222222";
+const AUTH_ID = "33333333-3333-4333-8333-333333333333";
 
 /** An error shaped the way the driver reports a PostgreSQL failure. */
 const pgError = (code: string) =>
@@ -141,6 +142,7 @@ describe("the list", () => {
     withTenant.mockResolvedValue([
       {
         user_profile_id: TARGET,
+        auth_user_id: AUTH_ID,
         full_name: "Someone",
         member_role: "manager",
         member_status: "inactive",
@@ -150,12 +152,31 @@ describe("the list", () => {
     expect(await workspaceMembers(CONTEXT)).toEqual([
       {
         userProfileId: TARGET,
+        authUserId: AUTH_ID,
         fullName: "Someone",
         role: "manager",
         status: "inactive",
         isSelf: false,
       },
     ]);
+  });
+
+  it("carries a null auth user id rather than dropping the member", async () => {
+    // The Auth account was deleted and the profile kept for history. The
+    // person is still a member; there is simply no address to look up.
+    withTenant.mockResolvedValue([
+      {
+        user_profile_id: TARGET,
+        auth_user_id: null,
+        full_name: "Orphaned",
+        member_role: "staff_sales",
+        member_status: "active",
+        is_self: false,
+      },
+    ]);
+    const [member] = await workspaceMembers(CONTEXT);
+    expect(member?.authUserId).toBeNull();
+    expect(member?.fullName).toBe("Orphaned");
   });
 
   it("returns an empty list when the routine refuses", async () => {

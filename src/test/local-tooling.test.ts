@@ -83,6 +83,7 @@ const MILESTONE_1D_MIGRATIONS = [
 const MILESTONE_2_MIGRATIONS = [
   "20261015090000_workspace_business_contact.sql",
   "20261016090000_workspace_users.sql",
+  "20261018090000_workspace_members_auth_id.sql",
 ];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,

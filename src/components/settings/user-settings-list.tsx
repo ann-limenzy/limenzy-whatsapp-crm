@@ -1,6 +1,7 @@
 "use client";
 
 import { Info, TriangleAlert } from "lucide-react";
+import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 
@@ -11,6 +12,7 @@ import {
 } from "@/app/actions/users";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import type { MemberEmailStatus } from "@/lib/member-list";
 import type { WorkspaceRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import {
@@ -45,9 +47,28 @@ import {
 export type MemberRow = {
   readonly userProfileId: string;
   readonly fullName: string;
+  /** The address Auth holds, or null when it has none or none was resolved. */
+  readonly email: string | null;
+  /** Whether the lookup answered for this person at all. */
+  readonly emailResolved: boolean;
   readonly role: WorkspaceRole;
   readonly status: MembershipStatus;
   readonly isSelf: boolean;
+};
+
+/**
+ * Note what is NOT here: the Auth user id.
+ *
+ * The server resolves the address and sends the result. The identifier stays
+ * where the credential that uses it stays — on the server.
+ */
+
+export type MemberPaging = {
+  readonly page: number;
+  readonly pageCount: number;
+  readonly total: number;
+  readonly hasPrevious: boolean;
+  readonly hasNext: boolean;
 };
 
 const INITIAL: UserActionState = { status: "idle", attempt: 0 };
@@ -136,7 +157,8 @@ function Outcome({ state }: { state: UserActionState }) {
 export function UserSettingsList({
   members,
   workspaceId,
-  signedInEmail,
+  emailStatus,
+  paging,
 }: {
   members: readonly MemberRow[];
   /**
@@ -145,13 +167,9 @@ export function UserSettingsList({
    * selects where the change lands.
    */
   workspaceId: string;
-  /**
-   * The signed-in person's own address, from their verified session.
-   *
-   * Only their own: see the note rendered below. No database privilege is
-   * involved in showing it, because the server already holds it.
-   */
-  signedInEmail: string | null;
+  /** How the address lookup went for this page as a whole. */
+  emailStatus: MemberEmailStatus;
+  paging: MemberPaging;
 }) {
   const [roleState, roleAction] = useActionState(setMemberRoleAction, INITIAL);
   const [statusState, statusAction] = useActionState(
@@ -179,6 +197,22 @@ export function UserSettingsList({
   return (
     <div className="grid gap-4">
       <Outcome state={latest} />
+
+      {emailStatus !== "ok" ? (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+        >
+          <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">
+            {emailStatus === "not_configured"
+              ? "Email addresses are not configured in this environment, so the Email column is empty. Everything else on this screen works normally."
+              : emailStatus === "unavailable"
+                ? "Email addresses could not be read just now. Everything else on this screen works normally — reload to try again."
+                : "Some email addresses could not be read just now. The ones shown are current."}
+          </span>
+        </div>
+      ) : null}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[46rem] border-collapse text-sm">
@@ -231,11 +265,18 @@ export function UserSettingsList({
                   </td>
 
                   <td className="px-2 py-3">
-                    {member.isSelf && signedInEmail ? (
-                      signedInEmail
+                    {member.email ? (
+                      <span className="break-all">{member.email}</span>
                     ) : (
-                      <span className="text-muted-foreground">
-                        Not available
+                      <span
+                        className="text-muted-foreground"
+                        title={
+                          member.emailResolved
+                            ? "This account has no email address"
+                            : "This address could not be read just now"
+                        }
+                      >
+                        {member.emailResolved ? "\u2014" : "Unavailable"}
                       </span>
                     )}
                   </td>
@@ -421,6 +462,38 @@ export function UserSettingsList({
         </table>
       </div>
 
+      {paging.pageCount > 1 ? (
+        <nav
+          aria-label="Users pages"
+          className="flex items-center justify-between gap-3 text-sm"
+        >
+          <span className="text-muted-foreground">
+            Page {paging.page} of {paging.pageCount} · {paging.total}{" "}
+            {paging.total === 1 ? "person" : "people"}
+          </span>
+          <span className="flex gap-2">
+            {/* Plain links, so a page is addressable and the back button
+                behaves. Each page loads its own addresses and no others. */}
+            {paging.hasPrevious ? (
+              <Link
+                href={`/settings?users=${paging.page - 1}#users-heading`}
+                className="rounded-md border border-input px-3 py-1.5 font-medium hover:bg-muted"
+              >
+                Previous
+              </Link>
+            ) : null}
+            {paging.hasNext ? (
+              <Link
+                href={`/settings?users=${paging.page + 1}#users-heading`}
+                className="rounded-md border border-input px-3 py-1.5 font-medium hover:bg-muted"
+              >
+                Next
+              </Link>
+            ) : null}
+          </span>
+        </nav>
+      ) : null}
+
       <Separator />
 
       <div className="grid gap-2 text-xs text-muted-foreground">
@@ -438,13 +511,10 @@ export function UserSettingsList({
         <p className="flex items-start gap-1.5">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            <strong className="font-medium">
-              Email is shown only for your own account.
-            </strong>{" "}
-            Addresses are held by the authentication service, which the CRM
-            cannot read for other people without a much wider database privilege
-            than this screen justifies. It is recorded as a decision to make
-            rather than worked around.
+            <strong className="font-medium">Email comes from Auth.</strong> It
+            is read when this page loads, so it is whatever the person&rsquo;s
+            account holds now rather than a copy the CRM keeps. A dash means
+            that account has no address.
           </span>
         </p>
         <p className="flex items-start gap-1.5">

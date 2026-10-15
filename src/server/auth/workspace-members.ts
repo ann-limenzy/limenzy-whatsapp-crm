@@ -46,6 +46,15 @@ import type { TenantContext } from "@/server/db/tenant-context";
 
 export type WorkspaceMember = {
   readonly userProfileId: string;
+  /**
+   * The Auth account behind this profile — §159's Email is looked up with it.
+   *
+   * **Server-side only.** It never reaches a client component: the Settings
+   * page resolves the address and passes display data onward. `null` when the
+   * Auth account was deleted and the profile was kept so history keeps the
+   * person's name.
+   */
+  readonly authUserId: string | null;
   readonly fullName: string;
   readonly role: WorkspaceRole;
   readonly status: MembershipStatus;
@@ -55,6 +64,7 @@ export type WorkspaceMember = {
 
 type Row = {
   user_profile_id: string;
+  auth_user_id: string | null;
   full_name: string;
   member_role: WorkspaceRole;
   member_status: MembershipStatus;
@@ -81,6 +91,7 @@ export async function workspaceMembers(
   );
   return rows.map((row) => ({
     userProfileId: row.user_profile_id,
+    authUserId: row.auth_user_id,
     fullName: row.full_name,
     role: row.member_role,
     status: row.member_status,
