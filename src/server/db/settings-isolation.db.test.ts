@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
+import type { BusinessSettingsInput } from "@/lib/validation/business-settings";
 import {
   cleanupTenantFixture,
   createTenantFixture,
@@ -76,6 +77,8 @@ type Gateways = {
   createTenantContext: typeof import("./tenant-context").createTenantContext;
   enabledModulesFor: typeof import("@/server/auth/workspace-modules").enabledModulesFor;
   setModuleEnabled: typeof import("@/server/auth/workspace-modules").setModuleEnabled;
+  businessSettingsFor: typeof import("@/server/auth/workspace-business-settings").businessSettingsFor;
+  updateBusinessSettings: typeof import("@/server/auth/workspace-business-settings").updateBusinessSettings;
   workspacePermissionSettings: typeof import("@/server/auth/workspace-permissions").workspacePermissionSettings;
   setPermissionGranted: typeof import("@/server/auth/workspace-permissions").setPermissionGranted;
   setManagerRecordScope: typeof import("@/server/auth/workspace-permissions").setManagerRecordScope;
@@ -86,18 +89,22 @@ let g: Gateways;
 beforeAll(async () => {
   if (!reachable) return;
   ({ fixture, recorded } = await createTenantFixture(admin(), RUN));
-  const [tenant, context, modules, permissions, client] = await Promise.all([
-    import("./tenant"),
-    import("./tenant-context"),
-    import("@/server/auth/workspace-modules"),
-    import("@/server/auth/workspace-permissions"),
-    import("./client"),
-  ]);
+  const [tenant, context, modules, permissions, business, client] =
+    await Promise.all([
+      import("./tenant"),
+      import("./tenant-context"),
+      import("@/server/auth/workspace-modules"),
+      import("@/server/auth/workspace-permissions"),
+      import("@/server/auth/workspace-business-settings"),
+      import("./client"),
+    ]);
   g = {
     withTenant: tenant.withTenant,
     createTenantContext: context.createTenantContext,
     enabledModulesFor: modules.enabledModulesFor,
     setModuleEnabled: modules.setModuleEnabled,
+    businessSettingsFor: business.businessSettingsFor,
+    updateBusinessSettings: business.updateBusinessSettings,
     workspacePermissionSettings: permissions.workspacePermissionSettings,
     setPermissionGranted: permissions.setPermissionGranted,
     setManagerRecordScope: permissions.setManagerRecordScope,
@@ -381,6 +388,195 @@ describe.skipIf(!reachable)(
         async (tx) => tx<{ id: string }[]>`select id from public.workspaces`,
       );
       expect(rows).toHaveLength(0);
+    });
+  },
+);
+
+describe.skipIf(!reachable)("business settings are Owner/Admin only", () => {
+  /** A full §158 submission, as `parseBusinessSettings` would have produced. */
+  const settings = (overrides: Partial<BusinessSettingsInput> = {}) => ({
+    name: `Renamed ${RUN}`,
+    businessType: "Financial / Insurance",
+    businessPhone: "+91 80 4000 1234",
+    businessEmail: "hello@example.com",
+    address: "12 Example Road\nBengaluru",
+    country: "IN",
+    currency: "INR",
+    timeZone: "Asia/Kolkata",
+    ...overrides,
+  });
+
+  /** Read the stored row from the tooling side, which bypasses RLS entirely. */
+  const stored = async (workspaceId: string) => {
+    const [row] = (await admin()`
+      select name, business_type, business_phone, business_email, address
+        from public.workspaces where id = ${workspaceId}`) as unknown as {
+      name: string;
+      business_type: string | null;
+      business_phone: string | null;
+      business_email: string | null;
+      address: string | null;
+    }[];
+    return row;
+  };
+
+  it("lets an owner_admin save their own workspace", async () => {
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.owner, fixture.workspaceA),
+      settings({ name: `A Renamed ${RUN}` }),
+    );
+    expect(result.ok).toBe(true);
+
+    // Confirmed from the tooling side: the UPDATE really reached the row, and
+    // is not merely what the function claimed to have written.
+    const row = await stored(fixture.workspaceA);
+    expect(row?.name).toBe(`A Renamed ${RUN}`);
+    expect(row?.business_phone).toBe("+91 80 4000 1234");
+    expect(row?.business_email).toBe("hello@example.com");
+    expect(row?.address).toBe("12 Example Road\nBengaluru");
+  });
+
+  it("reads back exactly what it stored, under the same context", async () => {
+    const read = await g.businessSettingsFor(
+      ctx(fixture.owner, fixture.workspaceA),
+    );
+    expect(read).toEqual(settings({ name: `A Renamed ${RUN}` }));
+  });
+
+  it("refuses a manager of the same workspace", async () => {
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.manager, fixture.workspaceA),
+      settings({ name: `Manager wrote this ${RUN}` }),
+    );
+    expect(result).toEqual({ ok: false, reason: "not_permitted" });
+    expect((await stored(fixture.workspaceA))?.name).toBe(`A Renamed ${RUN}`);
+  });
+
+  it("refuses a staff_sales member of the same workspace", async () => {
+    // The shared user is owner_admin in B. That confers nothing in A, which is
+    // the distinction a single-workspace fixture could not show.
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.shared, fixture.workspaceA),
+      settings({ name: `Staff wrote this ${RUN}` }),
+    );
+    expect(result).toEqual({ ok: false, reason: "not_permitted" });
+    expect((await stored(fixture.workspaceA))?.name).toBe(`A Renamed ${RUN}`);
+  });
+
+  it("refuses an inactive owner-level membership", async () => {
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.former, fixture.workspaceA),
+      settings({ name: `Former wrote this ${RUN}` }),
+    );
+    expect(result).toEqual({ ok: false, reason: "not_permitted" });
+    expect((await stored(fixture.workspaceA))?.name).toBe(`A Renamed ${RUN}`);
+  });
+
+  it("refuses an owner_admin naming a workspace they do not belong to", async () => {
+    const stranger = crypto.randomUUID();
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.owner, stranger),
+      settings({ name: `Cross-workspace ${RUN}` }),
+    );
+    expect(result).toEqual({ ok: false, reason: "not_permitted" });
+  });
+
+  it("cannot reach workspace A from a context naming workspace B", async () => {
+    // The shared user IS an owner_admin — of B. The write must land in B and
+    // nowhere else, even though the same person has a membership in A.
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.shared, fixture.workspaceB),
+      settings({ name: `B Renamed ${RUN}`, businessPhone: null }),
+    );
+    expect(result.ok).toBe(true);
+
+    expect((await stored(fixture.workspaceB))?.name).toBe(`B Renamed ${RUN}`);
+    expect((await stored(fixture.workspaceA))?.name).toBe(`A Renamed ${RUN}`);
+    expect((await stored(fixture.workspaceA))?.business_phone).toBe(
+      "+91 80 4000 1234",
+    );
+  });
+
+  it("stores NULL, not an empty string, for a cleared optional field", async () => {
+    const result = await g.updateBusinessSettings(
+      ctx(fixture.owner, fixture.workspaceA),
+      settings({
+        name: `A Renamed ${RUN}`,
+        businessType: null,
+        businessPhone: null,
+        businessEmail: null,
+        address: null,
+      }),
+    );
+    expect(result.ok).toBe(true);
+
+    const row = await stored(fixture.workspaceA);
+    expect(row?.business_type).toBeNull();
+    expect(row?.business_phone).toBeNull();
+    expect(row?.business_email).toBeNull();
+    expect(row?.address).toBeNull();
+  });
+
+  it("reads nothing from the new columns with no tenant settings", async () => {
+    const rows = await g.runtimeSql()<{ business_phone: string | null }[]>`
+      select business_phone from public.workspaces`;
+    expect(rows).toHaveLength(0);
+  });
+
+  it("writes nothing to the new columns with no tenant settings", async () => {
+    const written = await g.runtimeSql()<{ id: string }[]>`
+      update public.workspaces set business_phone = '+1 555 0100' returning id`;
+    expect(written).toHaveLength(0);
+    expect((await stored(fixture.workspaceA))?.business_phone).toBeNull();
+  });
+});
+
+describe.skipIf(!reachable)(
+  "the database refuses malformed contact detail",
+  () => {
+    /**
+     * Checked from the TOOLING side on purpose. The application already rejects
+     * these, so going through it would only re-test the parser; the point here
+     * is that the constraint holds even for a writer that bypasses row-level
+     * security entirely, which is what makes it a backstop rather than a second
+     * copy of the same rule.
+     */
+    const reject = async (column: string, value: string) => {
+      let code: string | undefined;
+      try {
+        await admin().unsafe(
+          `update public.workspaces set ${column} = $1 where id = $2`,
+          [value, fixture.workspaceA],
+        );
+      } catch (error) {
+        code = (error as { code?: string }).code;
+      }
+      return code;
+    };
+
+    it("refuses an empty string in each optional text column", async () => {
+      // 23514 check_violation — the not-blank constraints.
+      expect(await reject("business_phone", "")).toBe("23514");
+      expect(await reject("business_email", "")).toBe("23514");
+      expect(await reject("address", "")).toBe("23514");
+      expect(await reject("business_phone", "   ")).toBe("23514");
+    });
+
+    it("refuses something that is not shaped like an email address", async () => {
+      expect(await reject("business_email", "not-an-address")).toBe("23514");
+      expect(await reject("business_email", "has space@example.com")).toBe(
+        "23514",
+      );
+    });
+
+    it("accepts an ordinary address, so the constraint is not simply refusing everything", async () => {
+      expect(
+        await reject("business_email", "owner@example.co.in"),
+      ).toBeUndefined();
+      // Left as the fixture found it, so later assertions are not surprised.
+      await admin()`
+      update public.workspaces set business_email = null
+       where id = ${fixture.workspaceA}`;
     });
   },
 );

@@ -54,7 +54,7 @@ vi.mock("@/app/(account)/setup/actions", async (importOriginal) => {
 
 const { SetupForm } = await import("@/app/(account)/setup/setup-form");
 const { CURRENCY_OPTIONS, RETIRED_CURRENCIES, countryOptions } =
-  await import("@/app/(account)/setup/workspace-options");
+  await import("@/lib/workspace-options");
 
 const COUNTRIES = countryOptions();
 

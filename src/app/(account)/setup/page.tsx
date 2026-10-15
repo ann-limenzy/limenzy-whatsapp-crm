@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { SetupForm } from "@/app/(account)/setup/setup-form";
-import { countryOptions } from "@/app/(account)/setup/workspace-options";
+import { countryOptions } from "@/lib/workspace-options";
 import { requireUser } from "@/server/auth/require-user";
 import {
   NO_ACCESS_PATH,

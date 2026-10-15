@@ -376,11 +376,23 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
        where table_schema = 'public' and table_name = 'workspaces'
          and grantee = 'limenzy_app' and privilege_type = 'UPDATE'
        order by column_name`;
+    // The complete, current grant, in the query's own order. Every addition
+    // is a deliberate widening of what the runtime role may write, so a new
+    // column failing here is the point: it has to be named, not inherited.
     expect(rows.map((r) => r.column_name)).toEqual([
+      // Milestone 2 — Business Settings contact detail (§158).
+      "address",
+      "business_email",
+      "business_phone",
+      // Phase 1 — the workspace's own identity.
       "business_type",
       "country",
       "currency",
+      // Milestone 1D — module gating (§171) and permissions (§162, §162.1).
+      "enabled_modules",
+      "manager_record_scope",
       "name",
+      "permissions_granted",
       "time_zone",
     ]);
   });

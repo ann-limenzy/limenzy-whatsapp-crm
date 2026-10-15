@@ -588,8 +588,11 @@ these gate claims about installed behaviour, not development.
 **Pending, but testable locally — no deployment required.** `localhost` is a
 secure context, so a production build served locally can register a service
 worker and be installed from desktop Chrome. These are outstanding because no
-browser run has been performed and no browser automation is installed here, not
-because they need a deployed origin:
+browser run has been performed, not because they need a deployed origin. The
+earlier note that no browser automation is installed is no longer the reason:
+Milestone 2A drove Google Chrome over the DevTools Protocol with nothing
+installed, so the same approach is available here. **These remain outstanding
+— none of them has been run:**
 
 - **In-browser registration.** The worker's logic is executed and asserted in
   Node against a stubbed scope, and the file is served correctly by a local
@@ -681,6 +684,129 @@ and sharing (§162.1).
 Built before any CRM module because every module screen consults permissions,
 visibility and module state on its first line. Permissions are denied unless
 explicitly granted or configured (D8).
+
+### 2A — Business Settings (§158)
+
+The eight fields §158 gives an Owner/Admin, as one section of the existing
+Settings screen. **Applied locally; not yet applied to the hosted project.**
+
+**What onboarding actually stored.** Checked rather than assumed, in
+`20260921064437_workspace_bootstrap.sql`: `app.create_initial_workspace` inserts
+exactly `(id, name, business_type, country, currency, time_zone)`. Business
+Phone, Business Email and Address have never been captured or stored anywhere,
+so `20261015090000_workspace_business_contact.sql` adds three genuinely new
+columns — nothing is renamed and there is no data to migrate.
+
+**Required and optional.** §158 lists the fields without saying which are
+required, so this follows what the product already enforces rather than
+inventing a rule. Name, Country, Currency and Time Zone are required: all four
+are `NOT NULL` in Phase 1 and all four are collected at onboarding. Business
+Type, Phone, Email and Address are optional, because requiring a field that is
+collected nowhere would make every existing workspace invalid the moment the
+screen appeared. A cleared optional field stores NULL, never an empty string —
+the convention `business_type` already follows, enforced by a check constraint
+so a future caller that forgets cannot introduce a second spelling of "not
+provided".
+
+**Authorisation, in three independent layers.** The Server Action resolves the
+membership for the request and checks `configure_crm_settings` (§162,
+Owner/Admin) before parsing anything, so a Manager learns that they may not do
+this and nothing about which fields exist. `workspaces_owner_admin_update`
+restricts the UPDATE to an active owner_admin of the selected workspace. The
+runtime grant is column-scoped, so a column that was never named is unwritable
+regardless of policy. Neither data-access function takes a workspace identifier:
+the context decides which row is visible, so there is no parameter through which
+a caller could reach another workspace.
+
+**The workspace the form was rendered for.** `require-workspace.ts` sets out
+the rule: a workspace id from the browser is untrusted and must never select
+the target, but it may be compared against the resolved workspace to detect a
+page rendered before a switch. That matters more here than for a permission
+toggle — the saved preference is a cookie shared by every tab, so opening
+Business Settings for one workspace, switching elsewhere and then saving would
+otherwise overwrite all eight fields of the second workspace with the first
+one's details, and report it as saved. The form carries the id, the action
+compares it, a mismatch refuses, and the write still goes to the context the
+gate resolved. Authorisation is checked first, so the role question is settled
+before anything the browser sent is consulted.
+
+**A zero-row UPDATE is a refusal, not a success.** A write that row-level
+security declines affects no rows and raises nothing, so `updateBusinessSettings`
+returns `{ ok: false, reason: "not_permitted" }` from an empty `returning`
+rather than reporting a save that never happened.
+
+**Evidence.** 59 validation tests, 23 Server Action authorization tests and 16
+real-database checks in `settings-isolation.db.test.ts` — an owner_admin saving
+their own workspace, a Manager, a staff_sales member and an inactive
+owner-level membership all refused, a cross-workspace context refused, and a
+write under workspace B leaving workspace A untouched. Both new functions are
+registered in the tenant-access contract test. The not-blank and email-shape
+constraints are exercised from the tooling connection, which bypasses RLS
+entirely, so they are proved as a backstop rather than as a second copy of the
+parser.
+
+**Three pre-existing gaps closed on the way.** The Drizzle schema was missing
+the three Milestone 1D columns (`enabled_modules`, `permissions_granted`,
+`manager_record_scope`), and their four check constraints with them; the
+`roles.test.ts` column-grant list and `schema.test.ts` nullability list had
+never been updated for those columns either. All are now aligned, and the test
+that keeps the `permissions_granted` closed set in step with the §162 matrix
+now covers the Drizzle declaration as well as the migration — nothing compared
+constraint definitions before, which is why this drifted silently.
+
+**One module moved.** `workspace-options.ts` — the country, currency and
+time-zone pickers — moved from `src/app/(account)/setup/` to `src/lib/`. A
+local-tooling guard forbids anything outside `/setup` from reaching into that
+route, and a second screen needing those pickers is the evidence that they were
+never setup-specific data. The guard still holds, unweakened.
+
+#### 2A browser verification — observed, not reported
+
+Run against a temporary dev server on port 3457, configured entirely from the
+process environment: the local Supabase stack for both the database
+(`127.0.0.1:54322`, runtime and tooling matched) and authentication
+(`127.0.0.1:54321`). `.env.local`, which points the runtime at the hosted
+project, was not read for any of those values and not modified. The browser was
+Google Chrome driven over the DevTools Protocol — no automation package is
+installed, and none was installed for this.
+
+Fixtures: one workspace and three people (Owner/Admin, Manager, staff_sales),
+each a real local Supabase account signing in through the application's own
+sign-in screen. All ten rows were removed afterwards and read back to confirm
+absence; the 171 workspaces, 91 profiles, 81 memberships and 2 auth users of
+existing development data were untouched, before and after.
+
+**18 of 18 checks passed.**
+
+| Area                            | Observed                                                                                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner/Admin access              | The section renders, pre-filled from the stored row.                                                                                                                                              |
+| Edit and save                   | All eight fields saved; confirmation shown; all eight columns verified from the tooling connection, which bypasses RLS.                                                                           |
+| Persistence                     | Values identical after a full reload.                                                                                                                                                             |
+| Clearing                        | Business type, phone, email and address cleared — stored as NULL, still empty after reload.                                                                                                       |
+| Invalid input                   | Summary plus per-field messages, `aria-invalid` set, and the stored row byte-identical to before.                                                                                                 |
+| Workspace name                  | The renamed business appears in the app shell's account menu.                                                                                                                                     |
+| Stale form                      | A form carrying another workspace's id is refused with a reload prompt, and nothing is written.                                                                                                   |
+| Desktop (1280)                  | No horizontal overflow; phone and email share a row, tops aligned.                                                                                                                                |
+| Phone (375)                     | No horizontal overflow; fields stack; Save reachable; nothing exceeds the viewport.                                                                                                               |
+| Manager / staff_sales           | Neither is offered the heading or the form.                                                                                                                                                       |
+| Manager / staff_sales operation | The Owner's own submission, replayed verbatim from each of their sessions, changed nothing. The same replay from the Owner succeeded, so the difference is authorisation and not a broken replay. |
+
+**Three defects were found by the browser run and fixed.**
+
+1. **Line endings.** A browser submits a textarea with CRLF, so an address
+   typed in the browser stored `\r\n` while the same text from any other
+   client stored `\n`. The parser now normalises to `\n` before the length
+   check, so one address is one stored value however it arrived.
+2. **A stale server message.** Correcting a field the server had rejected left
+   the old message under an input that was already valid. The newer verdict now
+   wins: the server's until the field is re-checked, the client's after.
+3. **Misaligned pair.** Side-by-side fields were stretched to the taller of the
+   two, so the inputs sat five pixels apart whenever one hint wrapped.
+   `content-start` packs the rows.
+
+**Not included, deliberately.** Users (§159, §160), record sharing (§162.1
+grants), and any further §157–§174 settings surface.
 
 ## Milestone 3 — Leads, lifecycle and manual assignment
 

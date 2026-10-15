@@ -423,6 +423,28 @@ describe("the migration's closed set matches the matrix", () => {
     expect(inSql).toEqual(inMatrix);
   });
 
+  it("declares the same closed set in the Drizzle schema", async () => {
+    // A third copy of the same fact, and the one no test covered: the schema
+    // file describes the live table, so a list that drifts here describes a
+    // constraint the database does not have.
+    const { readFile } = await import("node:fs/promises");
+    const schema = await readFile("src/server/db/schema/workspaces.ts", "utf8");
+    const start = schema.indexOf("workspaces_permissions_granted_known");
+    expect(start).toBeGreaterThan(-1);
+    const block = schema.slice(
+      start,
+      schema.indexOf("workspaces_manager_record_scope_known"),
+    );
+    const declared = [...block.matchAll(/'([a-z_]+)'/g)]
+      .map((m) => m[1])
+      .sort();
+    const inMatrix = CONFIGURABLE_PERMISSIONS.map(
+      (entry) => entry.action,
+    ).sort();
+
+    expect(declared).toEqual(inMatrix);
+  });
+
   it("constrains the Manager scope to the two §162.1 values", async () => {
     const { readFile } = await import("node:fs/promises");
     const sql = await readFile(

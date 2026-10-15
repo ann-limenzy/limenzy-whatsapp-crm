@@ -504,10 +504,21 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         .filter((r) => r.is_nullable === "YES")
         .map((r) => `${r.table_name}.${r.column_name}`)
         .sort();
-      // Only two columns are optional, and both deliberately so.
+      // Every optional column, and why each one is allowed to be absent.
       expect(nullable).toEqual([
+        // A profile may exist before its auth user does.
         "user_profiles.auth_user_id",
+        // §158 contact detail: collected nowhere at onboarding, so a workspace
+        // that has never opened Business Settings has no value for it.
+        "workspaces.address",
+        "workspaces.business_email",
+        "workspaces.business_phone",
         "workspaces.business_type",
+        // §171/§162: NULL means "never configured", which the application
+        // treats as fail-closed rather than as a default.
+        "workspaces.enabled_modules",
+        "workspaces.manager_record_scope",
+        "workspaces.permissions_granted",
       ]);
     });
   });

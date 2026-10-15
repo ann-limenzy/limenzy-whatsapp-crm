@@ -79,9 +79,14 @@ const MILESTONE_1D_MIGRATIONS = [
   "20261014071500_workspace_modules.sql",
   "20261014140000_workspace_permissions.sql",
 ];
+/** Milestone 2 — Business Settings contact fields (spec §158). */
+const MILESTONE_2_MIGRATIONS = [
+  "20261015090000_workspace_business_contact.sql",
+];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
+  ...MILESTONE_2_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
@@ -548,6 +553,10 @@ describe("the tenant gateway import boundary", () => {
     "src/server/auth/workspace-modules.ts": ["the context constructor"],
     // Workspace permission configuration (spec §162, §162.1). Same shape.
     "src/server/auth/workspace-permissions.ts": ["the context constructor"],
+    // Business Settings (spec §158). Same shape.
+    "src/server/auth/workspace-business-settings.ts": [
+      "the context constructor",
+    ],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -602,6 +611,7 @@ describe("the tenant gateway import boundary", () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
       "src/server/auth/create-initial-workspace.ts",
+      "src/server/auth/workspace-business-settings.ts",
       "src/server/auth/workspace-context.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
@@ -764,7 +774,11 @@ describe("the workspace setup screen", () => {
   const ACTION = "src/app/(account)/setup/actions.ts";
   const PAGE = "src/app/(account)/setup/page.tsx";
   const FORM = "src/app/(account)/setup/setup-form.tsx";
-  const OPTIONS = "src/app/(account)/setup/workspace-options.ts";
+  /* Shared with Settings → Business Settings (§158), so it lives in lib/
+     rather than in the setup route. The containment rule below is what
+     forced that: a second screen needing these pickers means they were
+     never setup-specific data. */
+  const OPTIONS = "src/lib/workspace-options.ts";
   const STATE = "src/app/(account)/setup/setup-state.ts";
 
   it("keeps the server-action module's runtime exports to async functions only", async () => {
@@ -784,6 +798,8 @@ describe("the workspace setup screen", () => {
       "src/app/(account)/select-workspace/actions.ts",
       "src/app/(account)/setup/actions.ts",
       "src/app/actions/auth.ts",
+      // Milestone 2 — Business Settings (spec §158).
+      "src/app/actions/business-settings.ts",
       // Milestone 1D — module enable/disable (spec §171).
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).
@@ -947,7 +963,7 @@ describe("the workspace setup screen", () => {
       if (
         source.includes("createWorkspaceAction") ||
         source.includes("setup-form") ||
-        source.includes("workspace-options")
+        source.includes("setup-state")
       ) {
         outsiders.push(file);
       }
@@ -963,7 +979,6 @@ describe("the workspace setup screen", () => {
       "src/app/(account)/setup/page.tsx",
       "src/app/(account)/setup/setup-form.tsx",
       "src/app/(account)/setup/setup-state.ts",
-      "src/app/(account)/setup/workspace-options.ts",
     ]);
   });
 

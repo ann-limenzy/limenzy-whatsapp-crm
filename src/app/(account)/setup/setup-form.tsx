@@ -23,7 +23,7 @@ import {
   TIME_ZONE_GROUPS,
   currencyForCountry,
   type CountryOption,
-} from "@/app/(account)/setup/workspace-options";
+} from "@/lib/workspace-options";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
