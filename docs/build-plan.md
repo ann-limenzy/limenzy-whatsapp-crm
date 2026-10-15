@@ -688,7 +688,8 @@ explicitly granted or configured (D8).
 ### 2A — Business Settings (§158)
 
 The eight fields §158 gives an Owner/Admin, as one section of the existing
-Settings screen. **Applied locally; not yet applied to the hosted project.**
+Settings screen. **Applied locally and to the hosted development project on
+2026-10-15.**
 
 **What onboarding actually stored.** Checked rather than assumed, in
 `20260921064437_workspace_bootstrap.sql`: `app.create_initial_workspace` inserts
@@ -760,6 +761,56 @@ local-tooling guard forbids anything outside `/setup` from reaching into that
 route, and a second screen needing those pickers is the evidence that they were
 never setup-specific data. The guard still holds, unweakened.
 
+#### 2A hosted application
+
+**Hosted migration applied.** `20261015090000_workspace_business_contact.sql`
+was applied to `limenzy-crm-dev` on 2026-10-15 through the migration runner, so
+the history records the version rather than the schema drifting ahead of it. It
+adds three nullable `text` columns — `business_phone`, `business_email`,
+`address` — four check constraints, and extends the column-scoped UPDATE grant
+for `limenzy_app` to all eleven writable columns. No table, policy or row
+changed, and none of the three columns has a default, so no existing row was
+rewritten.
+
+The run used the prepared script, which refuses unless the SQL still hashes to
+the approved value, the committed blob at `e180c8d` hashes to the same value and
+is an ancestor of HEAD, the target is the expected project, and exactly one
+migration is pending. The administrator password was typed at a hidden prompt
+into a short-lived `0600` passfile outside the repository, removed by a trap.
+
+Approved SHA-256:
+`0febdf7a5a744c85741d6532e4d917f6eb1104b71b11a833124666395e88e775`.
+
+**Post-migration verification: 14 passed, 0 failed.** The version is recorded in
+`supabase_migrations.schema_migrations`; all three columns exist, nullable, as
+`text`, with no default; all four check constraints exist and the eight from
+earlier milestones are untouched; `limenzy_app` holds column UPDATE on exactly
+the eleven intended columns, with `id` and `updated_at` excluded and no
+table-wide INSERT, DELETE, UPDATE or TRUNCATE; `workspaces_owner_admin_update`
+is still the policy and no new one appeared; existing development records are
+preserved; every existing workspace holds NULL for all three new columns, so
+nothing was invented for rows that predate the screen; module and permission
+settings are unchanged; each constraint refuses an empty, blank or malformed
+value with `23514` while a legitimate value is still accepted, every such write
+inside a transaction that was rolled back, and nothing survived the rollbacks.
+
+**The runtime read path passed.** The application's own `businessSettingsFor`
+was exercised through the real tenant gateway against hosted, with a synthetic
+context so row-level security matches nothing and no stored record is read.
+What it proves is that `limenzy_app` can read the three new columns. The same
+probe run _before_ the migration failed with `42703`, so it is sensitive to
+exactly what the migration changes and does not pass vacuously.
+
+#### 2A hosted browser walkthrough — user-reported
+
+Against the hosted development project, the developer reports that saving,
+reloading, renaming and clearing optional fields all worked.
+
+These are **reported by the developer, not independently observed** by the pass
+that recorded them, and they are quoted rather than re-measured. They confirm
+against hosted what the local run below measured directly; they are not a
+second measurement of it.
+
 #### 2A browser verification — observed, not reported
 
 Run against a temporary dev server on port 3457, configured entirely from the
@@ -807,6 +858,20 @@ existing development data were untouched, before and after.
 
 **Not included, deliberately.** Users (§159, §160), record sharing (§162.1
 grants), and any further §157–§174 settings surface.
+
+**What this slice does not close.** Two gaps predate it and remain open, and
+nothing above should be read as progress on either:
+
+- **The 1E PWA checks** listed under "1E — what is still pending, and why".
+  None has been run. Business Settings is an ordinary authenticated screen and
+  says nothing about installed or offline behaviour.
+- **Business-record isolation.** Criterion 5 of Milestone 1D still stands: the
+  tenant-access contract test enumerates the tenancy foundation, and the
+  business inventory is empty, which proves nothing. `businessSettingsFor` and
+  `updateBusinessSettings` are registered there with real database evidence,
+  but they are workspace settings, not business records. The first Leads or
+  Customers repository will fail that test until it is registered with evidence
+  of its own, which is the point of it.
 
 ## Milestone 3 — Leads, lifecycle and manual assignment
 
