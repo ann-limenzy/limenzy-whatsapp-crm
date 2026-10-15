@@ -876,8 +876,8 @@ nothing above should be read as progress on either:
 ### 2B — Users (§159, §160)
 
 Settings → Users: the list, Change Role, Deactivate and Reactivate, for
-Owner/Admins only. **Applied locally; NOT applied to the hosted project.**
-Inviting people is deliberately not here — see 2C below.
+Owner/Admins only. **Applied locally and to the hosted development project on
+2026-10-18.** Inviting people is deliberately not here — see 2C below.
 
 **Why this is routines and not policies.** The obvious implementation is a
 co-member SELECT policy for `limenzy_app`: "you may read a membership row when
@@ -954,8 +954,10 @@ the name.
 
 #### 2B — the email decision, escalated rather than worked around
 
-§159 lists Email in the Users table. It is **not implemented**, and the screen
-says so rather than showing a blank.
+**Superseded by 2D, which implemented it.** The account below is kept because
+it records why the obvious route was refused, and that reasoning still governs
+what may be granted. §159's Email column was not implemented at the 2B
+checkpoint, and the screen said so rather than showing a blank.
 
 `auth.users` has ROW LEVEL SECURITY ENABLED WITH NO POLICIES and is owned by
 `supabase_auth_admin`. A non-owner role therefore reads zero rows from it
@@ -1069,20 +1071,87 @@ pre-existing `public/sw.js` formatting warning, which is left untouched.
 **Not included, deliberately.** Add User and invitations (2C), Sales Team
 membership and Team Lead (Milestone 4), and the §160 reassignment workflow.
 
+#### 2B and 2D — hosted application
+
+**Both migrations applied and recorded on 2026-10-18**, in order, through the
+migration runner, so `supabase_migrations.schema_migrations` carries both
+versions rather than the schema drifting ahead of its history:
+
+1. `20261016090000_workspace_users.sql` — SHA-256
+   `f586bc5a…42853f11`
+2. `20261018090000_workspace_members_auth_id.sql` — SHA-256
+   `4879126e…68b9b999`
+
+The second drops and recreates a routine the first creates, so the order was
+not optional and the apply script refused unless exactly those two were
+pending in exactly that order.
+
+**Hosted verification: 17 passed, 0 failed.** Both versions in the history;
+`limenzy_members` present as NOLOGIN, NOBYPASSRLS with no administrative
+attributes; `limenzy_app` not a member of it; **no role gained USAGE on schema
+`auth`** and no `limenzy*` role holds BYPASSRLS; the four `app` routines
+present with the intended owners and definer flags, each pinning an empty
+`search_path`; `workspace_members()` carrying the recreated six-column shape,
+which is what proves the second migration took effect and not merely the
+first; EXECUTE on it restored to `limenzy_app` alone with PUBLIC and the Data
+API roles excluded; the three new policies scoped to `limenzy_members`; the
+four Phase 2 policies untouched and still `{limenzy_app}`; `limenzy_app`
+holding no write privilege on memberships; `limenzy_members` holding SELECT on
+two tables, column `UPDATE (role, status)` only and no CREATE on schema `app`;
+the routines refusing a caller with no tenant context; development records
+preserved; no membership row altered; and the runtime role still refused a
+direct membership write with `42501`, rolled back.
+
+**The Users runtime read path passed** against hosted: `workspaceMembers()`
+through the real tenant gateway with a synthetic context returns no rows, the
+catalogue reports the expected return shape, both mutations refuse an
+unauthorised caller, and `auth.users` remains unreachable from the runtime
+role. The same probe fails with `42883` before the migrations, so it is
+sensitive to what they change rather than passing vacuously.
+
+One tooling defect was found and fixed during the attempt: the shared
+pre-apply target check had the Milestone 2A expectations hard-coded, so it
+refused the Users run because the §158 columns existed — which is exactly what
+2A was meant to leave behind. The check now takes its expectations from the
+caller and refuses a caller that declares none.
+
+#### 2B and 2D — hosted walkthrough, user-reported
+
+Against the hosted development project, the developer reports that:
+
+- name, email, role and status all display correctly;
+- the last active Owner/Admin cannot demote themselves, and cannot deactivate
+  themselves;
+- a reload confirms the membership is still Active and still Owner/Admin.
+
+These are **reported by the developer, not independently observed** by the
+pass that recorded them, and they are quoted rather than re-measured. That the
+Email column shows addresses at all also evidences that
+`SUPABASE_SECRET_KEY` is configured for this project.
+
+**Scope of the hosted walkthrough.** It exercised a single-member workspace.
+**Multi-member behaviour was verified locally, not here** — co-member
+visibility, cross-workspace refusal, Manager and staff_sales refusal, role
+changes and deactivation of other people, the concurrency cases, and another
+member's address being shown all rest on the local database suite and the
+local browser run recorded above.
+
 #### 2B — what remains outstanding
 
 Everything below is open after this checkpoint. None of it is started, and
 nothing above should be read as progress on any of it.
 
-- **Add User and invitations** — 2C, blocked on the email decision.
-- ~~Other members' email~~ — **done.** §159's Email column now shows every
-  member's current Auth address, read at request time. See 2D below.
+- **Add User and invitations** — 2C. Not blocked by anything here: the
+  invited address is typed by an Owner/Admin, so nothing in that flow reads
+  another member's address out of Auth.
 - **Sales Team integration** — the §159 column renders "Not available" until
   Sales Teams exist (Milestone 4), including Team Lead designation and the
   §163.3 replacement rule that §160 defers to.
-- **The §160 responsibility checks** — the registry is empty because no
-  business module exists; its guard fails the build when the first table
-  appears, and the reassignment workflow itself is Milestone 3 and later.
+- **The §160 responsibility checks AND the reassignment enforcement** — the
+  registry is empty because no business module exists; its guard fails the
+  build when the first table appears, and the workflow that offers a target
+  user and moves the work is Milestone 3 and later. Nothing today blocks a
+  deactivation on outstanding work, because no work can exist.
 - **The 1E PWA checks** remain pending; none has been run.
 - **Business-record isolation** remains open. The three new functions are
   registered in the tenant-access contract with real database evidence, but
@@ -1092,7 +1161,8 @@ nothing above should be read as progress on any of it.
 ### 2D — Member email addresses (§159)
 
 The Email column, filled for every member of the selected workspace, active
-and inactive alike. **Applied locally; NOT applied to the hosted project.**
+and inactive alike. **Applied locally and to the hosted development project on
+2026-10-18.**
 
 **The database route is closed, and that is not a matter of effort.**
 `auth.users` has row-level security with no policies and is owned by
@@ -1140,20 +1210,18 @@ browser run of 11 checks confirming another member's address is shown, that it
 is re-read when Auth changes, and that no Auth user id appears in the
 delivered HTML.
 
-**Still outstanding here.** Two things, in this order:
+**Setup, now done for hosted development.** Both migrations are applied and
+`SUPABASE_SECRET_KEY` is configured for that project, which the hosted
+walkthrough evidences by showing addresses rather than the not-configured
+notice.
 
-1. Apply both pending migrations to the hosted development project —
-   `20261016090000_workspace_users.sql` then
-   `20261018090000_workspace_members_auth_id.sql`. The second recreates a
-   routine the first creates, so the order is not optional.
-2. Set `SUPABASE_SECRET_KEY` for the hosted development project. No
-   deployment platform has been chosen yet, and the local application already
-   runs against hosted Supabase, so this goes in the git-ignored `.env.local`
-   beside the hosted URL and publishable key that are already there. It must
-   come from the same project as `NEXT_PUBLIC_SUPABASE_URL`.
-
-Until both are done the Email column shows the not-configured notice and
-everything else on the screen works normally.
+For any **other** environment the same two steps apply, in this order: apply
+both migrations, then set `SUPABASE_SECRET_KEY` from the same project as
+`NEXT_PUBLIC_SUPABASE_URL`. No deployment platform has been chosen, and the
+local application runs against hosted Supabase, so the key lives in the
+git-ignored `.env.local` beside the hosted URL and publishable key. Until
+both are done the Email column shows the not-configured notice and everything
+else on the screen works normally.
 
 ### 2C — Invitations (§159 Add User) — planned, not started
 
