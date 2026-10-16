@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, Copy, Info, TriangleAlert } from "lucide-react";
-import { useActionState, useRef, useState } from "react";
+import { Check, CircleCheck, Copy, Info, TriangleAlert } from "lucide-react";
+import { useRef, useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
 
 import {
@@ -20,22 +20,38 @@ import { MAX_EMAIL, MAX_INVITED_NAME } from "@/lib/validation/invitations";
 import { ROLE_LABELS } from "@/lib/validation/users";
 
 /**
- * Settings → Users → Invitations — spec §159 "Add User".
+ * Invitations, in Settings → Users.
  *
- * **Nothing is emailed.** The CRM has no mail provider connected and §180.1's
- * D12 leaves the choice open, so an invitation produces a link that the
- * Owner/Admin copies and sends however they already talk to the person. The
- * screen says so rather than implying a message is on its way.
+ * ## One link on screen at a time
  *
- * **A link is shown once.** It is returned by the action that minted it and
- * never read back: only a hash is stored, so after this render nobody —
- * including an Owner/Admin — can recover it. Regenerating issues a new one
- * and the previous link stops working.
+ * A link is shown once and cannot be shown again, so the screen must never
+ * leave an old one lying about for somebody to copy by mistake. The three
+ * actions therefore share one state each at this level rather than one per
+ * row: regenerating an invitation replaces whatever link was showing,
+ * cancelling one takes its link away with it, and creating one puts the new
+ * link in a single place.
  *
- * Every control here posts to a Server Action that re-resolves the
- * membership and re-checks Owner/Admin on the server, and the table's
- * policies re-derive the same thing from stored rows. Showing or hiding a
- * button is presentation, never the gate.
+ * ## Cancelling says so, once the server has actually done it
+ *
+ * The row disappears and the confirmation appears only when the action has
+ * RETURNED `revoked` — nothing is hidden on the strength of a click. A
+ * failure therefore leaves the row exactly where it was and shows the reason,
+ * with no restoring to do, because nothing was taken away in the first place.
+ * The revalidated list arrives a moment later and agrees.
+ *
+ * ## Sending, and what "sent" can honestly mean
+ *
+ * The buttons send an email when mail is configured, and say so. What comes
+ * back is that the mail server ACCEPTED the message — not that it arrived, so
+ * the wording says accepted and the copyable link stays on screen underneath
+ * as the thing that definitely works. With no mail configured the buttons do
+ * not claim to send at all: they say they create a link, which is all they
+ * do.
+ *
+ * Every control posts to a Server Action that re-resolves the membership and
+ * re-checks the role on the server, and the database re-derives the same
+ * thing from stored rows. Showing or hiding a button is presentation, never
+ * the gate.
  */
 
 export type InvitationRow = {
@@ -43,14 +59,7 @@ export type InvitationRow = {
   readonly email: string;
   readonly role: WorkspaceRole;
   readonly invitedName: string | null;
-  /**
-   * Already written out, by the server, in the workspace's time zone.
-   *
-   * Deliberately not an ISO string to format here: this component is
-   * server-rendered before it is hydrated, and a date formatted in the
-   * environment's own locale differs between the two — which React resolves
-   * by discarding the tree, taking the one-time link with it.
-   */
+  /** Already written out by the server, in the workspace's time zone. */
   readonly expiresLabel: string;
   readonly isExpired: boolean;
 };
@@ -94,13 +103,12 @@ function SubmitButton({
 }
 
 /**
- * The one moment the link exists outside the recipient's browser.
+ * The one moment a link exists anywhere but the recipient's inbox.
  *
- * The value is in a readonly input as well as behind the button, because
+ * The value sits in a readonly box as well as behind the button, because
  * `navigator.clipboard` needs a secure context and permission and can simply
  * refuse — and a copy button that silently does nothing would lose a link
- * that cannot be recovered. Selecting the text is the fallback, and the
- * failure is said out loud.
+ * that cannot be recovered.
  */
 function LinkToCopy({ link, label }: { link: string; label: string }) {
   const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
@@ -118,11 +126,8 @@ function LinkToCopy({ link, label }: { link: string; label: string }) {
   }
 
   return (
-    <div
-      role="status"
-      className="grid gap-2 rounded-lg border border-success/30 bg-success-subtle p-3"
-    >
-      <p className="text-sm font-medium text-success-on-subtle">{label}</p>
+    <div className="grid gap-2 rounded-lg border border-border bg-background/60 p-3">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
       <div className="flex flex-wrap items-center gap-2">
         <input
           ref={field}
@@ -144,32 +149,32 @@ function LinkToCopy({ link, label }: { link: string; label: string }) {
           )}
         </Button>
       </div>
-      <p className="text-xs text-success-on-subtle">
+      <p className="text-xs text-muted-foreground">
         {copied === "failed"
-          ? "Copying was blocked by the browser — the link is selected, copy it manually."
-          : "Send this to the person yourself. It is shown only now and cannot be shown again; it expires in seven days."}
+          ? "Your browser blocked copying. The link is selected — copy it by hand."
+          : "Shown only now. It expires in seven days."}
       </p>
     </div>
   );
 }
 
-/** The one message each refusal gets. */
+/** The one message each refusal gets, in plain words. */
 function Problem({ state }: { state: InvitationActionState }) {
   const message =
     state.status === "already_invited"
-      ? "There is already a pending invitation for that address. Regenerate its link below instead."
+      ? "That person already has an invitation waiting. Use Send a new link below instead."
       : state.status === "already_member"
-        ? "That person is already an active member of this workspace."
+        ? "That person already works in this workspace."
         : state.status === "eligibility_unknown"
-          ? "This workspace's member addresses could not be read just now, so there is no way to tell whether that person already has access. Nothing was created. Check that SUPABASE_SECRET_KEY is configured, then try again."
+          ? "We could not check whether that person is already here, so nothing was created. Please try again in a moment."
           : state.status === "forbidden"
-            ? "You do not have permission to manage users in this workspace."
+            ? "You do not have permission to invite people to this workspace."
             : state.status === "stale"
-              ? "This page was loaded for a different workspace. Reload it and try again."
+              ? "This page is out of date. Reload it and try again."
               : state.status === "unavailable"
-                ? "That could not be completed just now. Nothing was changed."
+                ? "That did not work. Nothing was changed — please try again."
                 : state.status === "invalid" && !state.fieldErrors
-                  ? "That invitation could not be identified. Reload the page and try again."
+                  ? "That invitation could not be found. Reload the page and try again."
                   : null;
   if (!message) return null;
 
@@ -184,86 +189,141 @@ function Problem({ state }: { state: InvitationActionState }) {
   );
 }
 
-function PendingInvitation({
-  invitation,
+/**
+ * What happened to an invitation, and to the message about it.
+ *
+ * Two separate facts. The invitation always exists by the time this renders;
+ * only the email may have gone wrong, and that is recoverable rather than
+ * fatal — which is why the link is here in every case.
+ */
+function Outcome({
+  state,
   workspaceId,
+  verb,
+  retry,
 }: {
-  invitation: InvitationRow;
+  state: InvitationActionState;
   workspaceId: string;
+  /** "created" or "replaced", for wording that fits what just happened. */
+  verb: "created" | "replaced";
+  /**
+   * The SAME dispatcher the rows use, so another attempt lands in the one
+   * regeneration state and replaces whatever link is on screen. A second
+   * `useActionState` here would put two live links in front of somebody.
+   */
+  retry: (formData: FormData) => void;
 }) {
-  // Two actions, so two states: `useActionState` binds one action each.
-  const [regenerated, regenerate] = useActionState(
-    regenerateInvitationAction,
-    INITIAL,
-  );
-  const [revoked, revoke] = useActionState(revokeInvitationAction, INITIAL);
+  if (!state.link || !state.invitationId) return null;
+  const failed = state.delivery === "failed";
 
   return (
-    <li className="grid gap-3 rounded-lg border border-border p-3">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="grid min-w-0 gap-0.5">
-          <p className="truncate text-sm font-medium">{invitation.email}</p>
-          <p className="text-xs text-muted-foreground">
-            {ROLE_LABELS[invitation.role]}
-            {invitation.invitedName ? ` · ${invitation.invitedName}` : ""}
-            {" · "}
-            {invitation.isExpired
-              ? `Expired ${invitation.expiresLabel}`
-              : `Expires ${invitation.expiresLabel}`}
+    <div
+      role="status"
+      className={cn(
+        "grid gap-3 rounded-lg border p-3",
+        failed
+          ? "border-danger/30 bg-danger-subtle"
+          : "border-success/30 bg-success-subtle",
+      )}
+    >
+      <p
+        className={cn(
+          "text-sm font-medium",
+          failed ? "text-danger-on-subtle" : "text-success-on-subtle",
+        )}
+      >
+        {failed
+          ? "Invitation created, but the email could not be sent"
+          : state.delivery === "accepted"
+            ? `Invitation emailed to ${state.email}`
+            : `Invitation ${verb} for ${state.email}`}
+      </p>
+
+      <p
+        className={cn(
+          "text-xs",
+          failed ? "text-danger-on-subtle" : "text-success-on-subtle",
+        )}
+      >
+        {failed
+          ? "The invitation is ready and the link below works. Send it yourself, or try sending the email again."
+          : state.delivery === "accepted"
+            ? "The mail server accepted it. If it does not arrive, send the link below instead."
+            : "Email sending is not set up, so send this link to them yourself."}
+      </p>
+
+      <LinkToCopy link={state.link} label="Invitation link" />
+
+      {failed ? (
+        <>
+          <p className="text-xs text-danger-on-subtle">
+            {/*
+              Only the digest of a token is stored, so the one that failed
+              cannot be recovered and re-sent. Another attempt mints a new
+              token on the SAME invitation — nobody is invited twice — and the
+              previous link stops working the moment its digest is replaced.
+            */}
+            Trying again sends a brand-new link. The one above stops working.
           </p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <form action={regenerate}>
+          <form action={retry} className="flex">
             <input
               type="hidden"
               name="renderedWorkspaceId"
               value={workspaceId}
             />
-            <input type="hidden" name="invitationId" value={invitation.id} />
-            <SubmitButton busy="Working…">Regenerate link</SubmitButton>
-          </form>
-          <form action={revoke}>
             <input
               type="hidden"
-              name="renderedWorkspaceId"
-              value={workspaceId}
+              name="invitationId"
+              value={state.invitationId}
             />
-            <input type="hidden" name="invitationId" value={invitation.id} />
-            <SubmitButton busy="Working…" variant="destructive">
-              Revoke
-            </SubmitButton>
+            <SubmitButton busy="Sending…">Try sending again</SubmitButton>
           </form>
-        </div>
-      </div>
-
-      {invitation.isExpired ? (
-        <p className="text-xs text-muted-foreground">
-          This link no longer works. Regenerating it issues a new one and
-          restarts the seven days.
-        </p>
+        </>
       ) : null}
-
-      {regenerated.status === "regenerated" && regenerated.link ? (
-        <LinkToCopy
-          link={regenerated.link}
-          label="New link — the previous one has stopped working"
-        />
-      ) : null}
-      <Problem state={regenerated} />
-      <Problem state={revoked} />
-    </li>
+    </div>
   );
 }
 
 export function InvitationSettings({
   invitations,
   workspaceId,
+  emailEnabled,
 }: {
   invitations: readonly InvitationRow[];
   workspaceId: string;
+  /** Whether this deployment can send mail at all. Resolved on the server. */
+  emailEnabled: boolean;
 }) {
   const [created, create] = useActionState(createInvitationAction, INITIAL);
+  const [regenerated, regenerate] = useActionState(
+    regenerateInvitationAction,
+    INITIAL,
+  );
+  const [cancelled, revoke] = useActionState(revokeInvitationAction, INITIAL);
+
+  const justCancelled =
+    cancelled.status === "revoked" ? cancelled.invitationId : undefined;
+
+  /*
+   * Hidden only once the action has RETURNED `revoked` — the server has done
+   * the work by then. A failure leaves `status` as the refusal, so this stays
+   * undefined, the row never left, and `Problem` below says why. There is no
+   * optimistic state to restore because none was taken.
+   */
+  const pending = invitations.filter((row) => row.id !== justCancelled);
+
+  // A link for an invitation that has just been cancelled must not survive
+  // on screen, wherever it was being shown.
+  const newLink =
+    created.status === "created" && created.invitationId !== justCancelled
+      ? created.link
+      : undefined;
+  const replacedFor =
+    regenerated.status === "regenerated" &&
+    regenerated.invitationId !== justCancelled
+      ? regenerated.invitationId
+      : undefined;
+
   const errors = created.fieldErrors;
 
   return (
@@ -271,11 +331,25 @@ export function InvitationSettings({
       <div className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">
         <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0">
-          Invitations are links you copy and send yourself — the CRM does not
-          email them. Anyone with the link still has to sign in with the address
-          you invited before they can join.
+          {emailEnabled
+            ? "We email the invitation for you, and you can copy the link as well. They will need to sign in with the address you invite before they can join."
+            : "Email sending is not set up yet, so create a link and send it to the person yourself. They will need to sign in with the address you invite before they can join."}
         </span>
       </div>
+
+      {cancelled.status === "revoked" ? (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm"
+        >
+          <CircleCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">
+            Invitation to <span className="font-medium">{cancelled.email}</span>{" "}
+            cancelled. Their link no longer works.
+          </span>
+        </div>
+      ) : null}
+      <Problem state={cancelled} />
 
       <form action={create} className="grid gap-3">
         <input type="hidden" name="renderedWorkspaceId" value={workspaceId} />
@@ -327,7 +401,7 @@ export function InvitationSettings({
         </div>
 
         <div className="grid gap-1.5">
-          <Label htmlFor="invite-name">Name (optional)</Label>
+          <Label htmlFor="invite-name">Their name (optional)</Label>
           <Input
             id="invite-name"
             name="invitedName"
@@ -341,43 +415,127 @@ export function InvitationSettings({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Only used to label the invitation until they join. It never
-              replaces a name they have already set.
+              Helps you tell invitations apart. They can change it later.
             </p>
           )}
         </div>
 
         <div className="flex">
-          <SubmitButton busy="Creating…" variant="default">
-            Create invitation
+          <SubmitButton
+            busy={emailEnabled ? "Sending…" : "Creating…"}
+            variant="default"
+          >
+            {emailEnabled ? "Send invitation" : "Create invitation link"}
           </SubmitButton>
         </div>
-
-        {created.status === "created" && created.link ? (
-          <LinkToCopy link={created.link} label="Invitation created" />
-        ) : null}
-        <Problem state={created} />
       </form>
+
+      {/*
+        OUTSIDE the create form, deliberately. The panel carries its own
+        "try again" form, and a form nested inside another is invalid HTML —
+        the browser silently drops the inner one, so the retry button looked
+        present and did nothing.
+      */}
+      {newLink ? (
+        <Outcome
+          state={created}
+          workspaceId={workspaceId}
+          verb="created"
+          retry={regenerate}
+        />
+      ) : null}
+      <Problem state={created} />
 
       <Separator />
 
       <div className="grid gap-2">
-        <h3 className="text-sm font-medium">Pending invitations</h3>
-        {invitations.length === 0 ? (
+        <h3 className="text-sm font-medium">Waiting to be accepted</h3>
+        {pending.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No invitations are waiting to be accepted.
+            No one has an invitation waiting.
           </p>
         ) : (
           <ul className="grid gap-2">
-            {invitations.map((invitation) => (
-              <PendingInvitation
+            {pending.map((invitation) => (
+              <li
                 key={invitation.id}
-                invitation={invitation}
-                workspaceId={workspaceId}
-              />
+                className="grid gap-3 rounded-lg border border-border p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                  <div className="grid min-w-0 gap-0.5">
+                    <p className="truncate text-sm font-medium">
+                      {invitation.email}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {ROLE_LABELS[invitation.role]}
+                      {invitation.invitedName
+                        ? ` · ${invitation.invitedName}`
+                        : ""}
+                      {" · "}
+                      {invitation.isExpired
+                        ? `Expired ${invitation.expiresLabel}`
+                        : `Expires ${invitation.expiresLabel}`}
+                    </p>
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <form action={regenerate}>
+                      <input
+                        type="hidden"
+                        name="renderedWorkspaceId"
+                        value={workspaceId}
+                      />
+                      <input
+                        type="hidden"
+                        name="invitationId"
+                        value={invitation.id}
+                      />
+                      <SubmitButton
+                        busy={emailEnabled ? "Sending…" : "Working…"}
+                      >
+                        {emailEnabled
+                          ? "Send a new invitation"
+                          : "Create a new link"}
+                      </SubmitButton>
+                    </form>
+                    <form action={revoke}>
+                      <input
+                        type="hidden"
+                        name="renderedWorkspaceId"
+                        value={workspaceId}
+                      />
+                      <input
+                        type="hidden"
+                        name="invitationId"
+                        value={invitation.id}
+                      />
+                      <SubmitButton busy="Cancelling…" variant="destructive">
+                        Cancel invitation
+                      </SubmitButton>
+                    </form>
+                  </div>
+                </div>
+
+                {invitation.isExpired ? (
+                  <p className="text-xs text-muted-foreground">
+                    This link has expired. Send a new one to give them another
+                    seven days.
+                  </p>
+                ) : null}
+
+                {replacedFor === invitation.id ? (
+                  <Outcome
+                    state={regenerated}
+                    workspaceId={workspaceId}
+                    verb="replaced"
+                    retry={regenerate}
+                  />
+                ) : null}
+              </li>
             ))}
           </ul>
         )}
+        <Problem state={regenerated} />
       </div>
     </div>
   );

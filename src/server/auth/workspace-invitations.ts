@@ -89,7 +89,16 @@ export async function pendingInvitations(
 }
 
 export type InvitationWriteResult =
-  | { readonly ok: true }
+  /**
+   * The row as the database has it, so a screen can say which invitation an
+   * outcome refers to without echoing back anything the browser sent.
+   */
+  | {
+      readonly ok: true;
+      readonly id: string;
+      readonly email: string;
+      readonly invitedName: string | null;
+    }
   /** Not an active Owner/Admin of this workspace, or no row matched. */
   | { readonly ok: false; readonly reason: "not_permitted" }
   /** A live invitation for that address already exists. */
@@ -147,7 +156,7 @@ export async function createInvitation(
            and redeemed_at is null
            and expires_at <= now()
       `;
-      return tx<{ id: string }[]>`
+      return tx<{ id: string; email: string; invited_name: string | null }[]>`
         insert into public.workspace_invitations
           (workspace_id, email, role, invited_name, token_hash, expires_at,
            created_by)
@@ -155,11 +164,17 @@ export async function createInvitation(
                 ${input.invitedName}, ${input.tokenHash},
                 ${input.expiresAt.toISOString()}::timestamptz,
                 ${context.userProfileId})
-        returning id
+        returning id, email, invited_name
       `;
     });
-    return rows.length > 0
-      ? { ok: true }
+    const row = rows[0];
+    return row
+      ? {
+          ok: true,
+          id: row.id,
+          email: row.email,
+          invitedName: row.invited_name,
+        }
       : { ok: false, reason: "not_permitted" };
   } catch (error) {
     const state = sqlState(error);
@@ -204,7 +219,7 @@ export async function regenerateInvitation(
   const rows = await withTenant(
     context,
     async (tx) =>
-      tx<{ id: string }[]>`
+      tx<{ id: string; email: string; invited_name: string | null }[]>`
         update public.workspace_invitations
            set token_hash = ${tokenHash},
                expires_at = ${expiresAt.toISOString()}::timestamptz,
@@ -212,11 +227,12 @@ export async function regenerateInvitation(
          where id = ${invitationId}::uuid
            and revoked_at is null
            and redeemed_at is null
-        returning id
+        returning id, email, invited_name
       `,
   );
-  return rows.length > 0
-    ? { ok: true }
+  const row = rows[0];
+  return row
+    ? { ok: true, id: row.id, email: row.email, invitedName: row.invited_name }
     : { ok: false, reason: "not_permitted" };
 }
 
@@ -228,16 +244,17 @@ export async function revokeInvitation(
   const rows = await withTenant(
     context,
     async (tx) =>
-      tx<{ id: string }[]>`
+      tx<{ id: string; email: string; invited_name: string | null }[]>`
         update public.workspace_invitations
            set revoked_at = now()
          where id = ${invitationId}::uuid
            and revoked_at is null
            and redeemed_at is null
-        returning id
+        returning id, email, invited_name
       `,
   );
-  return rows.length > 0
-    ? { ok: true }
+  const row = rows[0];
+  return row
+    ? { ok: true, id: row.id, email: row.email, invitedName: row.invited_name }
     : { ok: false, reason: "not_permitted" };
 }

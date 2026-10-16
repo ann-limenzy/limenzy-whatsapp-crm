@@ -1146,8 +1146,8 @@ Everything below is open after this checkpoint. None of it is started, and
 nothing above should be read as progress on any of it.
 
 - **Add User and invitations** — 2C. Since built; see the 2C section below.
-  Verified locally only, not applied to hosted, and with no application-sent
-  email. §11's onboarding invite screen remains pending.
+  Applied to hosted development, with invitations emailed by the application
+  through an SMTP adapter. §11's onboarding invite screen remains pending.
 - **Sales Team integration** — the §159 column renders "Not available" until
   Sales Teams exist (Milestone 4), including Team Lead designation and the
   §163.3 replacement rule that §160 defers to.
@@ -1227,24 +1227,53 @@ git-ignored `.env.local` beside the hosted URL and publishable key. Until
 both are done the Email column shows the not-configured notice and everything
 else on the screen works normally.
 
-### 2C — Invitations (§159 Add User) — built, verified locally, NOT applied to hosted
+### 2C — Invitations (§159 Add User) — applied to hosted development
 
 Settings → Users now carries an Invitations section where an Owner/Admin
 creates, copies, regenerates and revokes invitations, and an invitee joins
 from a link at `/invitations`.
 
-**There is no application-sent email, by decision.** The CRM has no mail
-provider connected — §180.1's D12 is still open, and the Mailtrap entry in the
+**Three separate mail paths. Do not confuse them.**
+
+| Path                 | Sent by                    | Configured in                                           | Covers                               |
+| -------------------- | -------------------------- | ------------------------------------------------------- | ------------------------------------ |
+| Hosted Auth email    | Supabase Auth (GoTrue)     | Supabase **dashboard** → Authentication → Emails → SMTP | Sign-up confirmation, password reset |
+| Local Auth email     | Supabase Auth, local stack | `supabase/config.toml` → Mailpit on 54324               | The same messages, in development    |
+| **Invitation email** | **This application**       | `SMTP_*` / `EMAIL_FROM` in the app environment          | Workspace invitations only           |
+
+Configuring one does **not** configure another. The application's adapter
+needs its own host, port, credentials and sender even if Auth already has
+identical ones, because the Auth service reads its settings and we read ours.
+
+**A correction to an earlier claim in this plan.** It previously said the CRM
+had "no mail provider connected" and that "the Mailtrap entry in the
 environment file was checked and is not wired to anything the application
-sends through. So an invitation produces a **copyable link** that the
-Owner/Admin sends by whatever channel they already use. The screen says so
-plainly rather than implying a message is on its way. **Emailed invitations
-are not complete and are not claimed to be**; adding delivery later is an
-adapter behind the same records, not a redesign.
+sends through". The second half was true and the first half was not: that
+check covered **repository code only**, where there was indeed no mail
+dependency and no SMTP. Hosted Supabase Auth SMTP is configured in the
+dashboard, which that check never looked at. The maintainer reports hosted
+confirmation and password-reset mail arriving in **Mailtrap**, which is
+consistent with a custom Auth SMTP configured there. **Mailtrap must not be
+described as unused.** What is accurate: no _application_ mail path existed
+before this slice, and §180.1's D12 — the production provider for application
+mail — is still open.
+
+**Invitations are now emailed by the application**, through a small SMTP
+adapter (`src/server/email/`), with the copyable link kept as a secondary
+option on the screen. Verified locally against Mailpit. Whether the existing
+Mailtrap endpoint can also carry these depends on which Mailtrap product it
+is — a testing sandbox never delivers to real recipients — and that is a
+question for the dashboard, not for this repository.
 
 **What it does.**
 
-- Create / Copy link / Regenerate link / Revoke, labelled exactly so.
+- Create invitation / Copy link / Send a new link / Cancel invitation.
+  The last two were renamed from "Regenerate link" and "Revoke" in a UX pass:
+  the people using this screen are not administrators by trade, and "revoke"
+  and "regenerate" are words from our vocabulary rather than theirs.
+- One link is on screen at a time. Creating or replacing one puts it in a
+  single place, and cancelling takes it away immediately — not when the
+  server finishes re-rendering — with a confirmation naming the person.
 - Settings may invite at any of the three roles (§162 lets an Owner/Admin
   promote someone the moment they join, so withholding it here only adds a
   step). §11's onboarding screen keeps its Manager/Staff pair — see below.
@@ -1275,9 +1304,9 @@ runtime role may `INSERT` into; it gains **no** `INSERT` on profiles or
 memberships, and the migration's own verification block refuses to apply if
 that ever changes. Full reasoning in architecture-decisions §6.5.
 
-**Verified locally only.** As of the commit that introduces this slice:
+**Automated verification.** As of the commit that completes this slice:
 
-- **1679 unit tests** pass; the 11 live-database files skip, loudly, because
+- **1731 unit tests** pass; the 11 live-database files skip, loudly, because
   `.env.local` points the application at hosted development (see
   docs/development.md — a skip is not a pass).
 - **323 database tests** pass against the local stack via
@@ -1290,9 +1319,120 @@ that ever changes. Full reasoning in architecture-decisions §6.5.
   isolated copy of the source so the developer's own `next dev` and its
   `.next` directory were untouched. Fixtures were removed by recorded id and
   left no residue.
+- Later passes added **19 UX and continuation checks** (welcome page, one link
+  at a time, cancellation failure, signup through confirmation to Join,
+  ordinary signup still reaching `/setup`) and **19 email checks** across two
+  dev servers — one pointed at the local Mailpit, one at a dead port — proving
+  the message arrives, the failure path stays recoverable, and a retry
+  re-issues rather than duplicating. No message left the machine; every
+  recipient was an `@example.com` fixture.
 
-**The migration has not been applied to hosted development**, and no hosted
-migration, merge or further feature work was started.
+**Applied to hosted development.** `20261019090000_workspace_invitations.sql`
+is applied and recorded there, and the post-migration verification reported
+**39 checks passed, 0 failed** — table shape, constraints, indexes, both
+triggers, forced row-level security, the column-scoped grants, the definer
+role's attributes, function ownership and pinned `search_path`, all eleven
+new policies, and the seven earlier ones intact. The migration file itself is
+unchanged since review; its SHA-256 is still
+`3c03448e989ec79a5a2280bf89c28350c25fb12bff523cf9d5287e7bfc00bcce`.
+
+**Manual walkthrough — user-reported.** The maintainer completed the
+invitation journey end to end against hosted development: an invitation was
+created and emailed, the invitee signed up from the link, confirmed their
+address, and joined the workspace at the invited role. One invitee reached
+"Set up your company" instead; read-only inspection showed the cause was an
+address mismatch — the invitation had been created for a `.com` address while
+the account was registered on `.test`, and that invitation had since been
+cancelled. Not a defect in the flow, but it is what prompted the guidance
+described below.
+
+**The confirmation email template, fixed in the same pass.** Supabase's
+default template links to its own `/auth/v1/verify` endpoint, which confirms
+the address and then redirects carrying no `token_hash` — while this
+application confirms server-side with `verifyOtp({ token_hash, type })`. Every
+new account therefore landed on "That link isn't valid" _after_ its address
+had been confirmed, and anyone arriving from an invitation lost their way
+there. `supabase/templates/confirmation.html` now links at `/auth/confirm`
+with the token, and `buildCallbackUrl` always emits a query string so the
+template can append to it. This was a pre-existing defect in the sign-up flow,
+not something invitations introduced.
+
+**Hosted needs the same template, and now has it.** It is configured in
+`supabase/config.toml` for local development; a hosted project uses the
+template set in its dashboard, which the maintainer has applied there
+(user-reported). The two are configured separately and must be kept in step —
+a repository change does not reach hosted.
+
+### 2C — invitation email
+
+Invitations are now **sent by the application**, through a small SMTP adapter
+(`src/server/email/`): `smtp.ts` holds the transport behind a one-operation
+`MailAdapter` interface, `invitation-email.ts` builds the message. Plain SMTP
+and no provider-specific code, so choosing a provider later is configuration
+rather than a rewrite.
+
+**Accepted is not delivered.** `sendMail` resolving means the server returned
+250 and says nothing about arrival, so the screen says the mail server
+accepted it and keeps **Copy link** underneath as the thing that definitely
+works. A failed send never rolls the invitation back: it reports "Invitation
+created, but the email could not be sent", offers the link, and offers
+another attempt.
+
+**Retry is a re-issue, because only a digest is stored.** The plaintext of a
+token that failed to send cannot be recovered from the database by design, so
+another attempt mints a new token on the SAME invitation row — nobody is
+invited twice, the one-pending-per-address rule is never strained, and the
+previous link dies the moment its digest is replaced. The screen says so
+before the button is pressed.
+
+A send failure logs exactly three fields — `code`, `responseCode`, `command`
+— and nothing else. The server's own reply text and the envelope are
+deliberately excluded: the first can quote a username back, the second names
+the recipient, and the body carries a live link. That logging was added after
+a misconfigured mailer failed with nothing recorded anywhere, which made the
+cause invisible until the transport was rebuilt by hand outside the
+application.
+
+**Mailtrap is development testing, not production delivery.** Hosted Supabase
+Auth is configured to send its confirmation and password-reset mail through a
+Mailtrap **sandbox** inbox, and the application's invitation mail can use the
+same endpoint. A sandbox captures messages and **never delivers them to a real
+recipient**: it is the right target for development and staging and cannot be
+the production answer. Production delivery still needs the §180.1 D12
+decision — a sending domain with SPF and DKIM, credentials for it, and a
+`NEXT_PUBLIC_SITE_URL` that is publicly reachable. Note also that Auth's mail
+and the application's mail are configured in two different places and do not
+share settings.
+
+### 2C — a simpler invitation and signup experience
+
+A UX pass aimed at people who are not administrators by trade:
+
+- **Settings → Users → Invitations**: Send invitation / Copy link / Send a new
+  invitation / Cancel invitation. One link is on screen at a time; cancelling
+  removes it along with the row and confirms by naming the person, and only
+  once the server has actually done it — a failure leaves the row where it was
+  and says why. When no mail is configured the buttons say they create a link,
+  because they do.
+- **The invitation link** opens a welcome for a signed-out visitor — "Create
+  account and join" as the primary action, "Already have an account? Sign in"
+  as the secondary — rather than a bare sign-in form. Someone signed in with
+  the right address goes straight to an explicit Join. Every dead end (used,
+  cancelled, expired, wrong address) is one understandable screen.
+- **Sign-up and verification** no longer tell an invitee they are creating an
+  owner account for a business they are not setting up. `next` is carried
+  through sign-up, the confirmation email and a resent confirmation, so the
+  journey survives all three.
+- **Specification references, milestone badges and Auth/database explanations
+  were removed** from the Settings screens, along with the obsolete "adding
+  people comes next" note.
+- **`/setup` now explains an address mismatch.** When the lookup succeeds and
+  finds nothing, it names the address the visitor is signed in as and explains
+  that an invitation only works for the exact address it was sent to. When the
+  lookup _fails_ it says so — previously an empty result and a failed lookup
+  were indistinguishable, so somebody holding a valid invitation could be
+  handed a form for building a second, empty workspace with nothing on the
+  page or in any log to explain it.
 
 **What the smoke run established, precisely.** An old link is dead as a
 _token_ — after regeneration its digest matches no invitation anywhere, which
@@ -1418,6 +1558,51 @@ Spec §11's onboarding invite screen is **not** part of 2C and remains to be
 built. Its specified roles are unchanged: Manager and Staff/Sales only. It
 will reuse these records and routines; nothing in 2C changes what §11
 specifies.
+
+### 2C — remaining limitations and deferred work
+
+**Limitations, as the slice stands:**
+
+- **No production email delivery.** The configured endpoint is a Mailtrap
+  sandbox, which captures mail and delivers it to nobody. §180.1 D12 — the
+  production provider, a sending domain with SPF and DKIM, and a publicly
+  reachable `NEXT_PUBLIC_SITE_URL` — is still open.
+- **"Sent" means accepted by the mail server**, not delivered. Bounces,
+  greylisting and spam filing are invisible to the product; the copyable link
+  is the fallback for all of them.
+- **An invitation matches the invited address exactly.** Case and surrounding
+  whitespace are normalised; aliases are not — `a.b@x` and `ab@x` are
+  different addresses, as are different top-level domains. `/setup` now
+  explains this, but nothing prevents the mistake at the point of invitation.
+- **Auth mail and application mail are configured in two places** — the
+  Supabase dashboard and the application environment — and do not share
+  settings. Keeping them in step is manual.
+- **The email template exists twice**, in `supabase/config.toml` for local
+  development and in the hosted dashboard. A repository change does not reach
+  hosted.
+- **A verified address is assumed when the claim is absent.**
+  `readEmailVerified` returns `true` for a token carrying no
+  `email_verified` claim, which is the usual case, so that gate is effectively
+  inert. It is not relied upon for authorisation — acceptance re-derives
+  everything from stored rows — but it is weaker than it reads.
+- **The Settings screen shows only invitations waiting to be accepted.**
+  Cancelled and redeemed ones are invisible, so an Owner/Admin cannot see that
+  an invitation went to the wrong address or was later withdrawn. This is what
+  made the `.com`/`.test` mismatch above hard to diagnose from the product.
+- **The inviter-authority race is closed by a lock, not by serialisable
+  isolation.** Deadlock and serialization aborts are absorbed into the
+  ordinary refusal with no automatic retry.
+
+**Deferred, and deliberately not started here:**
+
+- §11's onboarding invite screen (above).
+- Invitation history in Settings — cancelled and redeemed rows, so the
+  mismatch case is self-evident without database access.
+- A production mail adapter behind the same `MailAdapter` interface, once D12
+  lands. Switching from SMTP to a provider API is one implementation, not a
+  redesign.
+- Showing a pending invitee in the Users list, which §159 mentions and which
+  these records now make possible.
 
 ## Milestone 3 — Leads, lifecycle and manual assignment
 

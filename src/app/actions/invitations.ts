@@ -15,6 +15,9 @@ import {
   type InvitationField,
 } from "@/lib/validation/invitations";
 import { serverEnv } from "@/lib/env";
+import { formatInvitationExpiry } from "@/lib/invitation-display";
+import { sendInvitationEmail } from "@/server/email/invitation-email";
+import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
 import { acceptInvitation } from "@/server/auth/invitation-acceptance";
 import { emailsForAuthUsers } from "@/server/auth/member-emails";
 import { workspaceMembers } from "@/server/auth/workspace-members";
@@ -68,6 +71,29 @@ export type InvitationActionState = {
     | "unavailable";
   /** Shown once, for copying. Never persisted and never logged. */
   readonly link?: string;
+  /**
+   * Which invitation this outcome concerns, and the address it is for — both
+   * read back from the row the database actually wrote, never echoed from
+   * the submission. The screen uses them to put an outcome next to the right
+   * row and to name the person in a confirmation.
+   */
+  readonly invitationId?: string;
+  readonly email?: string;
+  /**
+   * What happened to the EMAIL, which is a separate question from what
+   * happened to the invitation.
+   *
+   *   accepted        the mail server took the message. Not a promise that it
+   *                   arrives — it may still bounce or be filed as spam.
+   *   not_configured  no mail is set up; the link is the whole mechanism.
+   *   failed          mail is set up and the attempt did not work. The
+   *                   invitation still exists and the link still works.
+   *
+   * The invitation is never rolled back because a message failed: a usable
+   * invitation nobody was told about is recoverable, and an Owner/Admin can
+   * copy the link or ask for another attempt.
+   */
+  readonly delivery?: "accepted" | "not_configured" | "failed";
   readonly fieldErrors?: Readonly<Partial<Record<InvitationField, string>>>;
   readonly attempt: number;
 };
@@ -175,6 +201,37 @@ async function activeMembershipFor(
 const linkFor = async (token: string) =>
   `${await invitationOrigin()}/invitations/${token}`;
 
+/**
+ * Hand the invitation to the mail server, and report what it said.
+ *
+ * Deliberately after the row exists. If this fails the invitation is still
+ * there and still valid, so the screen can offer the link or another attempt;
+ * sending first and creating second would risk the opposite — a message
+ * pointing at an invitation that was never stored.
+ */
+async function deliver(
+  context: Parameters<typeof businessSettingsFor>[0],
+  invitation: {
+    readonly to: string;
+    readonly link: string;
+    readonly expiresAt: Date;
+    readonly invitedName: string | null;
+  },
+): Promise<"accepted" | "not_configured" | "failed"> {
+  const workspace = await businessSettingsFor(context);
+  const outcome = await sendInvitationEmail({
+    to: invitation.to,
+    workspaceName: workspace?.name ?? "your team",
+    link: invitation.link,
+    expiresLabel: formatInvitationExpiry(
+      invitation.expiresAt,
+      workspace?.timeZone ?? "UTC",
+    ),
+    invitedName: invitation.invitedName,
+  });
+  return outcome.ok ? "accepted" : outcome.reason;
+}
+
 /** §159 Add User — issue an invitation and show its link once. */
 export async function createInvitationAction(
   previous: InvitationActionState,
@@ -210,10 +267,11 @@ export async function createInvitationAction(
   }
 
   const token = createInvitationToken();
+  const expiry = invitationExpiry();
   const result = await createInvitation(gate.context, {
     ...parsed.value,
     tokenHash: await hashInvitationToken(token),
-    expiresAt: invitationExpiry(),
+    expiresAt: expiry,
   });
 
   if (!result.ok) {
@@ -228,8 +286,23 @@ export async function createInvitationAction(
     };
   }
 
+  const link = await linkFor(token);
+  const delivery = await deliver(gate.context, {
+    to: result.email,
+    link,
+    expiresAt: expiry,
+    invitedName: result.invitedName,
+  });
+
   revalidatePath("/settings");
-  return { status: "created", link: await linkFor(token), attempt };
+  return {
+    status: "created",
+    link,
+    invitationId: result.id,
+    email: result.email,
+    delivery,
+    attempt,
+  };
 }
 
 /** Replace a pending invitation's link and restart its seven days. */
@@ -247,16 +320,32 @@ export async function regenerateInvitationAction(
   }
 
   const token = createInvitationToken();
+  const expiry = invitationExpiry();
   const result = await regenerateInvitation(
     gate.context,
     invitationId,
     await hashInvitationToken(token),
-    invitationExpiry(),
+    expiry,
   );
   if (!result.ok) return { status: "unavailable", attempt };
 
+  const link = await linkFor(token);
+  const delivery = await deliver(gate.context, {
+    to: result.email,
+    link,
+    expiresAt: expiry,
+    invitedName: result.invitedName,
+  });
+
   revalidatePath("/settings");
-  return { status: "regenerated", link: await linkFor(token), attempt };
+  return {
+    status: "regenerated",
+    link,
+    invitationId: result.id,
+    email: result.email,
+    delivery,
+    attempt,
+  };
 }
 
 /** Withdraw a pending invitation. The row stays; the link stops working. */
@@ -277,7 +366,12 @@ export async function revokeInvitationAction(
   if (!result.ok) return { status: "unavailable", attempt };
 
   revalidatePath("/settings");
-  return { status: "revoked", attempt };
+  return {
+    status: "revoked",
+    invitationId: result.id,
+    email: result.email,
+    attempt,
+  };
 }
 
 export type AcceptanceActionState = {

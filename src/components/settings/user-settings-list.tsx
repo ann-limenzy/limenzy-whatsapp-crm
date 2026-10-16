@@ -501,30 +501,30 @@ export function UserSettingsList({
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
             <strong className="font-medium">
-              Sales Team is not built yet.
+              Sales Teams are not available yet.
             </strong>{" "}
-            §159 lists it here, and Sales Teams arrive in a later milestone. The
-            column shows &ldquo;Not available&rdquo; rather than a blank, which
-            would read as &ldquo;no team&rdquo;.
+            The column says so rather than showing a blank, which would read as
+            &ldquo;no team&rdquo;.
           </span>
         </p>
         <p className="flex items-start gap-1.5">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            <strong className="font-medium">Email comes from Auth.</strong> It
-            is read when this page loads, so it is whatever the person&rsquo;s
-            account holds now rather than a copy the CRM keeps. A dash means
-            that account has no address.
+            <strong className="font-medium">
+              Email addresses are read fresh each time.
+            </strong>{" "}
+            You see whatever the person uses to sign in today. A dash means
+            their account has no address.
           </span>
         </p>
         <p className="flex items-start gap-1.5">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>
-            <strong className="font-medium">Adding people comes next.</strong>{" "}
-            Invitations are a separate slice. Deactivating someone affects this
-            workspace only — not their account, and not any other workspace they
-            belong to — and nothing is deleted, so past activity keeps their
-            name.
+            <strong className="font-medium">
+              Switching someone off affects this workspace only
+            </strong>{" "}
+            — not their account, and not any other workspace they belong to.
+            Nothing is deleted, so past work keeps their name.
           </span>
         </p>
       </div>

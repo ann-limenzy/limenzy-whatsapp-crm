@@ -39,6 +39,14 @@ vi.mock("@/server/auth/workspace-members", () => ({ workspaceMembers }));
 const emailsForAuthUsers = vi.hoisted(() => vi.fn());
 vi.mock("@/server/auth/member-emails", () => ({ emailsForAuthUsers }));
 
+const businessSettingsFor = vi.hoisted(() => vi.fn());
+vi.mock("@/server/auth/workspace-business-settings", () => ({
+  businessSettingsFor,
+}));
+
+const sendInvitationEmail = vi.hoisted(() => vi.fn());
+vi.mock("@/server/email/invitation-email", () => ({ sendInvitationEmail }));
+
 const cookieStore = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }));
 const headerStore = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("next/headers", () => ({
@@ -93,15 +101,23 @@ const as = (role: string) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
-  createInvitation.mockResolvedValue({ ok: true });
-  regenerateInvitation.mockResolvedValue({ ok: true });
-  revokeInvitation.mockResolvedValue({ ok: true });
+  // The gateways report the row they wrote, so a screen can place an outcome
+  // against the right invitation without trusting the submission.
+  const written = { ok: true, id: INVITATION, email: "new@example.com" };
+  createInvitation.mockResolvedValue(written);
+  regenerateInvitation.mockResolvedValue(written);
+  revokeInvitation.mockResolvedValue(written);
   acceptInvitation.mockResolvedValue("joined");
   workspaceMembers.mockResolvedValue([]);
   emailsForAuthUsers.mockResolvedValue({ status: "ok", emails: new Map() });
   serverEnv.mockReturnValue({ NEXT_PUBLIC_SITE_URL: "https://crm.example" });
   cookieStore.get.mockReturnValue(undefined);
   headerStore.get.mockReturnValue(null);
+  businessSettingsFor.mockResolvedValue({ name: "Acme", timeZone: "UTC" });
+  sendInvitationEmail.mockResolvedValue({
+    ok: true,
+    accepted: ["new@example.com"],
+  });
 });
 
 describe("only an Owner/Admin may invite (§162)", () => {
@@ -509,6 +525,112 @@ describe("accepting", () => {
       );
       expect(state.status).toBe(outcome);
     }
+  });
+});
+
+describe("sending the invitation", () => {
+  it("emails it, and reports that the server accepted the message", async () => {
+    as("owner_admin");
+    const state = await createInvitationAction(IDLE, createForm());
+    expect(state.status).toBe("created");
+    expect(state.delivery).toBe("accepted");
+
+    const [message] = sendInvitationEmail.mock.calls[0]!;
+    expect(message.to).toBe("new@example.com");
+    expect(message.workspaceName).toBe("Acme");
+    expect(message.link).toBe(state.link);
+  });
+
+  it("sends only AFTER the invitation exists", async () => {
+    // A message pointing at an invitation that was never stored is the one
+    // ordering that cannot be recovered from.
+    as("owner_admin");
+    createInvitation.mockResolvedValue({ ok: false, reason: "unavailable" });
+    await createInvitationAction(IDLE, createForm());
+    expect(sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the invitation when the email fails, and says so", async () => {
+    as("owner_admin");
+    sendInvitationEmail.mockResolvedValue({ ok: false, reason: "failed" });
+    const state = await createInvitationAction(IDLE, createForm());
+
+    // Created, not rolled back: the link still works and can be copied.
+    expect(state.status).toBe("created");
+    expect(state.delivery).toBe("failed");
+    expect(state.link).toBeTruthy();
+    expect(state.invitationId).toBe(INVITATION);
+  });
+
+  it("reports absent configuration as its own thing, not a failure", async () => {
+    as("owner_admin");
+    sendInvitationEmail.mockResolvedValue({
+      ok: false,
+      reason: "not_configured",
+    });
+    const state = await createInvitationAction(IDLE, createForm());
+    expect(state.status).toBe("created");
+    expect(state.delivery).toBe("not_configured");
+    expect(state.link).toBeTruthy();
+  });
+
+  it("emails the replacement when an invitation is re-issued", async () => {
+    as("owner_admin");
+    const state = await regenerateInvitationAction(IDLE, rowForm());
+    expect(state.status).toBe("regenerated");
+    expect(state.delivery).toBe("accepted");
+    expect(sendInvitationEmail.mock.calls[0]![0].link).toBe(state.link);
+  });
+
+  it("sends a link that carries the new token, never a stored one", async () => {
+    /*
+     * Only a digest is stored, so a re-send is impossible by construction —
+     * each attempt mints a fresh token on the same invitation row. The
+     * message must carry that token, not anything read back.
+     */
+    as("owner_admin");
+    const first = await regenerateInvitationAction(IDLE, rowForm());
+    const second = await regenerateInvitationAction(first, rowForm());
+    expect(first.link).not.toBe(second.link);
+    expect(sendInvitationEmail.mock.calls[0]![0].link).toBe(first.link);
+    expect(sendInvitationEmail.mock.calls[1]![0].link).toBe(second.link);
+    // One invitation throughout — retrying never creates a second.
+    expect(createInvitation).not.toHaveBeenCalled();
+    expect(regenerateInvitation).toHaveBeenCalledTimes(2);
+  });
+
+  it("never reaches the mailer for an unauthorised caller", async () => {
+    as("manager");
+    await createInvitationAction(IDLE, createForm());
+    expect(sendInvitationEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("what the screen is told about", () => {
+  it("names the invitation and address each outcome concerns", async () => {
+    as("owner_admin");
+    for (const [label, run] of [
+      ["created", () => createInvitationAction(IDLE, createForm())],
+      ["regenerated", () => regenerateInvitationAction(IDLE, rowForm())],
+      ["revoked", () => revokeInvitationAction(IDLE, rowForm())],
+    ] as const) {
+      const state = await run();
+      expect(state.invitationId, label).toBe(INVITATION);
+      expect(state.email, label).toBe("new@example.com");
+    }
+  });
+
+  it("takes them from the database, not from the submission", async () => {
+    // The form could carry anything; what is shown comes back from the row.
+    as("owner_admin");
+    revokeInvitation.mockResolvedValue({
+      ok: true,
+      id: INVITATION,
+      email: "stored@example.com",
+    });
+    const data = rowForm({ email: "attacker@example.com" });
+    const state = await revokeInvitationAction(IDLE, data);
+    expect(state.email).toBe("stored@example.com");
   });
 });
 

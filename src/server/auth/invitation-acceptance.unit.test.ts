@@ -19,7 +19,8 @@ vi.mock("@/server/auth/require-user", () => ({ getAuthenticatedUser }));
 const begin = vi.hoisted(() => vi.fn());
 vi.mock("@/server/db/client", () => ({ runtimeSql: () => ({ begin }) }));
 
-const { acceptInvitation } = await import("./invitation-acceptance");
+const { acceptInvitation, pendingInvitationsForMe } =
+  await import("./invitation-acceptance");
 
 const HASH = "a".repeat(64);
 const USER = {
@@ -83,5 +84,55 @@ describe("an aborted transaction", () => {
     await expect(acceptInvitation({ tokenHash: HASH })).resolves.toBe(
       "unavailable",
     );
+  });
+});
+
+describe("what is waiting, and what 'nothing' may mean", () => {
+  /*
+   * The bug these pin: an empty array meant both "no invitation" and "the
+   * lookup fell over", so somebody holding a valid invitation was quietly
+   * shown "set up your company" and built a second, empty workspace.
+   */
+  it("reports an empty list as a successful answer", async () => {
+    begin.mockResolvedValue([]);
+    await expect(pendingInvitationsForMe()).resolves.toEqual({
+      status: "ok",
+      invitations: [],
+    });
+  });
+
+  it("reports a failed lookup as UNKNOWN, never as nothing", async () => {
+    begin.mockRejectedValue(pgError("42883"));
+    await expect(pendingInvitationsForMe()).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+
+  it("logs only the SQLSTATE of a failure — never the address", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    begin.mockRejectedValue(pgError("57P01"));
+
+    await pendingInvitationsForMe();
+
+    const line = warn.mock.calls[0]!.join(" ");
+    expect(line).toContain("57P01");
+    // An infrastructure fault is no reason to put somebody's email in a log.
+    expect(line).not.toContain(USER.email);
+    warn.mockRestore();
+  });
+
+  it("asks nothing of the database without a confirmed address", async () => {
+    getAuthenticatedUser.mockResolvedValue({ ...USER, emailVerified: false });
+    await expect(pendingInvitationsForMe()).resolves.toEqual({
+      status: "ok",
+      invitations: [],
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it("looks up by the address on the session, not by anything passed in", async () => {
+    begin.mockResolvedValue([]);
+    await pendingInvitationsForMe();
+    expect(begin).toHaveBeenCalledTimes(1);
   });
 });

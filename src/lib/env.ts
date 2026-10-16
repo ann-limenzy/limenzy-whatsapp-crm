@@ -282,6 +282,110 @@ const authAdminSchema = z.object({
 
 export type AuthAdminEnv = z.infer<typeof authAdminSchema>;
 
+/**
+ * Outbound application email.
+ *
+ * SEPARATE FROM SUPABASE AUTH'S OWN MAIL. Confirmation and password-reset
+ * messages are sent by the Auth service with whatever mailer that service is
+ * configured with; nothing here affects them. These settings are for mail the
+ * APPLICATION sends — today, workspace invitations.
+ *
+ * Entirely optional. Without it the product still works: an invitation is
+ * created and the link is copied by hand, which is how it worked before any
+ * of this existed. So the accessor below never throws on absence, and screens
+ * ask `isEmailConfigured()` rather than assuming.
+ *
+ * No provider is named or implied. These are plain SMTP settings, which every
+ * provider offers, so choosing one later is configuration rather than code.
+ */
+const smtpSchema = z.object({
+  SMTP_HOST: z.string().min(1, "must not be empty"),
+
+  SMTP_PORT: z.coerce
+    .number()
+    .int("must be a whole number")
+    .min(1, "must be a valid port")
+    .max(65535, "must be a valid port"),
+
+  /**
+   * Optional: a local test mailbox such as Mailpit accepts mail with no
+   * credentials at all, and requiring them would make the one configuration
+   * that costs nothing the hardest to use.
+   */
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+
+  /**
+   * Implicit TLS (port 465). STARTTLS on 587 is negotiated by the transport
+   * and does not need this set.
+   */
+  SMTP_SECURE: z
+    .union([z.literal("true"), z.literal("false")])
+    .optional()
+    .transform((value) => value === "true"),
+
+  /**
+   * The From address. Must be one the sending account may send as.
+   *
+   * A dot in the domain is deliberately NOT required: `no-reply@localhost` is
+   * exactly what a local test mailbox wants, and demanding a public-looking
+   * domain would make the one configuration that costs nothing fail
+   * validation. A real provider enforces its own rules on top of this.
+   */
+  EMAIL_FROM: z
+    .string()
+    .min(1, "must not be empty")
+    .refine(
+      (value) =>
+        /^[^\s@]+@[^\s@]+$/.test(value) || /<[^\s@]+@[^\s@]+>/.test(value),
+      {
+        message:
+          "must be an address, or a display name with one in angle brackets",
+      },
+    ),
+});
+
+export type SmtpEnv = z.infer<typeof smtpSchema>;
+
+const smtpInput = () => ({
+  SMTP_HOST: process.env.SMTP_HOST,
+  SMTP_PORT: process.env.SMTP_PORT,
+  SMTP_USER: process.env.SMTP_USER,
+  SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+  SMTP_SECURE: process.env.SMTP_SECURE,
+  EMAIL_FROM: process.env.EMAIL_FROM,
+});
+
+let smtpCache: SmtpEnv | null = null;
+
+/**
+ * Read the outbound mail configuration.
+ *
+ * Throws when it is incomplete, so a half-configured mailer is a loud failure
+ * at the point of sending rather than silent non-delivery. Callers that must
+ * degrade instead use `isEmailConfigured()` first.
+ */
+export function smtpEnv(): SmtpEnv {
+  if (smtpCache) return smtpCache;
+  const parsed = smtpSchema.safeParse(smtpInput());
+  if (!parsed.success)
+    throw new EnvConfigurationError(describeIssues(parsed.error));
+  smtpCache = parsed.data;
+  return smtpCache;
+}
+
+/**
+ * Non-throwing check.
+ *
+ * A workspace with no mail configured must still be able to invite people by
+ * copying a link. Turning absent optional configuration into a broken
+ * Settings screen would be the wrong trade — the same reasoning as
+ * `isAuthAdminConfigured()`.
+ */
+export function isEmailConfigured(): boolean {
+  return smtpSchema.safeParse(smtpInput()).success;
+}
+
 export type DatabaseEnv = z.infer<typeof databaseSchema>;
 
 export type PublicEnv = z.infer<typeof publicSchema>;
@@ -431,4 +535,5 @@ export function resetEnvCacheForTests(): void {
   publicCache = null;
   serverCache = null;
   databaseCache = null;
+  smtpCache = null;
 }

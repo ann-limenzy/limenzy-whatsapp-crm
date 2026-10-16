@@ -132,7 +132,16 @@ export function buildCallbackUrl(
   next?: string,
 ): string {
   const url = new URL(path, origin);
-  const safeNext = safeRedirect(next, "");
-  if (safeNext) url.searchParams.set("next", safeNext);
+  /*
+   * ALWAYS set `next`, even when it is empty.
+   *
+   * This URL becomes Supabase's `redirect_to`, and the confirmation email
+   * template builds the real link by appending `&token_hash=…&type=…` to it.
+   * A URL with no query string at all would make that append produce
+   * `/auth/confirm&token_hash=…`, which is not a query at all — so the
+   * separator has to already be there. An empty `next` is read back through
+   * `safeRedirect`, which falls back to the default destination.
+   */
+  url.searchParams.set("next", safeRedirect(next, ""));
   return url.toString();
 }

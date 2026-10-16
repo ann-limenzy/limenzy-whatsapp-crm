@@ -2,6 +2,7 @@ import { Settings } from "lucide-react";
 import type { Metadata } from "next";
 
 import { countryOptions } from "@/lib/workspace-options";
+import { isEmailConfigured } from "@/lib/env";
 import { formatInvitationExpiry } from "@/lib/invitation-display";
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
@@ -113,7 +114,7 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
             </h2>
             <p className="text-sm text-muted-foreground">
               Your business details, and the country, currency and time zone the
-              CRM works in. Spec §158.
+              CRM works in.
             </p>
           </div>
           {business ? (
@@ -141,8 +142,8 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
               Users
             </h2>
             <p className="text-sm text-muted-foreground">
-              Everyone with a membership of this workspace, their role and
-              whether they are active. Spec §159, §160.
+              Everyone who can use this workspace, their role, and whether their
+              access is switched on.
             </p>
           </div>
           <UserSettingsList
@@ -155,12 +156,15 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
           <div className="grid gap-1 pt-2">
             <h3 className="text-base font-semibold">Invitations</h3>
             <p className="text-sm text-muted-foreground">
-              Invite someone by creating a link and sending it to them. Spec
-              §159.
+              Invite someone by creating a link and sending it to them.
             </p>
           </div>
           <InvitationSettings
             workspaceId={workspaceId}
+            /* Resolved on the server: the browser is never asked whether this
+               deployment can send mail, and the buttons only promise to send
+               when something can. */
+            emailEnabled={isEmailConfigured()}
             invitations={invitations.map((invitation) => ({
               id: invitation.id,
               email: invitation.email,
@@ -183,7 +187,7 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
               Modules &amp; Features
             </h2>
             <p className="text-sm text-muted-foreground">
-              Choose which modules this workspace uses. Spec §171, §172.
+              Choose which modules this workspace uses.
             </p>
           </div>
           <ModuleSettingsForm
@@ -201,8 +205,8 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
               Roles &amp; Permissions
             </h2>
             <p className="text-sm text-muted-foreground">
-              The permission cells this workspace may decide, and Manager record
-              visibility. Spec §162, §162.1.
+              Choose what Managers and Staff can do, and which records a Manager
+              can see.
             </p>
           </div>
           <PermissionSettingsForm
@@ -218,8 +222,6 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
         icon={Settings}
         title="Settings"
         description="Workspace administration still to come: pipeline, products and services, custom fields and reminder defaults."
-        specSections="§163–§170, §173–§174"
-        milestone="Milestone 2"
       />
     </div>
   );

@@ -105,8 +105,11 @@ openai_api_key = "env(OPENAI_API_KEY)"
 enabled = true
 # Port to use for the email testing server web interface.
 port = 54324
-# Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
+# Exposed so the APPLICATION can send through this test mailbox too. Supabase
+# Auth already delivers its own mail here; this port is what lets our
+# invitation email arrive in the same inbox during development. Nothing leaves
+# the machine.
+smtp_port = 54325
 # pop3_port = 54326
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
@@ -244,6 +247,13 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# The confirmation email must link to THIS application's /auth/confirm route
+# with a token_hash, not to Supabase's own verify endpoint — see the template
+# for why. Hosted projects need the same template set in the dashboard.
+[auth.email.template.confirmation]
+subject = "Confirm your email address"
+content_path = "./supabase/templates/confirmation.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

@@ -82,6 +82,30 @@ const OUTCOMES: Readonly<Record<string, AcceptanceOutcome>> = {
   unauthenticated: "unauthenticated",
 };
 
+/**
+ * The answer to "is anything waiting for me?", which has three shapes.
+ *
+ * It used to be a bare array, and an empty one meant four different things:
+ * nothing is waiting, the address is not confirmed, there is no session, or
+ * THE LOOKUP FAILED. That last case is the one that matters — somebody with a
+ * perfectly good invitation was quietly shown "create your own company"
+ * instead, and no screen and no log said anything had gone wrong.
+ *
+ * So a failure is now its own state. The caller must decide what to say about
+ * it, and cannot accidentally read it as "nothing".
+ */
+export type PendingInvitationsResult =
+  /** The lookup ran. `invitations` may legitimately be empty. */
+  | {
+      readonly status: "ok";
+      readonly invitations: readonly PendingInvitationForMe[];
+    }
+  /**
+   * The lookup could not be made. Not "nothing is waiting" — unknown. The
+   * safe fields of the cause are logged; nothing else is.
+   */
+  | { readonly status: "unavailable" };
+
 export type PendingInvitationForMe = {
   readonly invitationId: string;
   readonly workspaceName: string;
@@ -159,37 +183,76 @@ export async function acceptInvitation(
  * anything; it only tells someone an invitation is waiting, which they could
  * already learn from the link they were sent.
  */
-export async function pendingInvitationsForMe(): Promise<
-  readonly PendingInvitationForMe[]
-> {
+export async function pendingInvitationsForMe(): Promise<PendingInvitationsResult> {
   const user = await getAuthenticatedUser();
-  if (!user || !user.emailVerified || !user.email) return [];
+  /*
+   * Not a failure: no session, or an address still unconfirmed. Both are
+   * states the surrounding gates already handle — `/invitations` sends an
+   * unconfirmed visitor to confirm their address, and `/setup` does the same
+   * — so there is genuinely nothing here they may act on yet.
+   */
+  if (!user || !user.emailVerified || !user.email) {
+    return { status: "ok", invitations: [] };
+  }
 
-  const rows = await runtimeSql().begin(async (tx) => {
-    await tx`select set_config(${AUTH_USER_ID}, ${user.id}, true)`;
-    return tx<
-      {
-        invitation_id: string;
-        workspace_name: string;
-        member_role: string;
-        /**
-         * Text, not a `Date`.
-         *
-         * Constructing the Drizzle handle replaces this pool's timestamptz
-         * parser — the contract recorded in architecture-decisions §6.3 — so
-         * a timestamp comes back as a string however it is typed here.
-         * Taking it at its word produced an Invalid Date that only failed
-         * where it was finally formatted.
-         */
-        expires_at: string;
-      }[]
-    >`select * from app.pending_invitations_for(${user.email})`;
+  let rows: PendingRow[];
+  try {
+    rows = await lookup(user.id, user.email);
+  } catch (error) {
+    /*
+     * Reported as UNKNOWN, not as nothing.
+     *
+     * This is the whole reason the return type changed. An empty array used
+     * to mean both "no invitation is waiting" and "the lookup fell over", so
+     * somebody holding a perfectly good invitation was quietly shown "set up
+     * your company" — and nothing on the screen or in any log said a thing
+     * had gone wrong.
+     *
+     * Only the SQLSTATE is written down. Not the address: an infrastructure
+     * fault is no reason to put somebody's email in a log.
+     */
+    const code = (error as { code?: unknown } | null)?.code;
+    console.warn(
+      "[invitations] pending lookup failed:",
+      typeof code === "string" ? code : "unknown",
+    );
+    return { status: "unavailable" };
+  }
+
+  return {
+    status: "ok",
+    invitations: rows.map((row) => ({
+      invitationId: row.invitation_id,
+      workspaceName: row.workspace_name,
+      role: row.member_role,
+      expiresAt: new Date(row.expires_at),
+    })),
+  };
+}
+
+type PendingRow = {
+  invitation_id: string;
+  workspace_name: string;
+  member_role: string;
+  /**
+   * Text, not a `Date`.
+   *
+   * Constructing the Drizzle handle replaces this pool's timestamptz parser
+   * — the contract recorded in architecture-decisions §6.3 — so a timestamp
+   * arrives as a string however it is typed here. Taking it at its word
+   * produced an Invalid Date that only failed where it was finally formatted.
+   */
+  expires_at: string;
+};
+
+/** The lookup itself, so the error handling above reads as one thought. */
+async function lookup(
+  authUserId: string,
+  email: string,
+): Promise<PendingRow[]> {
+  return runtimeSql().begin(async (tx) => {
+    await tx`select set_config(${AUTH_USER_ID}, ${authUserId}, true)`;
+    return tx<PendingRow[]>`
+      select * from app.pending_invitations_for(${email})`;
   });
-
-  return rows.map((row) => ({
-    invitationId: row.invitation_id,
-    workspaceName: row.workspace_name,
-    role: row.member_role,
-    expiresAt: new Date(row.expires_at),
-  }));
 }

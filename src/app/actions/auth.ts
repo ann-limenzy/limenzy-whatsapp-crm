@@ -123,7 +123,17 @@ export async function signUpAction(
   // Supabase returns a success-shaped response for an already-registered
   // address when confirmation is enabled, so this path is identical either
   // way — which is what prevents account enumeration.
-  redirect(`/verify-email?email=${encodeURIComponent(email)}`);
+  /*
+   * `next` rides along so the verify screen can say what happens after
+   * confirming — joining a team reads very differently from setting up a
+   * company. It is the value already validated above by `safeRedirect`, and
+   * the screen puts it through that check again before using it in a link.
+   */
+  redirect(
+    next
+      ? `/verify-email?email=${encodeURIComponent(email)}&next=${encodeURIComponent(next)}`
+      : `/verify-email?email=${encodeURIComponent(email)}`,
+  );
 }
 
 /* ------------------------------------------------------------------ sign in */
@@ -169,10 +179,22 @@ export async function resendVerificationAction(
   const supabase = await createClient();
   const origin = await resolveOrigin();
 
+  /*
+   * The resent link must land where the first one would have.
+   *
+   * Without this, somebody whose first email never arrived asked for another
+   * and got one with no `next` — so confirming dropped them on "set up your
+   * company" even when the journey had been right all along. Validated, like
+   * every other destination, so a crafted field cannot aim the link.
+   */
+  const next = safeRedirect(formData.get("next"), "");
+
   const { error } = await supabase.auth.resend({
     type: "signup",
     email: parsed.data.email,
-    options: { emailRedirectTo: buildCallbackUrl(origin, "/auth/confirm") },
+    options: {
+      emailRedirectTo: buildCallbackUrl(origin, "/auth/confirm", next),
+    },
   });
 
   // Throttling is enforced by Supabase, which returns 429. The mapped message

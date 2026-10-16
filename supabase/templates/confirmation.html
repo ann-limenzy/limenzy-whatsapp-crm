@@ -1,0 +1,26 @@
+<!--
+  Confirmation email for a new account.
+
+  WHY THIS FILE EXISTS. Supabase's default template links to its own
+  `/auth/v1/verify` endpoint, which verifies the address and then redirects —
+  carrying no `token_hash`. This application confirms addresses the
+  server-side way, with `verifyOtp({ token_hash, type })` in
+  `src/app/auth/confirm/route.ts`, so the default template left every new
+  account on "That link isn't valid" even though the address had just been
+  confirmed. Anyone arriving from an invitation lost their way there.
+
+  `{{ .RedirectTo }}` is the URL the application asked for, already carrying
+  `?next=…`, so appending the token keeps whatever journey the person was on
+  — an invitation included.
+-->
+<h2>Confirm your email address</h2>
+
+<p>Thanks for signing up to Limenzy CRM. Confirm your address to finish:</p>
+
+<p>
+  <a href="{{ .RedirectTo }}&amp;token_hash={{ .TokenHash }}&amp;type=signup">
+    Confirm my email address
+  </a>
+</p>
+
+<p>If you did not sign up, you can safely ignore this email.</p>

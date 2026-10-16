@@ -282,7 +282,11 @@ describe.skipIf(!reachable)("who may administer invitations", () => {
         expiresAt: inSevenDays(),
       },
     );
-    expect(result).toEqual({ ok: true });
+    expect(result).toMatchObject({
+      ok: true,
+      id: expect.any(String),
+      email: expect.any(String),
+    });
     const stored = await storedInvitation(t.hash);
     expect(stored?.workspace_id).toBe(fixture.workspaceA);
     expect(stored?.role).toBe("manager");
@@ -366,7 +370,11 @@ describe.skipIf(!reachable)("who may administer invitations", () => {
         expiresAt: inSevenDays(),
       },
     );
-    expect(first).toEqual({ ok: true });
+    expect(first).toMatchObject({
+      ok: true,
+      id: expect.any(String),
+      email: expect.any(String),
+    });
 
     const second = await g.createInvitation(
       ctx(fixture.owner, fixture.workspaceA),
@@ -412,7 +420,11 @@ describe.skipIf(!reachable)("who may administer invitations", () => {
     );
     // The expired one must not stand in the way, and it is superseded rather
     // than deleted so the record of who invited whom survives.
-    expect(result).toEqual({ ok: true });
+    expect(result).toMatchObject({
+      ok: true,
+      id: expect.any(String),
+      email: expect.any(String),
+    });
     expect((await storedInvitation(old.hash))?.revoked_at).not.toBeNull();
     expect((await storedInvitation(fresh.hash))?.revoked_at).toBeNull();
   });
@@ -437,7 +449,11 @@ describe.skipIf(!reachable)("who may administer invitations", () => {
       second.hash,
       later,
     );
-    expect(result).toEqual({ ok: true });
+    expect(result).toMatchObject({
+      ok: true,
+      id: expect.any(String),
+      email: expect.any(String),
+    });
 
     // One row, a new hash, a later expiry — and the previous token is gone.
     expect(await storedInvitation(first.hash)).toBeUndefined();
@@ -1019,7 +1035,11 @@ describe.skipIf(!reachable)("accepting an invitation", () => {
           reissuedToken.hash,
           inSevenDays(),
         ),
-      ).toEqual({ ok: true });
+      ).toMatchObject({
+        ok: true,
+        id: expect.any(String),
+        email: expect.any(String),
+      });
 
       expect((await storedInvitation(reissuedToken.hash))?.created_by).toBe(
         second.userProfileId,
@@ -1094,7 +1114,11 @@ describe.skipIf(!reachable)("accepting an invitation", () => {
 
       expect(
         await g.revokeInvitation(ctx(second, fixture.workspaceA), invitationId),
-      ).toEqual({ ok: true });
+      ).toMatchObject({
+        ok: true,
+        id: expect.any(String),
+        email: expect.any(String),
+      });
 
       const row = await storedInvitation(t.hash);
       expect(row?.revoked_at).not.toBeNull();

@@ -16,10 +16,18 @@ import { workspaces } from "./workspaces";
 /**
  * Pending and historical invitations to a workspace — spec §159 "Add User".
  *
- * **No email is sent by the application.** It has no mail dependency and no
- * mail code; the Email provider is an unresolved §180.1 decision. An
- * invitation produces a copyable one-time link instead, which the Owner/Admin
- * sends through whatever channel they already use.
+ * **The application emails these itself**, through its own SMTP adapter in
+ * `src/server/email/`, and the one-time link stays copyable as a secondary
+ * option. That mail path is SEPARATE from Supabase Auth's: Auth sends
+ * confirmation and password-reset messages with whatever SMTP its own
+ * settings name, and configuring one does not configure the other. The
+ * production provider for application mail is still an open §180.1 decision.
+ *
+ * NOTE: the migration that created this table carries a header saying no
+ * email is sent and none can be. That was true when it was written and is no
+ * longer. It is left alone deliberately — the file is applied and its
+ * SHA-256 is pinned by the hosted migration tooling, so correcting a comment
+ * would invalidate a reviewed artefact for no functional gain.
  *
  * **Only the hash is stored.** `tokenHash` is the SHA-256 of 32 random bytes;
  * the plaintext exists once, in the response that created it, and is never
