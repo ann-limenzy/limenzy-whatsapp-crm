@@ -21,9 +21,13 @@ export function ModulePlaceholder({
   icon: LucideIcon;
   title: string;
   description: string;
-  specSections: string;
-  /** Which milestone delivers this screen. */
-  milestone: string;
+  /**
+   * Optional. These are build-tracking details, not something a person using
+   * the CRM needs, so screens that are in front of real users leave them out.
+   */
+  specSections?: string;
+  /** Which milestone delivers this screen. Optional, for the same reason. */
+  milestone?: string;
 }) {
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -31,14 +35,17 @@ export function ModulePlaceholder({
         <h2 className="min-w-0 text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl">
           {title}
         </h2>
-        <StatusBadge tone="neutral" label={`Not built · ${milestone}`} />
+        <StatusBadge
+          tone="neutral"
+          label={milestone ? `Not built · ${milestone}` : "Not built yet"}
+        />
       </div>
 
       <EmptyState
         icon={icon}
         title={`${title} isn't built yet`}
         description={description}
-        footnote={`Specification ${specSections}`}
+        footnote={specSections ? `Specification ${specSections}` : undefined}
       />
     </div>
   );

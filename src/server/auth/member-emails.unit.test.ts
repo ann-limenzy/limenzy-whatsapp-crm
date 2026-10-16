@@ -239,7 +239,7 @@ describe("what it must never do", () => {
     expect(source).not.toMatch(/process\.env\.SUPABASE_SECRET_KEY/);
   });
 
-  it("is imported by exactly one module", async () => {
+  it("is imported only by callers that authorise first", async () => {
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
     const found: string[] = [];
@@ -259,8 +259,35 @@ describe("what it must never do", () => {
       }
     };
     await walk("src");
-    // One consumer, and it is the page that authorises first. A second one
-    // would mean a second place to get the ordering wrong.
-    expect(found).toEqual(["src/app/(app)/settings/page.tsx"]);
+
+    /*
+     * A closed list, because each entry is a place the ordering could be got
+     * wrong: `manage_users` must be decided BEFORE the Auth Admin credential
+     * is touched, so an unauthorised caller never reaches it at all.
+     *
+     *   settings/page.tsx     §159 — rendering the Users list
+     *   actions/invitations.ts §159 — refusing to invite an active member
+     *
+     * Adding a third consumer should be a decision, not an accident, which is
+     * what failing here makes it.
+     */
+    expect(found.sort()).toEqual([
+      "src/app/(app)/settings/page.tsx",
+      "src/app/actions/invitations.ts",
+    ]);
+
+    // And the ordering itself, in each of them.
+    for (const path of found) {
+      const source = await readFile(path, "utf8");
+      const authorises = source.indexOf('action: "manage_users"');
+      const reaches = source.indexOf("emailsForAuthUsers(");
+      expect(authorises, `${path} never checks manage_users`).toBeGreaterThan(
+        -1,
+      );
+      expect(
+        authorises,
+        `${path} reaches the credential before authorising`,
+      ).toBeLessThan(reaches);
+    }
   });
 });

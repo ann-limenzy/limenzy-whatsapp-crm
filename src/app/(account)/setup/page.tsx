@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import Link from "next/link";
+
 import { SetupForm } from "@/app/(account)/setup/setup-form";
 import { countryOptions } from "@/lib/workspace-options";
+import { pendingInvitationsForMe } from "@/server/auth/invitation-acceptance";
 import { requireUser } from "@/server/auth/require-user";
 import {
   NO_ACCESS_PATH,
@@ -72,8 +75,101 @@ export default async function SetupPage() {
       redirect(VERIFY_EMAIL_PATH);
   }
 
+  /*
+   * Someone invited to an existing workspace must never be funnelled into
+   * creating one of their own — §159 invites people INTO a workspace, and a
+   * second, empty workspace is the one outcome nobody wanted.
+   *
+   * The invitation link normally carries them straight to `/invitations`,
+   * but the continuation can be lost: the confirmation email opened in
+   * another browser, a link opened before signing up, a cookie cleared. This
+   * is the recovery for that case. It is offered, never forced — creating a
+   * workspace is still right here for anyone who meant to.
+   */
+  const waiting = await pendingInvitationsForMe();
+  const invited = waiting.status === "ok" ? waiting.invitations : [];
+
   return (
     <div className="mx-auto grid w-full max-w-3xl min-w-0 gap-6 sm:gap-8">
+      {invited.length > 0 ? (
+        <div className="grid gap-2 rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-sm font-medium">
+            {invited.length === 1
+              ? `You have been invited to join ${invited[0]!.workspaceName}.`
+              : "You have been invited to join an existing workspace."}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Joining it is probably what you want — setting up a company below
+            creates a separate, empty workspace instead.
+          </p>
+          <Link
+            href="/invitations"
+            className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            See the invitation
+          </Link>
+        </div>
+      ) : null}
+
+      {/*
+        Nothing is waiting, and the lookup did run — so this person has no
+        invitation this address can accept.
+
+        That sentence is the whole point. An invitation matches the invited
+        address EXACTLY, and somebody who signed up a character out — a
+        different top-level domain, a plus-alias, a different mailbox
+        entirely — gets a form offering to build a company when what they
+        wanted was to join one, with nothing on the page to explain the gap.
+        Showing them the address they are actually signed in as is what lets
+        them see it for themselves.
+
+        Deliberately quiet, and phrased as a question: an ordinary sign-up is
+        the common case here and must not be made to feel like a mistake. It
+        discloses nothing — the only address named is their own, and no
+        invitation is confirmed or denied to exist.
+      */}
+      {waiting.status === "ok" && invited.length === 0 && user.email ? (
+        <div className="grid gap-1 rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-sm font-medium">Were you invited to a team?</p>
+          <p className="text-sm text-muted-foreground">
+            You are signed in as{" "}
+            <strong className="font-medium">{user.email}</strong>, and there is
+            no invitation waiting for that address. An invitation only works for
+            the exact address it was sent to — if yours went somewhere else,
+            sign in with that address instead, or ask whoever invited you to
+            send a new one.
+          </p>
+        </div>
+      ) : null}
+
+      {/*
+        The lookup fell over. Said out loud rather than shown as "nothing is
+        waiting": the whole hazard here is somebody with a valid invitation
+        being quietly handed a form that builds a second, empty workspace.
+        The form stays below, because an ordinary sign-up must not be blocked
+        by a problem that has nothing to do with them.
+      */}
+      {waiting.status === "unavailable" ? (
+        <div
+          role="alert"
+          className="grid gap-2 rounded-xl border border-danger/30 bg-danger-subtle p-4"
+        >
+          <p className="text-sm font-medium text-danger-on-subtle">
+            We could not check whether you have an invitation.
+          </p>
+          <p className="text-sm text-danger-on-subtle">
+            If someone invited you to their team, do not set up a company here —
+            that would create a separate, empty one. Reload this page, or open
+            your invitation link again.
+          </p>
+          <Link
+            href="/invitations"
+            className="w-fit rounded-md border border-input px-4 py-2 text-sm font-medium hover:bg-muted"
+          >
+            Check for an invitation
+          </Link>
+        </div>
+      ) : null}
       <header className="grid gap-2">
         <h2 className="text-xl font-semibold tracking-tight text-balance text-foreground sm:text-2xl">
           Set up your company

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
+import { resolveTestTargets } from "./scripts/database-target.mjs";
+
 /**
  * Read one value out of `.env.local` for the tests that need a live local
  * database.
@@ -34,6 +36,39 @@ function localEnvValue(key: string): string {
   return "";
 }
 
+/**
+ * What the suites are allowed to be pointed at.
+ *
+ * The decision is made from the connection strings alone, before any suite
+ * loads and long before a fixture could exist — see `resolveTestTargets`,
+ * which is where the reasoning lives and where it is unit-tested offline.
+ *
+ * An explicit `process.env` value is put through the same check: the point is
+ * the target, not where it was typed. `npm run test:db:local` injects a
+ * matched loopback pair deliberately, and it passes.
+ *
+ * A refusal is announced HERE and passed on as `LIMENZY_DB_TARGET_REFUSED`,
+ * so the suites that then skip cannot be mistaken for suites that passed.
+ */
+const targets = resolveTestTargets({
+  runtime: process.env.DATABASE_URL ?? localEnvValue("DATABASE_URL"),
+  tooling:
+    process.env.DRIZZLE_TOOLING_DATABASE_URL ??
+    localEnvValue("DRIZZLE_TOOLING_DATABASE_URL"),
+});
+
+if (targets.refusal !== null) {
+  const rule = "!".repeat(72);
+  console.warn(
+    `\n${rule}\n` +
+      "  DATABASE SUITES WILL NOT RUN - the configured target was refused.\n\n" +
+      `  ${targets.refusal}\n\n` +
+      "  They will report as SKIPPED, which is not the same as passing.\n" +
+      "  To run them against the local stack: npm run test:db:local\n" +
+      `${rule}\n`,
+  );
+}
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -51,10 +86,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     env: {
-      DRIZZLE_TOOLING_DATABASE_URL:
-        process.env.DRIZZLE_TOOLING_DATABASE_URL ??
-        localEnvValue("DRIZZLE_TOOLING_DATABASE_URL"),
-      DATABASE_URL: process.env.DATABASE_URL ?? localEnvValue("DATABASE_URL"),
+      DRIZZLE_TOOLING_DATABASE_URL: targets.tooling,
+      DATABASE_URL: targets.runtime,
+      /** Non-empty only when the configuration above was refused. */
+      LIMENZY_DB_TARGET_REFUSED: targets.refusal ?? "",
     },
     include: ["src/**/*.test.{ts,tsx}"],
     css: false,

@@ -121,8 +121,7 @@ export function PermissionSettingsForm({
             Manager record visibility
           </h3>
           <p className="text-sm text-muted-foreground">
-            Which Leads and Customers a Manager may access in this workspace.
-            Spec §162.1.
+            Which Leads and Customers a Manager may open in this workspace.
           </p>
         </div>
 
@@ -182,8 +181,8 @@ export function PermissionSettingsForm({
             Configurable permissions
           </h3>
           <p className="text-sm text-muted-foreground">
-            The §162 cells this workspace may decide. Every other cell is fixed
-            by the specification and is not shown.
+            The permissions this workspace can decide for itself. The rest are
+            fixed and are not shown here.
           </p>
         </div>
 

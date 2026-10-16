@@ -131,6 +131,12 @@ const GATEWAY_FILES = {
    * and never reaches the pool.
    */
   workspaceMembers: "src/server/auth/workspace-members.ts",
+  /**
+   * Invitation administration (§159). Like the settings gateways above, it
+   * names the `TenantContext` TYPE and reads and writes through
+   * `withTenant()`; it mints no context and never reaches the pool.
+   */
+  workspaceInvitations: "src/server/auth/workspace-invitations.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -144,6 +150,15 @@ const GATEWAY_FILES = {
    * nothing else — it mints no context and reads no table itself.
    */
   createInitialWorkspace: "src/server/auth/create-initial-workspace.ts",
+  /**
+   * Accepting an invitation (§159): the one operation that must work for a
+   * person who has NO membership and may have no profile, so there is no
+   * tenant context to run it in and `withTenant()` cannot be the route. Like
+   * the initial-workspace operation it needs the pool to open a single
+   * transaction, and nothing else — it mints no context, reads no table
+   * itself, and everything privileged lives in the definer routine it calls.
+   */
+  invitationAcceptance: "src/server/auth/invitation-acceptance.ts",
 };
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}", "src/test/**"];
@@ -176,9 +191,11 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspacePermissions,
       GATEWAY_FILES.workspaceBusinessSettings,
       GATEWAY_FILES.workspaceMembers,
+      GATEWAY_FILES.workspaceInvitations,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
+      GATEWAY_FILES.invitationAcceptance,
     ],
     rules: {
       "no-restricted-imports": [
@@ -255,6 +272,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspacePermissions,
       GATEWAY_FILES.workspaceBusinessSettings,
       GATEWAY_FILES.workspaceMembers,
+      GATEWAY_FILES.workspaceInvitations,
     ],
     rules: {
       "no-restricted-imports": [
@@ -307,6 +325,22 @@ const eslintConfig = defineConfig([
      * connection. Everything privileged lives in the database routine.
      */
     files: [GATEWAY_FILES.createInitialWorkspace],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        { paths: DRIVER_IMPORTS, patterns: [CONTEXT_PATTERNS] },
+      ],
+      "no-restricted-syntax": ["error", ...NO_TOOLING_CONNECTION],
+    },
+  },
+  {
+    /**
+     * Accepting an invitation. Same shape as the initial-workspace operation
+     * and for the same reason: the caller has no membership yet, so it opens
+     * its own single transaction around a definer routine. It must not import
+     * the driver, mint a tenant context, or name the tooling connection.
+     */
+    files: [GATEWAY_FILES.invitationAcceptance],
     rules: {
       "no-restricted-imports": [
         "error",

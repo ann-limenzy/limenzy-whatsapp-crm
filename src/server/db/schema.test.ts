@@ -398,7 +398,13 @@ const db = () => {
   return sql;
 };
 
-const TABLES = ["workspaces", "user_profiles", "workspace_memberships"];
+const TABLES = [
+  "workspaces",
+  "user_profiles",
+  "workspace_memberships",
+  // Milestone 2C — invitations (§159 Add User).
+  "workspace_invitations",
+];
 
 // A workspace row that satisfies every constraint, with synthetic values.
 const newWorkspace = async (overrides: Record<string, string> = {}) => {
@@ -448,7 +454,6 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "follow_ups",
         "renewals",
         "documents",
-        "workspace_invitations",
         "workspace_modules",
         "workspace_role_permissions",
       ]) {
@@ -508,6 +513,14 @@ describe.skipIf(!reachable)("1C-B schema", () => {
       expect(nullable).toEqual([
         // A profile may exist before its auth user does.
         "user_profiles.auth_user_id",
+        // §11 collects a name with an invitation; it is optional, and is used
+        // only when the invitee has no profile and no name of their own.
+        "workspace_invitations.invited_name",
+        // The three nullable timestamps ARE an invitation's state: unset
+        // means pending. A status column would be a second way to say it.
+        "workspace_invitations.redeemed_at",
+        "workspace_invitations.redeemed_by",
+        "workspace_invitations.revoked_at",
         // §158 contact detail: collected nowhere at onboarding, so a workspace
         // that has never opened Business Settings has no value for it.
         "workspaces.address",
@@ -811,8 +824,10 @@ describe.skipIf(!reachable)("1C-B schema", () => {
     it("carries exactly the policies 1C-C introduced, and no others", async () => {
       // 1C-B created none. Phase 2 adds four for the runtime role; Phase 4C-1
       // adds five for the bootstrap role; Milestone 2B adds three for the
-      // user-management role. Each is named with its role, so a policy that
-      // appeared without a migration would fail here.
+      // user-management role; Milestone 2C adds three more for the runtime
+      // role on its own new table and eight for the acceptance role. Each is
+      // named with its role, so a policy that appeared without a migration
+      // would fail here.
       const rows = await db()<{ policyname: string; roles: string }[]>`
         select policyname, roles::text as roles
           from pg_policies where schemaname = 'public'
@@ -820,14 +835,25 @@ describe.skipIf(!reachable)("1C-B schema", () => {
       expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
         "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
         "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
+        "user_profiles_invites_insert -> {limenzy_invites}",
+        "user_profiles_invites_select -> {limenzy_invites}",
         "user_profiles_members_select -> {limenzy_members}",
         "user_profiles_self_select -> {limenzy_app}",
+        "workspace_invitations_invites_select -> {limenzy_invites}",
+        "workspace_invitations_invites_update -> {limenzy_invites}",
+        "workspace_invitations_owner_admin_insert -> {limenzy_app}",
+        "workspace_invitations_owner_admin_select -> {limenzy_app}",
+        "workspace_invitations_owner_admin_update -> {limenzy_app}",
         "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
         "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
+        "workspace_memberships_invites_insert -> {limenzy_invites}",
+        "workspace_memberships_invites_select -> {limenzy_invites}",
+        "workspace_memberships_invites_update -> {limenzy_invites}",
         "workspace_memberships_members_select -> {limenzy_members}",
         "workspace_memberships_members_update -> {limenzy_members}",
         "workspace_memberships_self_select -> {limenzy_app}",
         "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
+        "workspaces_invites_select -> {limenzy_invites}",
         "workspaces_member_select -> {limenzy_app}",
         "workspaces_owner_admin_update -> {limenzy_app}",
       ]);

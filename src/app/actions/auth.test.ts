@@ -154,6 +154,32 @@ describe("signUpAction", () => {
     expect(url).toBe("/verify-email?email=ann%40example.com");
   });
 
+  it("carries an invitation journey through to the verification screen", async () => {
+    /*
+     * Without this the verify screen could not tell an invitee from someone
+     * setting up a company, and told both they were "setting up a workspace".
+     */
+    const url = await redirectedTo(() =>
+      actions.signUpAction({}, form({ ...valid, next: "/invitations" })),
+    );
+    expect(url).toBe(
+      "/verify-email?email=ann%40example.com&next=%2Finvitations",
+    );
+  });
+
+  it("does not invent a destination for an ordinary signup", async () => {
+    const url = await redirectedTo(() => actions.signUpAction({}, form(valid)));
+    expect(url).toBe("/verify-email?email=ann%40example.com");
+  });
+
+  it("refuses to carry an external destination to that screen", async () => {
+    const url = await redirectedTo(() =>
+      actions.signUpAction({}, form({ ...valid, next: "https://evil.test" })),
+    );
+    expect(url).not.toContain("evil.test");
+    expect(url).toBe("/verify-email?email=ann%40example.com");
+  });
+
   it("builds the callback link on the server origin, never from form input", async () => {
     await redirectedTo(() =>
       actions.signUpAction(
@@ -323,8 +349,9 @@ describe("forgotPasswordAction", () => {
     );
     expect(link.origin).toBe("https://crm.example.com");
     expect(link.pathname).toBe("/auth/confirm");
-    // Destination comes from `type=recovery` at the callback, not from `next`.
-    expect(link.searchParams.get("next")).toBeNull();
+    // Destination comes from `type=recovery` at the callback, not from `next`,
+    // so the parameter is present but empty.
+    expect(link.searchParams.get("next")).toBe("");
   });
 
   it("does surface a rate limit, which says nothing about the account", async () => {
@@ -394,6 +421,34 @@ describe("updatePasswordAction", () => {
 /* ------------------------------------------------- resend verification mail */
 
 describe("resendVerificationAction", () => {
+  const resentLink = () =>
+    (auth.resend.mock.calls[0]![0] as { options: { emailRedirectTo: string } })
+      .options.emailRedirectTo;
+
+  it("sends the replacement to the same place as the first one", async () => {
+    /*
+     * Somebody whose first email never arrived asked for another and got one
+     * with no destination, so confirming dropped them on "set up your
+     * company" even though the journey had been right all along.
+     */
+    await actions.resendVerificationAction(
+      {},
+      form({ email: "ann@example.com", next: "/invitations" }),
+    );
+    expect(new URL(resentLink()).searchParams.get("next")).toBe("/invitations");
+  });
+
+  it("aims a resent link only at our own origin", async () => {
+    await actions.resendVerificationAction(
+      {},
+      form({ email: "ann@example.com", next: "https://evil.test/harvest" }),
+    );
+    const link = new URL(resentLink());
+    expect(link.origin).toBe("https://crm.example.com");
+    expect(link.searchParams.get("next")).toBe("");
+    expect(resentLink()).not.toContain("evil.test");
+  });
+
   it("validates the address", async () => {
     const state = await actions.resendVerificationAction(
       {},

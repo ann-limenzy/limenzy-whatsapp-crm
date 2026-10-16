@@ -558,7 +558,9 @@ describe.skipIf(!reachable)(
 
     it("14b. introduces no new column, table, enum or uniqueness", async () => {
       // The product decisions these would pre-empt belong to later phases, and
-      // the specification defines none of them.
+      // the specification defines none of them. Milestone 2C's invitations
+      // table carries no status column of its own — its state is three
+      // nullable timestamps — so it adds nothing here.
       const columns = await admin()<{ name: string }[]>`
       select table_name || '.' || column_name as name
         from information_schema.columns
@@ -579,6 +581,9 @@ describe.skipIf(!reachable)(
        order by table_name`;
       expect(tables.map((t) => t.table_name)).toEqual([
         "user_profiles",
+        // Milestone 2C — invitations (§159 Add User). Workspace
+        // administration, not a lookup table and not a business module.
+        "workspace_invitations",
         "workspace_memberships",
         "workspaces",
       ]);
@@ -826,7 +831,7 @@ describe.skipIf(!reachable)(
       });
     });
 
-    it("21. keeps RLS enabled and forced on all three tables", async () => {
+    it("21. keeps RLS enabled and forced on every public table", async () => {
       const rows = await admin()<
         { relname: string; rls: boolean; force: boolean }[]
       >`
@@ -836,6 +841,7 @@ describe.skipIf(!reachable)(
        order by relname`;
       expect(rows).toEqual([
         { relname: "user_profiles", rls: true, force: true },
+        { relname: "workspace_invitations", rls: true, force: true },
         { relname: "workspace_memberships", rls: true, force: true },
         { relname: "workspaces", rls: true, force: true },
       ]);
@@ -1032,14 +1038,18 @@ describe.skipIf(!reachable)(
     });
 
     it("leaves the four Phase-2 application policies untouched", async () => {
-      // Scoped to the runtime role on purpose. Later milestones add policies
-      // for other reserved roles — 2B adds three for limenzy_members — and
-      // this assertion is about limenzy_app's four not having changed, which
-      // is what "Phase-2 application policies" means.
+      // Scoped to the runtime role AND to the three Phase-1 tables, on
+      // purpose. Later milestones add policies for other reserved roles — 2B
+      // adds three for limenzy_members — and 2C adds three more for
+      // limenzy_app on its own new table. This assertion is about
+      // limenzy_app's original four not having changed, which is what
+      // "Phase-2 application policies" means.
       const rows = await admin()<{ policyname: string; roles: string }[]>`
       select policyname, roles::text as roles
         from pg_policies
        where schemaname = 'public' and roles::text = '{limenzy_app}'
+         and tablename in ('workspaces', 'user_profiles',
+                           'workspace_memberships')
        order by policyname`;
       expect(rows.map((r) => r.policyname)).toEqual([
         "user_profiles_self_select",

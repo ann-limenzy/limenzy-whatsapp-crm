@@ -96,7 +96,20 @@ const probe = async (url: string): Promise<postgres.Sql | undefined> => {
 };
 
 const tooling = await probe(TOOLING);
-const reachable = tooling !== undefined && RUNTIME !== "";
+
+/*
+ * The runtime connection is PROBED, not merely counted.
+ *
+ * A present string is not a working connection, and the difference is not
+ * cosmetic: this suite writes fixtures through the tooling connection and
+ * exercises the gateway through the runtime one. Treating "the variable is
+ * set" as "the database is there" is how a suite ends up running against
+ * whatever that string happens to name. The probe is closed immediately —
+ * `runtimeSql()` builds its own pool from the same environment.
+ */
+const runtimeProbe = await probe(RUNTIME);
+await runtimeProbe?.end({ timeout: 1 }).catch(() => {});
+const reachable = tooling !== undefined && runtimeProbe !== undefined;
 
 if (!reachable && REQUIRED) {
   throw new Error(

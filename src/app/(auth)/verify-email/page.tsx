@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { AuthCard } from "@/components/auth/auth-card";
 import { ResendVerificationForm } from "@/components/auth/resend-verification-form";
+import { safeRedirect } from "@/lib/auth/redirect";
 
 export const metadata: Metadata = { title: "Check your email" };
 
@@ -22,22 +23,39 @@ export default async function VerifyEmailPage({
   const params = await searchParams;
   const email = safeEmail(params.email);
 
+  /*
+   * Validated again here, not trusted. It arrives from the sign-up redirect,
+   * but this page is reachable by hand, and the value ends up in a link.
+   */
+  const next = safeRedirect(params.next, "");
+  const joining = next === "/invitations";
+
+  /*
+   * "Continue setting up your workspace" is wrong for somebody who was
+   * invited — they are not setting one up, they are joining one that already
+   * exists. Wording only: what happens after confirming is decided by the
+   * invitation and their membership, not by this sentence.
+   */
+  const whatHappensNext = joining
+    ? "confirm your address and join your team."
+    : "confirm your address and continue setting up your workspace.";
+
   return (
     <AuthCard
       title="Check your email"
       description={
         email ? (
           <>
-            We sent a verification link to <strong>{email}</strong>. Open it to
-            confirm your address and continue setting up your workspace.
+            We sent a verification link to <strong>{email}</strong>. Open it to{" "}
+            {whatHappensNext}
           </>
         ) : (
-          "We sent you a verification link. Open it to confirm your address and continue setting up your workspace."
+          `We sent you a verification link. Open it to ${whatHappensNext}`
         )
       }
       footer={
         <Link
-          href="/sign-in"
+          href={next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in"}
           className="font-medium text-primary underline-offset-4 hover:underline"
         >
           Back to sign in
@@ -56,7 +74,7 @@ export default async function VerifyEmailPage({
           </p>
         </div>
 
-        <ResendVerificationForm email={email} />
+        <ResendVerificationForm email={email} next={next || undefined} />
       </div>
     </AuthCard>
   );
