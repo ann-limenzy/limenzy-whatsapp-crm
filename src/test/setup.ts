@@ -34,3 +34,20 @@ if (typeof window !== "undefined") {
     disconnect() {}
   };
 }
+
+/**
+ * Say, once per worker, when the database suites were refused a target.
+ *
+ * A skipped suite and a passing suite look alike in a summary line, and the
+ * difference here is "row-level security was proved" versus "nothing ran".
+ * `vitest.config.mts` makes the decision and sets this; repeating it inside
+ * the run means the warning is next to the result rather than scrolled off
+ * the top of the output.
+ */
+if (process.env.LIMENZY_DB_TARGET_REFUSED) {
+  console.warn(
+    `[database suites] NOT RUN — ${process.env.LIMENZY_DB_TARGET_REFUSED} ` +
+      "Any database check below is SKIPPED, not passed. " +
+      "Run them with: npm run test:db:local",
+  );
+}

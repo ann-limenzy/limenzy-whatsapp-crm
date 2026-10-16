@@ -979,9 +979,13 @@ Making email readable would need one of:
 None is a routine implementation choice, so none was taken. The screen shows
 the signed-in person's own address — which the server already holds from their
 verified session, at no database privilege — and discloses that other
-addresses are unavailable and why. **This is the decision to make before
-2C**, because invitations are where an email first enters the product's own
-schema and the answer may change shape then.
+addresses are unavailable and why.
+
+**What 2C then settled.** `workspace_invitations` does store an address — the
+first in the product's own schema — but it is one an Owner/Admin typed, so it
+required no new read of `auth.users` and no change to this answer. 2B's
+resolution (§6.4: one server-only module, one Auth Admin operation, after a
+`manage_users` check) stands unchanged.
 
 #### 2B — the §160 reassignment precondition
 
@@ -1141,9 +1145,9 @@ local browser run recorded above.
 Everything below is open after this checkpoint. None of it is started, and
 nothing above should be read as progress on any of it.
 
-- **Add User and invitations** — 2C. Not blocked by anything here: the
-  invited address is typed by an Owner/Admin, so nothing in that flow reads
-  another member's address out of Auth.
+- **Add User and invitations** — 2C. Since built; see the 2C section below.
+  Verified locally only, not applied to hosted, and with no application-sent
+  email. §11's onboarding invite screen remains pending.
 - **Sales Team integration** — the §159 column renders "Not available" until
   Sales Teams exist (Milestone 4), including Team Lead designation and the
   §163.3 replacement rule that §160 defers to.
@@ -1223,16 +1227,197 @@ git-ignored `.env.local` beside the hosted URL and publishable key. Until
 both are done the Email column shows the not-configured notice and everything
 else on the screen works normally.
 
-### 2C — Invitations (§159 Add User) — planned, not started
+### 2C — Invitations (§159 Add User) — built, verified locally, NOT applied to hosted
 
-**Invitations do NOT depend on member-email access.** An earlier note in this
-plan said 2C was blocked on the email decision; that was wrong. Invitations
-need an invitation record (address, role, token, expiry), a send through the
-existing email configuration, and redemption at sign-up. The invited address
-is typed by an Owner/Admin, so it is already in hand — nothing in that flow
-reads another member's address out of Auth. The only relationship is
-cosmetic: the Users list can also show a pending invitee's address once
-invitations exist. 2C can be built whenever it is scheduled.
+Settings → Users now carries an Invitations section where an Owner/Admin
+creates, copies, regenerates and revokes invitations, and an invitee joins
+from a link at `/invitations`.
+
+**There is no application-sent email, by decision.** The CRM has no mail
+provider connected — §180.1's D12 is still open, and the Mailtrap entry in the
+environment file was checked and is not wired to anything the application
+sends through. So an invitation produces a **copyable link** that the
+Owner/Admin sends by whatever channel they already use. The screen says so
+plainly rather than implying a message is on its way. **Emailed invitations
+are not complete and are not claimed to be**; adding delivery later is an
+adapter behind the same records, not a redesign.
+
+**What it does.**
+
+- Create / Copy link / Regenerate link / Revoke, labelled exactly so.
+- Settings may invite at any of the three roles (§162 lets an Owner/Admin
+  promote someone the moment they join, so withholding it here only adds a
+  step). §11's onboarding screen keeps its Manager/Staff pair — see below.
+- Seven-day expiry; 256-bit tokens from `crypto.getRandomValues`; **only a
+  SHA-256 digest is stored**; the link is shown exactly once and never
+  recoverable afterwards.
+- One live invitation per workspace and normalised address, enforced by a
+  partial unique index. An **expired** one never blocks a fresh one.
+- Regeneration replaces the digest and restarts the seven days, so the
+  previous link stops working.
+- Inviting an existing **active** member is refused at creation. An
+  **inactive** member may be invited, and acceptance reactivates them at the
+  invited role.
+- Acceptance re-reads membership inside the locked transaction: an active
+  membership keeps its current role and status and the invitation answers
+  "already a member". An optional invited name never overwrites a name the
+  person already has.
+- Viewing a link redeems nothing — joining is an explicit press. The link's
+  Route Handler touches no database.
+- A signed-in person whose link was lost sees their pending invitations at
+  `/invitations`, and `/setup` offers the invitation instead of quietly
+  starting a second, empty workspace.
+
+**Database.** One migration, `20261019090000_workspace_invitations.sql`. It
+adds the `workspace_invitations` table, the `limenzy_invites` definer-owner
+role, eleven policies and two `app` routines. It is the first table the
+runtime role may `INSERT` into; it gains **no** `INSERT` on profiles or
+memberships, and the migration's own verification block refuses to apply if
+that ever changes. Full reasoning in architecture-decisions §6.5.
+
+**Verified locally only.** As of the commit that introduces this slice:
+
+- **1679 unit tests** pass; the 11 live-database files skip, loudly, because
+  `.env.local` points the application at hosted development (see
+  docs/development.md — a skip is not a pass).
+- **323 database tests** pass against the local stack via
+  `npm run test:db:local`, none skipped.
+- **36 browser checks** covering the whole surface, and a later **16-check
+  smoke run** of the three journeys that matter after the concurrency work:
+  create-and-accept; regenerate an invitation whose issuer lost authority and
+  join with the replacement; revoke and be refused. Both were driven through
+  a real Chrome against a dev server on matched local configuration, in an
+  isolated copy of the source so the developer's own `next dev` and its
+  `.next` directory were untouched. Fixtures were removed by recorded id and
+  left no residue.
+
+**The migration has not been applied to hosted development**, and no hosted
+migration, merge or further feature work was started.
+
+**What the smoke run established, precisely.** An old link is dead as a
+_token_ — after regeneration its digest matches no invitation anywhere, which
+is what makes the previous link unusable. It is deliberately not a dead end
+for the invited person: they are still invited, so `/invitations` offers them
+the invitation that is actually live, by id, bound to their verified address.
+Stranding somebody who was legitimately invited is not the behaviour the
+revocation path is for — revoking is, and a revoked link offers no way to
+join at all.
+
+**Three defects this verification caught and closed**, each of which only
+appears in a browser:
+
+1. A hydration mismatch — a date formatted with the environment's own locale
+   renders differently on the server and the client, and React discarded the
+   tree, taking the one-time link with it. Dates are now formatted on the
+   server in the workspace's §158 time zone.
+2. `NextResponse.redirect()` normalises the host, so the link answered
+   `Location: http://localhost:…` for a request to `127.0.0.1`. The
+   host-scoped session cookie was not sent onward and a freshly signed-in
+   invitee was asked to sign in again — in the one flow whose whole purpose is
+   to survive sign-in. Now a root-relative `Location`, the fix
+   `/workspace/reset` already documented.
+3. A leftover invitation cookie shadowed the recovery list: the page offered
+   "Join", the action preferred the dead cookie token, and a perfectly valid
+   acceptance was reported as invalid. An offered invitation id now takes
+   precedence over the cookie.
+
+**Four more, from the pre-commit security review of the migration and the
+acceptance path:**
+
+5. **Concurrent profile creation raised 23505.** `user_profiles.auth_user_id`
+   is UNIQUE; two acceptances for the same new person at once — two
+   invitations in two tabs, or an acceptance racing
+   `app.create_initial_workspace` — both found no profile and both inserted.
+   Now `on conflict (auth_user_id) do nothing` followed by a re-read.
+   `DO NOTHING` rather than `DO UPDATE`, because `limenzy_invites` holds no
+   UPDATE on `user_profiles` and must not: an existing name is never touched.
+6. **A half-finished acceptance could commit.** If the UPDATE that marks the
+   invitation redeemed had ever matched no row, the routine returned
+   `'invalid'` _after_ creating the membership — access granted, invitation
+   still live. It now raises, which rolls the whole transaction back.
+7. **The recovery path disclosed that an invitation existed.** An invitation
+   id is not a secret, so answering `email_mismatch` for one somebody simply
+   supplied would let anyone probe for live invitations. The id path now
+   returns the same single `invalid` as a miss; the token path still says
+   `email_mismatch`, because holding the token already proves that much.
+8. **Creation guessed when it could not check.** Refusing to invite an
+   existing active member needs addresses out of Auth, and that lookup can be
+   absent or fail. Treating either as "not a member" quietly invited people
+   who already had access. It now refuses with a configuration result and
+   creates nothing.
+
+9. **The inviter-authority race is closed, not accepted.** The issuer's
+   authority was read from a snapshot, so a demotion committing a moment later
+   left that reading in force and the membership was still granted. Acceptance
+   now takes the same Owner/Admin lock set Milestone 2B takes — every active
+   Owner/Admin row of the workspace, `FOR UPDATE`, `ORDER BY user_profile_id`
+   — before any other membership row, and re-checks the issuer while holding
+   it. Lock order across acceptance, 2B, revoke and regenerate is set out in
+   architecture-decisions §6.5; there is no cycle, and 40001/40P01 are
+   absorbed into the ordinary refusal with the transaction rolled back and
+   **no automatic retry**. Proved by negative control: with the lock removed,
+   both race tests fail with "acceptance did not wait for the Owner/Admin
+   lock"; with it, they pass.
+10. **Regeneration now re-issues.** An invitation whose issuer was demoted was
+    permanently unredeemable, and regenerating it produced a fresh link
+    guaranteed to fail. Regeneration sets `created_by` to the administrator
+    doing it; a trigger refuses attributing an invitation to anybody else;
+    revocation still leaves the original issuer on the record (§177).
+
+A further one, found while running the suites, was not in this feature at all:
+`.env.local` points `DATABASE_URL` at **hosted development**, and
+`vitest.config.mts` passed it straight through, so a plain `npx vitest run`
+ran the live-database suites against hosted. `scripts/test-db.mjs` already
+refused that mismatch, but nothing stopped the plain runner.
+
+**What the guard does now.** `resolveTestTargets()` in
+`scripts/database-target.mjs` decides from the connection strings alone —
+before any suite loads and long before a fixture could exist — and refuses a
+non-loopback target, a mismatched loopback pair, or an unreadable string.
+A refusal replaces both urls with an unreachable sentinel (`127.0.0.1:1`,
+where nothing listens) rather than clearing them, so the unit tests that only
+need a well-formed string still get one while no suite can reach a database.
+The refusal is announced as a banner, repeated inside the run, and passed on
+as `LIMENZY_DB_TARGET_REFUSED` so `npm run test:db` fails with the real reason
+instead of reporting the sentinel. Skipped database checks are therefore never
+mistakable for passed ones. `npm run test:db:local` is the safe way to run
+them: it provisions a local-only `limenzy_app` password process-scoped and
+never touches `.env.local`. The gateway suite also probes its runtime
+connection now instead of assuming a present string works, and
+`scripts/test-db.mjs` had its two targets labelled the wrong way round in the
+mismatch message — it detected the problem but named the wrong half as hosted.
+
+**What was attempted on hosted, and what is still unverified.** The runtime
+half issued reads and four `DELETE` statements (`roles.test.ts` asserts they
+are refused); three were refused with _permission denied_ and the fourth with
+_relation "public.workspace_invitations" does not exist_. The runtime role
+holds no INSERT grant on hosted, so the only row-creating path was
+`app.create_initial_workspace` — and that was reproduced locally: with an
+auth user id that exists in no `auth.users` row, it fails with **23503** on
+`user_profiles_auth_user_id_fkey` and rolls back entirely, leaving nothing
+behind. Every fixture auth user was created through the tooling connection,
+which was local throughout.
+
+**The read-only hosted check has since been run** (`verify-hosted-2c-incident.ts`,
+by the maintainer, 2026-10-16). Result: **no persistent fixture creation
+detected**. The nine expected migrations are present; 2C and all of its
+objects are absent; no workspace, profile, membership or Auth row was created
+on or after 2026-10-15. Its two fixture-pattern matches are the pre-existing
+`Ann Sebastian` profile and `ann.dev@example.com` account, both created
+2026-10-14 — before the incident, legitimate, and left untouched.
+
+**What that does NOT establish.** The check looks for rows that were
+_created_. It does not compare field values against a prior snapshot, and none
+was taken, so it cannot show that no existing row was _modified_. The argument
+that none could be is the privilege and foreign-key analysis above, not this
+check. Treated as unverified in that respect.
+
+### §11 onboarding invitations — still pending
+
+Spec §11's onboarding invite screen is **not** part of 2C and remains to be
+built. Its specified roles are unchanged: Manager and Staff/Sales only. It
+will reuse these records and routines; nothing in 2C changes what §11
+specifies.
 
 ## Milestone 3 — Leads, lifecycle and manual assignment
 

@@ -84,6 +84,7 @@ const MILESTONE_2_MIGRATIONS = [
   "20261015090000_workspace_business_contact.sql",
   "20261016090000_workspace_users.sql",
   "20261018090000_workspace_members_auth_id.sql",
+  "20261019090000_workspace_invitations.sql",
 ];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
@@ -561,6 +562,13 @@ describe("the tenant gateway import boundary", () => {
     ],
     // Settings → Users (spec §159, §160). Same shape again.
     "src/server/auth/workspace-members.ts": ["the context constructor"],
+    // Invitation administration (spec §159). Same shape again.
+    "src/server/auth/workspace-invitations.ts": ["the context constructor"],
+    // Accepting an invitation consumes the pool for one transaction around
+    // the acceptance routine, exactly as the bootstrap operation does: it
+    // runs for a person with no membership, so there is no tenant context to
+    // scope it by and withTenant() cannot be used.
+    "src/server/auth/invitation-acceptance.ts": ["the runtime pool"],
     // Identity-scoped resolution: consumes the pool, and nothing else.
     "src/server/db/identity.ts": ["the runtime pool"],
     // The initial-workspace operation: consumes the pool for one transaction
@@ -615,8 +623,10 @@ describe("the tenant gateway import boundary", () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
       "src/server/auth/create-initial-workspace.ts",
+      "src/server/auth/invitation-acceptance.ts",
       "src/server/auth/workspace-business-settings.ts",
       "src/server/auth/workspace-context.ts",
+      "src/server/auth/workspace-invitations.ts",
       "src/server/auth/workspace-members.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
@@ -805,6 +815,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/auth.ts",
       // Milestone 2 — Business Settings (spec §158).
       "src/app/actions/business-settings.ts",
+      // Milestone 2C — copyable workspace invitations (spec §159).
+      "src/app/actions/invitations.ts",
       // Milestone 1D — module enable/disable (spec §171).
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).

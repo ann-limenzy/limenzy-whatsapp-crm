@@ -2,15 +2,18 @@ import { Settings } from "lucide-react";
 import type { Metadata } from "next";
 
 import { countryOptions } from "@/lib/workspace-options";
+import { formatInvitationExpiry } from "@/lib/invitation-display";
 import { ModulePlaceholder } from "@/components/data/module-placeholder";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
+import { InvitationSettings } from "@/components/settings/invitation-settings";
 import { UserSettingsList } from "@/components/settings/user-settings-list";
 import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
 import { MEMBERS_PER_PAGE, pageOf, parsePageParam } from "@/lib/member-list";
 import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import { workspaceMembers } from "@/server/auth/workspace-members";
+import { pendingInvitations } from "@/server/auth/workspace-invitations";
 import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
 import { emailsForAuthUsers } from "@/server/auth/member-emails";
 import {
@@ -66,6 +69,10 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
     parsePageParam((await props.searchParams).users),
     MEMBERS_PER_PAGE,
   );
+  // Same gate, same reason: a Manager has no business reading who has been
+  // invited, and the policies behind this would refuse them anyway.
+  const invitations = mayManageUsers ? await pendingInvitations(context) : [];
+
   const lookup = mayManageUsers
     ? await emailsForAuthUsers(
         pageMembers
@@ -144,6 +151,28 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
             emailStatus={lookup?.status ?? "ok"}
             paging={paging}
           />
+
+          <div className="grid gap-1 pt-2">
+            <h3 className="text-base font-semibold">Invitations</h3>
+            <p className="text-sm text-muted-foreground">
+              Invite someone by creating a link and sending it to them. Spec
+              §159.
+            </p>
+          </div>
+          <InvitationSettings
+            workspaceId={workspaceId}
+            invitations={invitations.map((invitation) => ({
+              id: invitation.id,
+              email: invitation.email,
+              role: invitation.role,
+              invitedName: invitation.invitedName,
+              expiresLabel: formatInvitationExpiry(
+                invitation.expiresAt,
+                business?.timeZone ?? "UTC",
+              ),
+              isExpired: invitation.isExpired,
+            }))}
+          />
         </section>
       ) : null}
 
@@ -188,7 +217,7 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
       <ModulePlaceholder
         icon={Settings}
         title="Settings"
-        description="Workspace administration still to come: inviting people, pipeline, products and services, custom fields and reminder defaults."
+        description="Workspace administration still to come: pipeline, products and services, custom fields and reminder defaults."
         specSections="§163–§170, §173–§174"
         milestone="Milestone 2"
       />

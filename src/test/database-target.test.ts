@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  OFFLINE_RUNTIME_URL,
+  OFFLINE_TOOLING_URL,
   assertMatchedDatabaseTargets,
   describeTarget,
   describeTargetMismatch,
   formatTarget,
   isLoopback,
+  resolveTestTargets,
   targetsMatch,
 } from "../../scripts/database-target.mjs";
 
@@ -164,5 +167,129 @@ describe("every database-test entry point actually calls it", () => {
     expect(source.indexOf("describeTargetMismatch(")).toBeLessThan(
       source.indexOf("await probe`select 1`"),
     );
+  });
+});
+
+/**
+ * What a test runner is allowed to be handed — the decision `vitest.config.mts`
+ * makes before any suite loads.
+ *
+ * Still offline: these are strings in, a verdict out. Nothing here connects,
+ * and nothing needs mocking to keep it that way.
+ */
+describe("resolveTestTargets", () => {
+  const HOSTED_TOOLING =
+    "postgresql://postgres.project:placeholder@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres";
+
+  it("passes a matched loopback pair through untouched", () => {
+    expect(
+      resolveTestTargets({ runtime: LOCAL_RUNTIME, tooling: LOCAL_TOOLING }),
+    ).toEqual({
+      runtime: LOCAL_RUNTIME,
+      tooling: LOCAL_TOOLING,
+      refusal: null,
+    });
+  });
+
+  it("leaves an unconfigured machine alone", () => {
+    // A fresh clone or CI: nothing to refuse, and the suites skip themselves.
+    expect(resolveTestTargets({ runtime: "", tooling: "" })).toEqual({
+      runtime: "",
+      tooling: "",
+      refusal: null,
+    });
+    expect(resolveTestTargets()).toEqual({
+      runtime: "",
+      tooling: "",
+      refusal: null,
+    });
+  });
+
+  it("refuses a hosted runtime, naming the variable and the target", () => {
+    // The exact configuration that let a plain `vitest` run point the live
+    // suites at hosted development.
+    const decided = resolveTestTargets({
+      runtime: HOSTED_RUNTIME,
+      tooling: LOCAL_TOOLING,
+    });
+    expect(decided.refusal).toContain("DATABASE_URL");
+    expect(decided.refusal).toContain(
+      "aws-0-ap-northeast-2.pooler.supabase.com",
+    );
+    expect(decided.refusal).toContain("not loopback");
+  });
+
+  it("refuses a hosted tooling connection just as readily", () => {
+    const decided = resolveTestTargets({
+      runtime: LOCAL_RUNTIME,
+      tooling: HOSTED_TOOLING,
+    });
+    expect(decided.refusal).toContain("DRIZZLE_TOOLING_DATABASE_URL");
+    expect(decided.refusal).toContain("not loopback");
+  });
+
+  it("refuses two DIFFERENT loopback databases", () => {
+    // Both local, so the loopback rule alone would pass them — and fixtures
+    // would still land in one database while the assertions read the other.
+    for (const tooling of [
+      "postgresql://postgres:placeholder@127.0.0.1:5432/postgres",
+      "postgresql://postgres:placeholder@127.0.0.1:54322/other",
+    ]) {
+      const decided = resolveTestTargets({ runtime: LOCAL_RUNTIME, tooling });
+      expect(decided.refusal, tooling).toContain("two different databases");
+    }
+  });
+
+  it("refuses a string it cannot read", () => {
+    expect(
+      resolveTestTargets({ runtime: "nonsense", tooling: LOCAL_TOOLING })
+        .refusal,
+    ).toContain("not a readable connection string");
+  });
+
+  it("hands back something unreachable rather than something empty", () => {
+    /*
+     * Both at once: a suite that only needs a WELL-FORMED url to construct a
+     * pool from still gets one, and no suite can reach a database. Clearing
+     * them instead turned one configuration problem into six unrelated
+     * failures in tests that never open a connection.
+     */
+    const decided = resolveTestTargets({
+      runtime: HOSTED_RUNTIME,
+      tooling: LOCAL_TOOLING,
+    });
+    expect(decided.runtime).toBe(OFFLINE_RUNTIME_URL);
+    expect(decided.tooling).toBe(OFFLINE_TOOLING_URL);
+
+    for (const url of [OFFLINE_RUNTIME_URL, OFFLINE_TOOLING_URL]) {
+      const target = describeTarget(url);
+      expect(target, url).not.toBeNull();
+      expect(isLoopback(target), url).toBe(true);
+      // Port 1: nothing listens, so a connection is refused instantly — and
+      // it is emphatically not the local stack's 54322.
+      expect(target!.port, url).toBe("1");
+    }
+  });
+
+  it("never puts a password in the refusal", () => {
+    const secret = "sup3r-s3cret-value";
+    const decided = resolveTestTargets({
+      runtime: `postgresql://limenzy_app:${secret}@db.example.com:5432/postgres`,
+      tooling: `postgresql://postgres:${secret}@127.0.0.1:54322/postgres`,
+    });
+    expect(decided.refusal).not.toBeNull();
+    expect(decided.refusal).not.toContain(secret);
+    expect(JSON.stringify(decided)).not.toContain(secret);
+  });
+
+  it("checks a single configured half on its own", () => {
+    // Only one set: there is no pair to mismatch, but it still may not be
+    // hosted.
+    expect(
+      resolveTestTargets({ runtime: LOCAL_RUNTIME, tooling: "" }).refusal,
+    ).toBeNull();
+    expect(
+      resolveTestTargets({ runtime: HOSTED_RUNTIME, tooling: "" }).refusal,
+    ).toContain("not loopback");
   });
 });

@@ -620,11 +620,13 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
     // function — especially another SECURITY DEFINER one — cannot appear
     // without failing here.
     expect(rows.map((r) => r.proname)).toEqual([
+      "accept_workspace_invitation",
       "create_initial_workspace",
       "current_auth_user_id",
       "current_user_is_owner_admin",
       "current_user_profile_id",
       "current_workspace_id",
+      "pending_invitations_for",
       "set_member_role",
       "set_member_status",
       "workspace_members",
@@ -639,7 +641,9 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       .map((r) => `${r.proname}:${r.owner}`)
       .sort();
     expect(definers).toEqual([
+      "accept_workspace_invitation:limenzy_invites",
       "create_initial_workspace:limenzy_bootstrap",
+      "pending_invitations_for:limenzy_invites",
       "set_member_role:limenzy_members",
       "set_member_status:limenzy_members",
       "workspace_members:limenzy_members",
@@ -718,11 +722,16 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     "workspaces",
     "user_profiles",
     "workspace_memberships",
+    "workspace_invitations",
   ]);
   const APPROVED_FUNCTIONS = new Set([
     "current_auth_user_id",
     "current_user_profile_id",
     "current_workspace_id",
+    // Milestone 2C: the invitation policies re-derive Owner/Admin through the
+    // same predicate the Users routines use. It reads tables, so the graph
+    // test accounts for it explicitly rather than treating it as a leaf.
+    "current_user_is_owner_admin",
   ]);
 
   /** Relation and function dependencies as PostgreSQL itself records them. */
@@ -859,12 +868,27 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
         if (target === row.on_table) continue; // column refs, not an edge
         graph.get(row.on_table)!.add(target);
       }
+      /*
+       * A policy that CALLS a table-reading function reaches those tables
+       * just as surely as an inline subquery does, and the regex above cannot
+       * see it. Milestone 2C's invitation policies re-derive Owner/Admin
+       * through app.current_user_is_owner_admin(), so its reads are added
+       * here — otherwise this graph would understate what evaluation touches
+       * and the acyclicity claim below would be weaker than it looks.
+       */
+      if (/\bcurrent_user_is_owner_admin\s*\(/.test(row.expr)) {
+        for (const target of ["workspace_memberships", "user_profiles"]) {
+          if (target === row.on_table) continue;
+          graph.get(row.on_table)!.add(target);
+        }
+      }
     }
 
-    // Exactly the three roles that hold policies, and no other.
+    // Exactly the roles that hold policies, and no other.
     expect([...byRole.keys()].sort()).toEqual([
       "limenzy_app",
       "limenzy_bootstrap",
+      "limenzy_invites",
       "limenzy_members",
     ]);
 
@@ -879,6 +903,14 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "user_profiles",
     ]);
     expect(shape("limenzy_app", "user_profiles")).toEqual([]);
+    // Milestone 2C. The invitations table is a LEAF in the other direction:
+    // it reads memberships and profiles, and nothing reads it. That is what
+    // makes administration expressible as policies here when the equivalent
+    // for memberships was not.
+    expect(shape("limenzy_app", "workspace_invitations")).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
 
     // The bootstrap role: memberships -> profiles, and nothing from workspaces.
     expect(shape("limenzy_bootstrap", "workspaces")).toEqual([]);
@@ -886,6 +918,7 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "user_profiles",
     ]);
     expect(shape("limenzy_bootstrap", "user_profiles")).toEqual([]);
+    expect(shape("limenzy_bootstrap", "workspace_invitations")).toEqual([]);
 
     // The user-management role: profiles -> memberships, which terminates
     // because its membership policies reference no table at all. This is the
@@ -895,6 +928,19 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     ]);
     expect(shape("limenzy_members", "workspace_memberships")).toEqual([]);
     expect(shape("limenzy_members", "workspaces")).toEqual([]);
+
+    /*
+     * The invitation-acceptance role: profiles and memberships both reach
+     * user_profiles, and nothing reaches back. It never reads the
+     * invitations table through a policy predicate — the routine finds the
+     * row by token hash — so that node has no outgoing edge for this role.
+     */
+    expect(shape("limenzy_invites", "user_profiles")).toEqual([]);
+    expect(shape("limenzy_invites", "workspace_memberships")).toEqual([
+      "user_profiles",
+    ]);
+    expect(shape("limenzy_invites", "workspace_invitations")).toEqual([]);
+    expect(shape("limenzy_invites", "workspaces")).toEqual([]);
 
     // Cycle detection by depth-first search with an explicit recursion stack.
     const permanent = new Set<string>();
@@ -965,8 +1011,10 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // expression calls any of them; that none is reachable from a policy is
     // asserted immediately below.
     const TOUCHES_TABLES = new Set([
+      "accept_workspace_invitation",
       "create_initial_workspace",
       "current_user_is_owner_admin",
+      "pending_invitations_for",
       "set_member_role",
       "set_member_status",
       "workspace_members",
@@ -989,8 +1037,9 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // one would reopen the recursion the per-role graph rules out.
     for (const row of await expressions()) {
       for (const routine of [
+        "accept_workspace_invitation",
         "create_initial_workspace",
-        "current_user_is_owner_admin",
+        "pending_invitations_for",
         "set_member_role",
         "set_member_status",
         "workspace_members",

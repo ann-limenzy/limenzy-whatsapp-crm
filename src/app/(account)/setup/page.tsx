@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import Link from "next/link";
+
 import { SetupForm } from "@/app/(account)/setup/setup-form";
 import { countryOptions } from "@/lib/workspace-options";
+import { pendingInvitationsForMe } from "@/server/auth/invitation-acceptance";
 import { requireUser } from "@/server/auth/require-user";
 import {
   NO_ACCESS_PATH,
@@ -72,8 +75,40 @@ export default async function SetupPage() {
       redirect(VERIFY_EMAIL_PATH);
   }
 
+  /*
+   * Someone invited to an existing workspace must never be funnelled into
+   * creating one of their own — §159 invites people INTO a workspace, and a
+   * second, empty workspace is the one outcome nobody wanted.
+   *
+   * The invitation link normally carries them straight to `/invitations`,
+   * but the continuation can be lost: the confirmation email opened in
+   * another browser, a link opened before signing up, a cookie cleared. This
+   * is the recovery for that case. It is offered, never forced — creating a
+   * workspace is still right here for anyone who meant to.
+   */
+  const waiting = await pendingInvitationsForMe();
+
   return (
     <div className="mx-auto grid w-full max-w-3xl min-w-0 gap-6 sm:gap-8">
+      {waiting.length > 0 ? (
+        <div className="grid gap-2 rounded-xl border border-border bg-muted/40 p-4">
+          <p className="text-sm font-medium">
+            {waiting.length === 1
+              ? `You have been invited to join ${waiting[0]!.workspaceName}.`
+              : "You have been invited to join an existing workspace."}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Joining it is probably what you want — setting up a company below
+            creates a separate, empty workspace instead.
+          </p>
+          <Link
+            href="/invitations"
+            className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            See the invitation
+          </Link>
+        </div>
+      ) : null}
       <header className="grid gap-2">
         <h2 className="text-xl font-semibold tracking-tight text-balance text-foreground sm:text-2xl">
           Set up your company

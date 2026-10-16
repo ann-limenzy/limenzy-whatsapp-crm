@@ -45,6 +45,7 @@ npm install
 | `npm run db:migrate`    | Applies pending migrations to the local database                          |
 | `npm run db:role:local` | Enables the `limenzy_app` runtime login locally and writes `DATABASE_URL` |
 | `npm run test:db`       | Runs the live schema tests; fails if the database is unavailable          |
+| `npm run test:db:local` | The same, against a matched LOCAL pair, without touching `.env.local`     |
 
 Local endpoints:
 
@@ -691,6 +692,65 @@ fails with a clear message and a non-zero exit when:
 
 It never prints the connection string. Use it before committing a schema
 change, and treat it — not `npm test` — as the schema's verification gate.
+
+### The test-target guard, and why a skip is not a pass
+
+`.env.local` is the **application's** configuration. Its `DATABASE_URL`
+legitimately points wherever you run the app — hosted development, for
+instance. The database suites are a different matter: they create fixtures,
+assert that row-level security keeps them apart, and attempt writes that are
+_supposed_ to be refused. Pointed at a real environment they create and delete
+rows in it.
+
+So `vitest.config.mts` calls `resolveTestTargets()` from
+`scripts/database-target.mjs`, which decides from the connection strings
+alone — **before any suite file loads, before any pool is constructed, and
+long before a fixture could exist**. It refuses:
+
+- a target that is not loopback, whichever of the two variables carries it;
+- two different loopback databases (fixtures would land in one and the
+  assertions read the other);
+- a string it cannot parse.
+
+An explicit `process.env` value is checked too: the point is the target, not
+where it was typed.
+
+**What a refusal does.** Both URLs are replaced with a sentinel —
+`postgresql://…@127.0.0.1:1/postgres` — rather than cleared. Port 1 has
+nothing listening, so a connection there is refused by the kernel instantly;
+it reaches no database, local or hosted. The sentinel exists because a few
+unit tests need a _well-formed_ connection string to construct a pool they
+never open, and clearing the variable turned one configuration problem into
+six unrelated failures. To be exact about it: the refused URL never reaches a
+client, and the only socket anything attempts is to a dead loopback port.
+
+**A skipped database check is not a passed one.** The refusal is announced
+three times over, because the failure mode being guarded against is somebody
+reading a green summary and believing the isolation proofs ran:
+
+1. a banner at config load naming the offending target;
+2. a line inside the run itself, from `src/test/setup.ts`;
+3. `LIMENZY_DB_TARGET_REFUSED` in the environment, which makes
+   `npm run test:db` **fail** with the real reason instead of reporting the
+   sentinel.
+
+Vitest reports the affected files as `skipped`. Read that as _not run_. The
+only output that means the isolation proofs actually executed is the closing
+line of `npm run test:db` — "N database test(s) executed … none skipped".
+
+### Running them when `.env.local` points elsewhere
+
+```bash
+npm run test:db:local
+```
+
+This is the supported way to run the database suites on a machine whose
+`.env.local` points the application at a hosted project. It does what
+`npm run db:role:local` does, minus the file write: it reads the **tooling**
+URL from `.env.local`, refuses anything but loopback, gives the local
+`limenzy_app` role a freshly generated local-only password, and keeps the
+resulting runtime URL in that process's environment only. `.env.local` is
+never modified and no password is printed or stored.
 
 ---
 

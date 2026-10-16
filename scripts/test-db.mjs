@@ -37,6 +37,9 @@ const SUITES = [
   // Milestone 2B — Settings → Users: co-member visibility and the last-Owner
   // rule, including its behaviour under concurrency.
   "src/server/db/users-isolation.db.test.ts",
+  // Milestone 2C — invitations: tenant scoping, identity binding, expiry,
+  // regeneration and concurrent acceptance.
+  "src/server/db/invitations-isolation.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";
@@ -79,7 +82,23 @@ const runtimeUrlForGuard = connectionString(RUNTIME_VARIABLE);
  * container being stopped.
  */
 {
-  const problem = describeTargetMismatch(url, runtimeUrlForGuard);
+  /*
+   * The runner's own guard already refused this configuration before any
+   * suite loaded, and replaced both urls with an unreachable sentinel. Saying
+   * so here names the real problem; without it the mismatch check below would
+   * report the sentinel instead of what was actually configured.
+   */
+  if (process.env.LIMENZY_DB_TARGET_REFUSED) {
+    fail(
+      process.env.LIMENZY_DB_TARGET_REFUSED,
+      'Run these against the local stack with "npm run test:db:local" — see docs/development.md.',
+    );
+  }
+
+  // Runtime first, tooling second — the order the helper documents. Passing
+  // them the other way round still DETECTED a mismatch, but named the wrong
+  // half as the hosted one, which is the detail that matters when this fires.
+  const problem = describeTargetMismatch(runtimeUrlForGuard, url);
   if (problem !== null) {
     fail(problem, "Set both to the same database — see docs/development.md.");
   }

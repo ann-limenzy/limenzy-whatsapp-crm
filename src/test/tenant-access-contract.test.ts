@@ -87,6 +87,24 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
       "database at all. It is given auth user ids that app.workspace_members() " +
       "already scoped to the caller's workspace.",
   },
+  "src/server/auth/invitation-acceptance.ts#acceptInvitation": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
+  "src/server/auth/invitation-acceptance.ts#pendingInvitationsForMe": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-invitations.ts#pendingInvitations": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-invitations.ts#createInvitation": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-invitations.ts#regenerateInvitation": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-invitations.ts#revokeInvitation": {
+    evidence: "src/server/db/invitations-isolation.db.test.ts",
+  },
   "src/server/auth/workspace-members.ts#workspaceMembers": {
     evidence: "src/server/db/users-isolation.db.test.ts",
   },

@@ -78,6 +78,14 @@ export const NO_RESPONSIBILITY_TABLES: readonly string[] = Object.freeze([
   "user_profiles",
   // The membership being deactivated. Checking it here would be circular.
   "workspace_memberships",
+  /*
+   * An invitation is an offer, not work. Nobody is "responsible" for one in
+   * the §160 sense: it confers no record ownership and no assignment. A
+   * pending invitation left behind by someone who has since been demoted or
+   * deactivated stops working anyway — the acceptance routine re-checks the
+   * issuer's authority before granting membership.
+   */
+  "workspace_invitations",
 ]);
 
 /**

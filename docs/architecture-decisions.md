@@ -567,6 +567,98 @@ ordering is asserted structurally rather than left to review.
 Users list is paged (25 per page) and only the current page is resolved. There
 is no member-count cutoff — a large workspace is paged, never truncated.
 
+### 6.5 Workspace invitations: the first runtime INSERT (Milestone 2C)
+
+**What changed, and the rule it amends.** Until now the runtime role could
+read tenant rows and update specific columns, and every row that _created_
+access — a profile, a membership — was created by a SECURITY DEFINER routine
+the runtime role could only call, never write behind. Settings → Users
+invitations introduce the first table the runtime role may `INSERT` into
+directly: `public.workspace_invitations`.
+
+**The exception is bounded to that one table.** `limenzy_app` gains no
+`INSERT` on `public.user_profiles` or `public.workspace_memberships`, and the
+migration's verification block fails the deployment if it ever does — the rule
+is enforced by the migration, not by memory. The grants it does hold are
+column-scoped: `insert (id, workspace_id, email, role, invited_name,
+token_hash, expires_at, created_by)` and `update (token_hash, expires_at,
+revoked_at, invited_name, role)`. There is **no `DELETE`** — withdrawing an
+invitation sets `revoked_at`, which keeps the record of who invited whom
+(§177).
+
+**Why a policy here and routines there.** Milestone 2B needed definer routines
+because a co-member policy on `workspace_memberships` reads the table it
+guards and recurses (42P17). A policy on this new table reads
+`workspace_memberships`, whose own policy reads `user_profiles` and stops —
+depth two, acyclic. So administration is three ordinary policies requiring an
+active `owner_admin` of the selected workspace, re-derived from stored rows.
+
+**Acceptance is still a definer routine**, because the person accepting has no
+membership and may have no profile, so there is no tenant context to run in.
+`app.accept_workspace_invitation` is owned by a NOLOGIN, NOBYPASSRLS,
+non-superuser role (`limenzy_invites`) with `search_path = ''`, fully
+schema-qualified, `revoke all … from public` and one narrow `grant execute`.
+It locks the invitation row, derives its own workspace scope **from the locked
+row** rather than from anything the caller said, re-checks that the inviter
+still holds `manage_users`, and creates or restores the membership in the same
+transaction. An existing **active** membership is never overwritten: the
+`ON CONFLICT … DO UPDATE … WHERE status = 'inactive'` predicate preserves its
+current role and status and the routine answers `already_member`.
+
+**One lock protocol across the whole of membership authority.** Milestone 2B's
+`app.set_member_role` and `app.set_member_status` open by locking every active
+Owner/Admin row of the workspace, `FOR UPDATE`, `ORDER BY user_profile_id`,
+and only then re-check the caller. Acceptance now takes **that same lock,
+first**, before touching any other membership row, and re-checks the issuer
+afterwards. A demoted issuer's row drops out of the set when it is
+re-evaluated under READ COMMITTED, so the fresh check sees the demotion and
+refuses; an issuer who is still an Owner/Admin is locked, so nothing can
+demote or deactivate them until the transaction ends. Either way the answer is
+binding rather than a reading that a later commit invalidates.
+
+The order is: invitation row → Owner/Admin set (ordered) → the accepting
+person's membership row. While acceptance holds the Owner/Admin set, every 2B
+call is still blocked on its own first statement and therefore holds no
+membership row at all, so there is no cycle. Revoke and regenerate touch only
+the invitation row — their policies _read_ memberships, and a read takes no
+row lock — so nothing anywhere holds a membership lock while waiting for an
+invitation lock. Should a deadlock arise regardless, 40P01 and 40001 are
+absorbed into the ordinary "unavailable" refusal, the transaction having
+rolled back, and **nothing is retried automatically**.
+
+Enabling this needed one policy change: `SELECT … FOR UPDATE` applies the
+UPDATE policy's `USING` clause on top of the SELECT policy, so a `USING`
+scoped to the accepting person's own row made the lock return zero rows —
+measured, not assumed. `USING` is now the workspace; `WITH CHECK` still
+restricts writes to that person's own row and `user_profile_id` is not in the
+column grant, so the broader `USING` grants no write it did not already have.
+
+**Regeneration re-issues; revocation does not.** Because acceptance re-checks
+the issuer, an invitation from someone since demoted is permanently dead while
+still looking live — regenerating it would hand out a fresh link guaranteed to
+fail. So regeneration sets `created_by` to the administrator doing it, and a
+`before update` trigger refuses a `created_by` that is neither unchanged nor
+the caller's own profile (a row-level `WITH CHECK` sees only the new row and
+cannot tell a change from a value left alone). Revocation deliberately leaves
+`created_by` untouched, so the record of who invited whom survives §177 and
+withdrawal stays available to anyone with authority.
+
+**What the token is, and is not.** The token is the delivery mechanism and the
+continuation — not the thing that authorises. Only its SHA-256 digest is
+stored, it is shown exactly once, and acceptance requires a signed-in identity
+whose **verified** address equals the invited one. That is why the recovery
+path (`app.pending_invitations_for`) can list someone's invitations with no
+token at all, and why an offered invitation id takes precedence over a
+leftover cookie when both are present.
+
+**The residual exposure, stated plainly.** A copyable link is a URL, so the
+token appears once in whatever logs that one request — ours, a proxy's, a CDN's.
+Everything after that is designed to keep it there: the link's Route Handler
+touches no database, moves the token into a 30-minute HttpOnly, SameSite=Lax
+cookie, and answers `303` to a token-free path with `Cache-Control: no-store`
+and `Referrer-Policy: no-referrer`. No token reaches a rendered page, an auth
+callback's `next` parameter, or any application log.
+
 ## 7. Decisions taken during Milestone 1A
 
 | #   | Decision                                                                                                | Reason                                                                                                                                                                                                                         |
@@ -823,6 +915,11 @@ required — the pinned set is fully stable and mutually compatible on Node 20.
   The publishable key is the only Supabase key that may carry a
   `NEXT_PUBLIC_` prefix; `src/lib/env.ts` rejects an `sb_secret_` value in
   that variable rather than inlining it into the browser bundle.
+- **The runtime role may `INSERT` into exactly one table**:
+  `public.workspace_invitations` (Milestone 2C). It holds no `INSERT` on
+  `public.user_profiles` or `public.workspace_memberships` — those are still
+  written only behind a SECURITY DEFINER boundary — and the migration refuses
+  to apply if that ever changes. See §6.5.
 - **The application server holds a project-wide privileged credential**
   (`SUPABASE_SECRET_KEY`), used by exactly one module
   (`src/server/auth/member-emails.ts`) for exactly one operation
