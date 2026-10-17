@@ -86,6 +86,15 @@ export const NO_RESPONSIBILITY_TABLES: readonly string[] = Object.freeze([
    * issuer's authority before granting membership.
    */
   "workspace_invitations",
+  /*
+   * Pipeline stages and Lead sources are workspace VOCABULARY, not work.
+   * Nobody is responsible for a stage in the §160 sense: the rows carry no
+   * owner and no assignee, and deactivating a person changes nothing about
+   * them. When Leads arrive, responsibility attaches to the LEAD — its Record
+   * Owner — not to the stage it happens to sit in.
+   */
+  "workspace_lead_stages",
+  "workspace_lead_sources",
 ]);
 
 /**

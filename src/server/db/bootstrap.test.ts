@@ -216,22 +216,86 @@ afterAll(async () => {
          where p.auth_user_id in ${sql(authUsers)}`
     ).map((r) => r.workspace_id);
 
-    await sql`delete from public.workspace_memberships
-               where user_profile_id in (
-                 select id from public.user_profiles
-                  where auth_user_id in ${sql(authUsers)})`.catch(() => {});
-    await sql`delete from public.user_profiles
-               where auth_user_id in ${sql(authUsers)}`.catch(() => {});
-    if (workspaces.length > 0) {
-      await sql`delete from public.workspaces
-                 where id in ${sql(workspaces)}`.catch(() => {});
-    }
-    // Belt and braces: anything this run named that the join could not reach.
-    await sql`delete from public.workspaces
-               where name like ${`Bootstrap%${RUN}%`}`.catch(() => {});
-    await sql`delete from auth.users where id in ${sql(authUsers)}`.catch(
-      () => {},
+    // Workspaces this run named directly, which the join above cannot reach
+    // because the routine never wrote a membership for them.
+    const named = (
+      await sql<{ id: string }[]>`
+        select id from public.workspaces
+         where name like ${`Bootstrap%${RUN}%`}`
+    ).map((r) => r.id);
+    const mine = [...new Set([...workspaces, ...named])];
+
+    // Failures are REPORTED, not swallowed. A teardown that quietly gave up
+    // is how this suite came to leak eleven workspaces a run once Milestone
+    // 3A started seeding a pipeline with every workspace: the routine-created
+    // ones gained stage rows, the delete hit the RESTRICT foreign key, and
+    // the `.catch(() => {})` hid it.
+    const problems: string[] = [];
+    const remove = async (what: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        problems.push(
+          `${what} (${(error as { code?: string })?.code ?? "error"})`,
+        );
+      }
+    };
+
+    await remove(
+      "memberships by profile",
+      () => sql`delete from public.workspace_memberships
+                 where user_profile_id in (
+                   select id from public.user_profiles
+                    where auth_user_id in ${sql(authUsers)})`,
     );
+    if (mine.length > 0) {
+      await remove(
+        "memberships by workspace",
+        () => sql`delete from public.workspace_memberships
+                   where workspace_id in ${sql(mine)}`,
+      );
+    }
+    await remove(
+      "profiles",
+      () => sql`delete from public.user_profiles
+                 where auth_user_id in ${sql(authUsers)}`,
+    );
+    if (mine.length > 0) {
+      // Milestone 3A: a workspace the routine created owns a seeded pipeline
+      // and seeded sources, and both foreign keys RESTRICT.
+      await remove(
+        "lead stages",
+        () => sql`delete from public.workspace_lead_stages
+                   where workspace_id in ${sql(mine)}`,
+      );
+      await remove(
+        "lead sources",
+        () => sql`delete from public.workspace_lead_sources
+                   where workspace_id in ${sql(mine)}`,
+      );
+      await remove(
+        "workspaces",
+        () => sql`delete from public.workspaces where id in ${sql(mine)}`,
+      );
+    }
+    await remove(
+      "auth users",
+      () => sql`delete from auth.users where id in ${sql(authUsers)}`,
+    );
+
+    // Read back rather than trust the deletes.
+    if (mine.length > 0) {
+      const left = await sql<{ id: string }[]>`
+        select id from public.workspaces where id in ${sql(mine)}`;
+      if (left.length > 0) {
+        problems.push(
+          `workspaces still present: ${left.map((r) => r.id).join(", ")}`,
+        );
+      }
+    }
+    if (problems.length > 0) {
+      console.error("[bootstrap.test] fixture cleanup problems:", problems);
+    }
   }
   await tooling?.end({ timeout: 2 }).catch(() => {});
   await runtime?.end({ timeout: 2 }).catch(() => {});
@@ -569,8 +633,14 @@ describe.skipIf(!reachable)(
               or column_name like '%default%'
               or column_name like '%primary%')
        order by name`;
-      // The one status column in the schema is the membership status from 1C-B.
+      // The one status column in the schema is the membership status from
+      // 1C-B. Milestone 3A's two configuration tables each carry `is_active`,
+      // which is how a stage or a source is retired: this product archives
+      // and deactivates, it never deletes, so there is still no `deleted_at`
+      // anywhere and no `status` beyond the membership one.
       expect(columns.map((c) => c.name)).toEqual([
+        "workspace_lead_sources.is_active",
+        "workspace_lead_stages.is_active",
         "workspace_memberships.status",
       ]);
 
@@ -584,6 +654,12 @@ describe.skipIf(!reachable)(
         // Milestone 2C — invitations (§159 Add User). Workspace
         // administration, not a lookup table and not a business module.
         "workspace_invitations",
+        // Milestone 3A — the Lead pipeline and Lead sources a workspace
+        // configures for itself (§34, §164, §165). Per-workspace
+        // configuration, not shared lookup tables: every row names its
+        // workspace and is reachable only through that workspace's policies.
+        "workspace_lead_sources",
+        "workspace_lead_stages",
         "workspace_memberships",
         "workspaces",
       ]);
@@ -605,6 +681,10 @@ describe.skipIf(!reachable)(
        where t.typnamespace = 'public'::regnamespace
        group by t.typname order by t.typname`;
       expect(enums.map((e) => `${e.typname}=${e.labels}`)).toEqual([
+        // Milestone 3A. This enum classifies a stage, it does not enumerate
+        // the stages: the names are the workspace's to choose. `won` and
+        // `lost` mark the two fixed outcomes, `active` every ordinary column.
+        "lead_stage_kind=active,won,lost",
         "workspace_membership_status=active,inactive",
         "workspace_role=owner_admin,manager,staff_sales",
       ]);
@@ -842,6 +922,8 @@ describe.skipIf(!reachable)(
       expect(rows).toEqual([
         { relname: "user_profiles", rls: true, force: true },
         { relname: "workspace_invitations", rls: true, force: true },
+        { relname: "workspace_lead_sources", rls: true, force: true },
+        { relname: "workspace_lead_stages", rls: true, force: true },
         { relname: "workspace_memberships", rls: true, force: true },
         { relname: "workspaces", rls: true, force: true },
       ]);
@@ -953,6 +1035,17 @@ describe.skipIf(!reachable)(
         "user_profiles.auth_user_id",
         "user_profiles.full_name",
         "user_profiles.id",
+        // Milestone 3A: the columns the seeding step writes, and no others.
+        // `is_active` is absent, so a seeded stage or source can only be born
+        // active; the timestamps belong to the database as everywhere else.
+        "workspace_lead_sources.id",
+        "workspace_lead_sources.name",
+        "workspace_lead_sources.workspace_id",
+        "workspace_lead_stages.id",
+        "workspace_lead_stages.kind",
+        "workspace_lead_stages.name",
+        "workspace_lead_stages.sort_order",
+        "workspace_lead_stages.workspace_id",
         "workspace_memberships.id",
         "workspace_memberships.role",
         "workspace_memberships.status",
@@ -978,7 +1071,7 @@ describe.skipIf(!reachable)(
       ];
       expect(other).toEqual([]);
 
-      // SELECT on the two tables it must read, and none on workspaces.
+      // SELECT on the three tables it must read, and none on workspaces.
       const tables = await admin()<
         { table_name: string; privilege_type: string }[]
       >`
@@ -988,6 +1081,13 @@ describe.skipIf(!reachable)(
        order by table_name, privilege_type`;
       expect(tables.map((t) => `${t.table_name}:${t.privilege_type}`)).toEqual([
         "user_profiles:SELECT",
+        // Milestone 3A. This one exists for a single purpose: the deferred
+        // stage-shape check counts rows through the policies of whichever
+        // role runs it, and app.create_initial_workspace forces it immediate
+        // while this role is still current. Read-only, and scoped by
+        // `workspace_lead_stages_bootstrap_select` to a workspace this
+        // identity is already a member of.
+        "workspace_lead_stages:SELECT",
         "workspace_memberships:SELECT",
       ]);
       expect(
@@ -997,7 +1097,7 @@ describe.skipIf(!reachable)(
       ).toBe(false);
     });
 
-    it("defines exactly five bootstrap policies, all scoped to limenzy_bootstrap", async () => {
+    it("defines exactly eight bootstrap policies, all scoped to limenzy_bootstrap", async () => {
       const rows = await admin()<
         {
           policyname: string;
@@ -1015,6 +1115,12 @@ describe.skipIf(!reachable)(
       expect(rows.map((r) => `${r.policyname}:${r.cmd}`)).toEqual([
         "user_profiles_bootstrap_insert:INSERT",
         "user_profiles_bootstrap_select:SELECT",
+        // Milestone 3A: two inserts for the seeded defaults and the one
+        // select the deferred shape check needs. No UPDATE and no DELETE, so
+        // this role can create a workspace's vocabulary but never revise it.
+        "workspace_lead_sources_bootstrap_insert:INSERT",
+        "workspace_lead_stages_bootstrap_insert:INSERT",
+        "workspace_lead_stages_bootstrap_select:SELECT",
         "workspace_memberships_bootstrap_insert:INSERT",
         "workspace_memberships_bootstrap_select:SELECT",
         "workspaces_bootstrap_insert:INSERT",
@@ -1062,12 +1168,25 @@ describe.skipIf(!reachable)(
           `${row.policyname}:{limenzy_app}`,
         );
       }
-      // And the runtime role still holds no write grant of any kind.
+      // And the runtime role still holds no write grant on these three
+      // tables. It is NOT a claim about the whole schema any more: Milestone
+      // 3A grants it column-level INSERT and UPDATE on the two configuration
+      // tables, which is how Settings edits the pipeline. Those grants are
+      // named column by column in the 3A suite.
       const writes = await admin()`
       select 1 from information_schema.role_table_grants
        where table_schema = 'public' and grantee = 'limenzy_app'
-         and privilege_type in ('INSERT', 'DELETE', 'TRUNCATE')`;
+         and table_name in ('workspaces', 'user_profiles',
+                            'workspace_memberships')
+         and privilege_type in ('INSERT', 'UPDATE', 'DELETE', 'TRUNCATE')`;
       expect(writes).toHaveLength(0);
+      const writeColumns = await admin()`
+      select 1 from information_schema.column_privileges
+       where table_schema = 'public' and grantee = 'limenzy_app'
+         and table_name in ('workspaces', 'user_profiles',
+                            'workspace_memberships')
+         and privilege_type in ('INSERT', 'DELETE', 'TRUNCATE')`;
+      expect(writeColumns).toHaveLength(0);
     });
   },
 );

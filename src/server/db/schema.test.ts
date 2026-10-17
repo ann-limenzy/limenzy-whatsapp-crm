@@ -200,7 +200,25 @@ const cleanupSteps = (db: postgres.Sql): readonly CleanupStep[] => {
       },
     });
   }
+  // Milestone 3A: creating a workspace now seeds its pipeline and its lead
+  // sources, and both foreign keys RESTRICT, so those rows go before the
+  // workspace that owns them. The deletes run as `postgres`, which inherits
+  // limenzy_owner — the runtime role has no DELETE on either table.
   if (workspaces.length > 0) {
+    steps.push({
+      what: "delete lead stages by workspace",
+      run: async () => {
+        await db`delete from public.workspace_lead_stages
+                   where workspace_id in ${db(workspaces)}`;
+      },
+    });
+    steps.push({
+      what: "delete lead sources by workspace",
+      run: async () => {
+        await db`delete from public.workspace_lead_sources
+                   where workspace_id in ${db(workspaces)}`;
+      },
+    });
     steps.push({
       what: "delete workspaces",
       run: async () => {
@@ -233,6 +251,18 @@ const cleanupSteps = (db: postgres.Sql): readonly CleanupStep[] => {
       what: "verify memberships by workspace",
       run: async () =>
         db<{ id: string }[]>`select id from public.workspace_memberships
+                               where workspace_id in ${db(workspaces)}`,
+    });
+    steps.push({
+      what: "verify lead stages by workspace",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.workspace_lead_stages
+                               where workspace_id in ${db(workspaces)}`,
+    });
+    steps.push({
+      what: "verify lead sources by workspace",
+      run: async () =>
+        db<{ id: string }[]>`select id from public.workspace_lead_sources
                                where workspace_id in ${db(workspaces)}`,
     });
   }
@@ -404,6 +434,11 @@ const TABLES = [
   "workspace_memberships",
   // Milestone 2C — invitations (§159 Add User).
   "workspace_invitations",
+  // Milestone 3A — Lead pipeline and Lead sources (§34, §164, §165). These
+  // are CONFIGURATION: there is still no `leads` table, which the guard below
+  // continues to assert.
+  "workspace_lead_stages",
+  "workspace_lead_sources",
 ];
 
 // A workspace row that satisfies every constraint, with synthetic values.
@@ -434,7 +469,7 @@ const newProfile = async () => {
 
 describe.skipIf(!reachable)("1C-B schema", () => {
   describe("tables", () => {
-    it("creates exactly the three foundation tables", async () => {
+    it("creates exactly the expected tables", async () => {
       const rows = await db()<{ tablename: string }[]>`
         select tablename from pg_tables where schemaname = 'public'`;
       const names = rows.map((r) => r.tablename).sort();
@@ -825,9 +860,12 @@ describe.skipIf(!reachable)("1C-B schema", () => {
       // 1C-B created none. Phase 2 adds four for the runtime role; Phase 4C-1
       // adds five for the bootstrap role; Milestone 2B adds three for the
       // user-management role; Milestone 2C adds three more for the runtime
-      // role on its own new table and eight for the acceptance role. Each is
-      // named with its role, so a policy that appeared without a migration
-      // would fail here.
+      // role on its own new table and eight for the acceptance role;
+      // Milestone 3A adds six for the runtime role across its two
+      // configuration tables and three for the bootstrap role (two inserts
+      // for seeding, plus the one select the deferred stage-shape check needs
+      // while it runs as the invoking bootstrap role). Each is named with its
+      // role, so a policy that appeared without a migration would fail here.
       const rows = await db()<{ policyname: string; roles: string }[]>`
         select policyname, roles::text as roles
           from pg_policies where schemaname = 'public'
@@ -844,6 +882,15 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "workspace_invitations_owner_admin_insert -> {limenzy_app}",
         "workspace_invitations_owner_admin_select -> {limenzy_app}",
         "workspace_invitations_owner_admin_update -> {limenzy_app}",
+        "workspace_lead_sources_bootstrap_insert -> {limenzy_bootstrap}",
+        "workspace_lead_sources_member_select -> {limenzy_app}",
+        "workspace_lead_sources_owner_admin_insert -> {limenzy_app}",
+        "workspace_lead_sources_owner_admin_update -> {limenzy_app}",
+        "workspace_lead_stages_bootstrap_insert -> {limenzy_bootstrap}",
+        "workspace_lead_stages_bootstrap_select -> {limenzy_bootstrap}",
+        "workspace_lead_stages_member_select -> {limenzy_app}",
+        "workspace_lead_stages_owner_admin_insert -> {limenzy_app}",
+        "workspace_lead_stages_owner_admin_update -> {limenzy_app}",
         "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
         "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
         "workspace_memberships_invites_insert -> {limenzy_invites}",

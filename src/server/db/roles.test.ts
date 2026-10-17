@@ -72,6 +72,9 @@ const TABLES = [
   "workspace_memberships",
   // Milestone 2C — invitations (§159 Add User).
   "workspace_invitations",
+  // Milestone 3A — Lead pipeline and Lead sources (§34, §164, §165).
+  "workspace_lead_stages",
+  "workspace_lead_sources",
 ] as const;
 
 /** The fixed role literal the provisioning script uses. */
@@ -162,13 +165,14 @@ describe.skipIf(!reachable)("Phase 1 ownership", () => {
     }
   });
 
-  it("gives limenzy_owner both enum types and the CRM functions", async () => {
+  it("gives limenzy_owner every enum type and the CRM functions", async () => {
     const types = await db()<{ typname: string; owner: string }[]>`
       select t.typname, pg_catalog.pg_get_userbyid(t.typowner) as owner
         from pg_catalog.pg_type t
         join pg_catalog.pg_namespace n on n.oid = t.typnamespace
        where n.nspname = 'public' and t.typtype = 'e'`;
-    expect(types).toHaveLength(2);
+    // Milestone 3A adds lead_stage_kind.
+    expect(types).toHaveLength(3);
     for (const row of types) {
       expect(`${row.typname}:${row.owner}`).toBe(
         `${row.typname}:limenzy_owner`,
@@ -284,7 +288,7 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       expect(`${row.relname}:${row.force}`).toBe(`${row.relname}:true`);
   });
 
-  it("defines exactly the twenty-three approved policies, each scoped to one role", async () => {
+  it("defines exactly the approved policies, each scoped to one role", async () => {
     // Phase 1 had none; Phase 2 added four for the runtime role; Phase 4C-1
     // adds five for the bootstrap role; Milestone 2B adds three for the
     // user-management role; Milestone 2C adds three for the runtime role on
@@ -311,6 +315,15 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "workspace_invitations_owner_admin_insert -> {limenzy_app}",
       "workspace_invitations_owner_admin_select -> {limenzy_app}",
       "workspace_invitations_owner_admin_update -> {limenzy_app}",
+      "workspace_lead_sources_bootstrap_insert -> {limenzy_bootstrap}",
+      "workspace_lead_sources_member_select -> {limenzy_app}",
+      "workspace_lead_sources_owner_admin_insert -> {limenzy_app}",
+      "workspace_lead_sources_owner_admin_update -> {limenzy_app}",
+      "workspace_lead_stages_bootstrap_insert -> {limenzy_bootstrap}",
+      "workspace_lead_stages_bootstrap_select -> {limenzy_bootstrap}",
+      "workspace_lead_stages_member_select -> {limenzy_app}",
+      "workspace_lead_stages_owner_admin_insert -> {limenzy_app}",
+      "workspace_lead_stages_owner_admin_update -> {limenzy_app}",
       "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
       "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
       "workspace_memberships_invites_insert -> {limenzy_invites}",
@@ -368,7 +381,18 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
         .filter((r) => r.grantee === "limenzy_bootstrap")
         .map((r) => `${r.table_name}:${r.privilege_type}`)
         .sort(),
-    ).toEqual(["user_profiles:SELECT", "workspace_memberships:SELECT"]);
+    ).toEqual([
+      "user_profiles:SELECT",
+      /*
+       * Milestone 3A. Its one new SELECT, so the DEFERRED invariant check on
+       * the pipeline can count the rows it just seeded; the check runs as
+       * whoever fired it, and this role is the one that seeds a new
+       * workspace. Scoped by membership in its policy, and there is no
+       * matching grant on lead sources.
+       */
+      "workspace_lead_stages:SELECT",
+      "workspace_memberships:SELECT",
+    ]);
 
     // The runtime role reads all three tables and holds no table-wide write.
     const runtimeGrants = rows.filter((r) => r.grantee === "limenzy_app");
@@ -381,6 +405,11 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       // verification block in that migration and bootstrap.test.ts assert
       // column by column that it gained no write on profiles or memberships.
       "workspace_invitations:SELECT",
+      // Milestone 3A. Same shape: SELECT is table-wide so a Lead form can
+      // render the vocabulary, while INSERT and UPDATE are column privileges
+      // and are asserted column by column in the lead pipeline suite.
+      "workspace_lead_sources:SELECT",
+      "workspace_lead_stages:SELECT",
       "workspace_memberships:SELECT",
       "workspaces:SELECT",
     ]);

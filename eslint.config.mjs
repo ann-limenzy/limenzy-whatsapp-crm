@@ -137,6 +137,13 @@ const GATEWAY_FILES = {
    * `withTenant()`; it mints no context and never reaches the pool.
    */
   workspaceInvitations: "src/server/auth/workspace-invitations.ts",
+  /**
+   * Lead pipeline and source configuration (§34, §164, §165). Same shape as
+   * the settings gateways above: it names the `TenantContext` TYPE and reads
+   * and writes through `withTenant()`, mints no context and never reaches the
+   * pool.
+   */
+  workspaceLeadPipeline: "src/server/auth/workspace-lead-pipeline.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -192,6 +199,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceBusinessSettings,
       GATEWAY_FILES.workspaceMembers,
       GATEWAY_FILES.workspaceInvitations,
+      GATEWAY_FILES.workspaceLeadPipeline,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -273,6 +281,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceBusinessSettings,
       GATEWAY_FILES.workspaceMembers,
       GATEWAY_FILES.workspaceInvitations,
+      GATEWAY_FILES.workspaceLeadPipeline,
     ],
     rules: {
       "no-restricted-imports": [

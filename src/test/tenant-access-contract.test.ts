@@ -93,6 +93,33 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/invitation-acceptance.ts#pendingInvitationsForMe": {
     evidence: "src/server/db/invitations-isolation.db.test.ts",
   },
+  "src/server/auth/workspace-lead-pipeline.ts#leadStages": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#leadSources": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#addLeadStage": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#renameLeadStage": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#moveLeadStage": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#setLeadStageActive": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#addLeadSource": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#renameLeadSource": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-lead-pipeline.ts#setLeadSourceActive": {
+    evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
+  },
   "src/server/auth/workspace-invitations.ts#pendingInvitations": {
     evidence: "src/server/db/invitations-isolation.db.test.ts",
   },
@@ -238,15 +265,32 @@ describe("every tenant-data-access function is registered", () => {
 });
 
 describe("the business-record inventory is empty, and that proves nothing", () => {
-  it("finds no business repository yet", async () => {
+  it("finds no business RECORD repository yet", async () => {
     const found = await discover();
     const business = found.filter((key) =>
       BUSINESS_ENTITIES.some((entity) => key.toLowerCase().includes(entity)),
     );
-    // If this ever fails, a business repository has appeared and must be
-    // registered above with real database evidence before the failure is
-    // "fixed" by widening the filter.
-    expect(business).toEqual([]);
+
+    /*
+     * Milestone 3A added Lead CONFIGURATION — the pipeline stages and the
+     * Lead sources a Lead will later choose from. It did not add Leads.
+     *
+     * Those functions are listed here by name rather than filtered out by
+     * keyword, because the filter is the guard: the moment a `leads`
+     * repository appears it must be registered above with real database
+     * evidence, and widening the keyword list would hide exactly that.
+     */
+    expect(business).toEqual([
+      "src/server/auth/workspace-lead-pipeline.ts#addLeadSource",
+      "src/server/auth/workspace-lead-pipeline.ts#addLeadStage",
+      "src/server/auth/workspace-lead-pipeline.ts#leadSources",
+      "src/server/auth/workspace-lead-pipeline.ts#leadStages",
+      "src/server/auth/workspace-lead-pipeline.ts#moveLeadStage",
+      "src/server/auth/workspace-lead-pipeline.ts#renameLeadSource",
+      "src/server/auth/workspace-lead-pipeline.ts#renameLeadStage",
+      "src/server/auth/workspace-lead-pipeline.ts#setLeadSourceActive",
+      "src/server/auth/workspace-lead-pipeline.ts#setLeadStageActive",
+    ]);
   });
 
   it("states plainly that this is not evidence of business-record isolation", async () => {

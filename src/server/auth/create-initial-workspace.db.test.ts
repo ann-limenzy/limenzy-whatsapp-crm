@@ -256,21 +256,82 @@ afterAll(async () => {
          where p.auth_user_id in ${sql(authUsers)}`
     ).map((r) => r.workspace_id);
 
-    await sql`delete from public.workspace_memberships
-               where user_profile_id in (
-                 select id from public.user_profiles
-                  where auth_user_id in ${sql(authUsers)})`.catch(() => {});
-    await sql`delete from public.user_profiles
-               where auth_user_id in ${sql(authUsers)}`.catch(() => {});
-    if (workspaces.length > 0) {
-      await sql`delete from public.workspaces
-                 where id in ${sql(workspaces)}`.catch(() => {});
-    }
-    await sql`delete from public.workspaces
-               where name like ${`Bootstrap C2%${RUN}%`}`.catch(() => {});
-    await sql`delete from auth.users where id in ${sql(authUsers)}`.catch(
-      () => {},
+    const named = (
+      await sql<{ id: string }[]>`
+        select id from public.workspaces
+         where name like ${`Bootstrap C2%${RUN}%`}`
+    ).map((r) => r.id);
+    const mine = [...new Set([...workspaces, ...named])];
+
+    // Reported, never swallowed — see the same note in bootstrap.test.ts.
+    const problems: string[] = [];
+    const remove = async (what: string, run: () => Promise<unknown>) => {
+      try {
+        await run();
+      } catch (error) {
+        problems.push(
+          `${what} (${(error as { code?: string })?.code ?? "error"})`,
+        );
+      }
+    };
+
+    await remove(
+      "memberships by profile",
+      () => sql`delete from public.workspace_memberships
+                 where user_profile_id in (
+                   select id from public.user_profiles
+                    where auth_user_id in ${sql(authUsers)})`,
     );
+    if (mine.length > 0) {
+      await remove(
+        "memberships by workspace",
+        () => sql`delete from public.workspace_memberships
+                   where workspace_id in ${sql(mine)}`,
+      );
+    }
+    await remove(
+      "profiles",
+      () => sql`delete from public.user_profiles
+                 where auth_user_id in ${sql(authUsers)}`,
+    );
+    if (mine.length > 0) {
+      // Milestone 3A seeds a pipeline and sources with every workspace this
+      // routine creates, and both foreign keys RESTRICT.
+      await remove(
+        "lead stages",
+        () => sql`delete from public.workspace_lead_stages
+                   where workspace_id in ${sql(mine)}`,
+      );
+      await remove(
+        "lead sources",
+        () => sql`delete from public.workspace_lead_sources
+                   where workspace_id in ${sql(mine)}`,
+      );
+      await remove(
+        "workspaces",
+        () => sql`delete from public.workspaces where id in ${sql(mine)}`,
+      );
+    }
+    await remove(
+      "auth users",
+      () => sql`delete from auth.users where id in ${sql(authUsers)}`,
+    );
+
+    if (mine.length > 0) {
+      const left = await sql<{ id: string }[]>`
+        select id from public.workspaces where id in ${sql(mine)}`;
+      if (left.length > 0) {
+        problems.push(
+          `workspaces still present: ${left.map((r) => r.id).join(", ")}`,
+        );
+      }
+    }
+    if (problems.length > 0) {
+      console.error(
+        "[create-initial-workspace.db.test] fixture cleanup problems:",
+        problems,
+      );
+    }
   }
   await tooling?.end({ timeout: 2 }).catch(() => {});
   await solo?.end({ timeout: 2 }).catch(() => {});

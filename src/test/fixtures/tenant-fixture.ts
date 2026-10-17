@@ -197,10 +197,46 @@ export async function cleanupTenantFixture(
       () => sql`delete from public.workspace_memberships where id = ${id}`,
     );
   }
+  // Memberships the fixture did not create itself — an accepted invitation
+  // writes one — are reached by workspace. Without this a suite that accepted
+  // an invitation left its workspace and the inviter's profile behind.
+  for (const id of recorded.workspaces) {
+    await remove(
+      `memberships of ${id}`,
+      () =>
+        sql`delete from public.workspace_memberships where workspace_id = ${id}`,
+    );
+  }
+  // Invitations reference BOTH the workspace and the profile that issued
+  // them, so a suite that issued one could delete neither. Scoped by
+  // workspace: the rows are the fixture's own, whoever created them.
+  for (const id of recorded.workspaces) {
+    await remove(
+      `invitations of ${id}`,
+      () =>
+        sql`delete from public.workspace_invitations where workspace_id = ${id}`,
+    );
+  }
   for (const id of recorded.profiles) {
     await remove(
       `profile ${id}`,
       () => sql`delete from public.user_profiles where id = ${id}`,
+    );
+  }
+  // Milestone 3A: creating a workspace seeds its pipeline and its sources,
+  // and both foreign keys RESTRICT, so those rows go before the workspace.
+  // They are scoped by workspace rather than by recorded id because the
+  // bootstrap routine, not the fixture, generated them.
+  for (const id of recorded.workspaces) {
+    await remove(
+      `lead stages of ${id}`,
+      () =>
+        sql`delete from public.workspace_lead_stages where workspace_id = ${id}`,
+    );
+    await remove(
+      `lead sources of ${id}`,
+      () =>
+        sql`delete from public.workspace_lead_sources where workspace_id = ${id}`,
     );
   }
   for (const id of recorded.workspaces) {
