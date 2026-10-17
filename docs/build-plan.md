@@ -1822,7 +1822,7 @@ including a rename of both outcomes that leaves kind, position and active
 flag untouched); and the focused component test for the controls each row
 offers.
 
-### 3B — Leads: creation, list and detail (§30–§32, §35–§37) — local only
+### 3B — Leads: creation, list and detail (§30–§32, §35–§37) — applied to hosted development
 
 The first BUSINESS RECORD in this application. Everything before it was
 tenancy or workspace configuration; a Lead belongs to one person inside a
@@ -1939,6 +1939,41 @@ one piece of drift. All are fixed:
   policies, constraints, indexes, triggers and owners identical, with only the
   per-database `service_role` default privileges differing, as in 3A.
 
+#### Applied to hosted development on 2026-10-17
+
+`20261021090000_leads.sql` is applied and recorded on `limenzy-crm-dev`,
+through the Supabase migration runner, by the tooling in
+`~/Limenzy-dev-tools/hosted-3b`. The file is unchanged since review; its
+SHA-256 is still
+`0da6998265d3a8c28033142565a65caab7eb4dd2dd4d17e8700a3ab55b171d00`, and both
+the working tree and the committed blob at `b915aa9` were checked against it
+before anything ran.
+
+**Preflight: 34 passed, 0 failed. Apply: 58 passed, 0 failed.** Both totals
+come from the run's own summary files rather than from a terminal, which is
+why they can be quoted here at all — 3A's were lost to scrollback and had to
+be asked for. The migration runner reported success, the history table shows
+**12 recorded, latest `20261021090000`**, and no other migration was recorded
+by that run.
+
+**All six existing-table fingerprints came back unchanged**, digest for
+digest: `workspaces` 1 row, `user_profiles` 5, `workspace_memberships` 5,
+`workspace_invitations` 9, `workspace_lead_stages` 6, `workspace_lead_sources` 5. Unlike 3A this migration adds no row to anything that already exists — it
+creates two empty tables — so identical was the only acceptable answer, and
+the apply confirmed both new tables hold nothing.
+
+**The runtime gateway probes passed**, through the restricted `limenzy_app`
+connection on the transaction pooler: `listLeads()` read the workspace through
+`withTenant()`, the My Leads filter narrowed rather than widened, search ran
+server-side, `recordOwnerNames()` resolved five co-member names for §31's
+column, `leadDetail()` answered null for an id that is not a Lead there — the
+same answer §162.1 gives for one out of scope — and the §160 count answered
+rather than refusing for an Owner/Admin.
+
+**Manual walkthrough — user-reported.** The maintainer reports that the
+walkthrough passed against hosted development. Nothing further about it is
+recorded here, because nothing further was witnessed.
+
 #### Limitations — all still open
 
 - **National-format numbers take no part in phone duplicate detection.**
@@ -1961,7 +1996,8 @@ one piece of drift. All are fixed:
   row actions, editing a Lead, assignment and Sales Teams, archive,
   conversion, and the rest of the §27 timeline — the detail screen shows the
   derived "record created" entry only.
-- **Not applied to hosted development.** Local only.
+- **Applied to hosted development**, see below. The limitations above are
+  unchanged by that: none of them is a deployment question.
 
 ## Milestone 4 — Sales Teams and Team membership foundation
 
