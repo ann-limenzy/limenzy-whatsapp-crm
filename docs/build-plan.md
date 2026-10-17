@@ -1614,6 +1614,214 @@ activity timeline primitive** (§27) that every later module emits into.
 
 Automatic assignment is not part of this milestone.
 
+### 3A — Lead Pipeline and Lead Sources (§34, §164, §165) — applied to hosted development
+
+Settings → Leads carries two sections an Owner/Admin configures for the
+workspace: the **Lead Pipeline** and its **Lead Sources**. Both require the
+Leads module to be on, checked server-side in every action. No Lead records,
+assignment, sharing, timeline, archive, custom fields or Products & Services
+are part of this slice.
+
+Two tables, `workspace_lead_stages` and `workspace_lead_sources`, each with
+`UNIQUE (workspace_id, id)` so a future `leads` table can carry a
+**workspace-safe composite foreign key** and no Lead can ever reference another
+tenant's stage. Neither table grants DELETE to any application role: retiring
+a stage or a source is `is_active = false`, as §29 and §50 require.
+
+**Outcome labels are editable; outcome meanings are fixed.** §34 requires a
+workspace to RETAIN a Won outcome and a Lost outcome, and treats Lost as a
+closed outcome rather than an active pipeline column; its default order ends
+`… → Won`. That **Won is fixed as the final column, and non-deactivatable, is
+our approved product decision** rather than something the specification spells
+out — it is one of the decisions taken before this slice was implemented, and
+it is recorded here as a decision so a later reader does not go looking for a
+clause that says it.
+
+None of those rules — the specification's or ours — is about the label, and
+the schema agrees: `'Won'` and `'Lost'` appear only as default seed names,
+while the partial unique indexes that keep exactly one of each key on `kind`.
+So Won and Lost carry the ordinary rename control, and the screen says in one
+line that renaming changes the label only. What stays fixed, in the database
+rather than in the UI: a stage cannot change kind, cannot move to another
+workspace, cannot be deactivated if it is an outcome, and Won cannot stop
+being last.
+
+An earlier revision of this slice withheld renaming from the outcomes. That
+was an implementation choice presented as a requirement; the specification
+does not ask for it.
+
+**Defaults reach every workspace, old and new, from one place.**
+`app.lead_stage_defaults()` and `app.lead_source_defaults()` are the single
+source, read by both the bootstrap routine and the migration's backfill, so
+the two cannot drift. Seeding is idempotent: the backfill keys on "this
+workspace has no rows at all", so a workspace that renamed, reordered,
+deactivated or added anything is never overwritten.
+
+**A defect found and fixed during verification.** `check_shape` is a DEFERRED
+constraint trigger and runs at COMMIT **as whichever role commits**, which for
+workspace creation is `limenzy_app` — not the `limenzy_bootstrap` role that
+wrote the rows inside `app.create_initial_workspace`. `limenzy_app` reads
+stages through `workspace_id = app.current_workspace_id()`, unset during
+setup, so the check saw no rows and refused every new workspace. The routine
+now ends with `set constraints public.check_shape immediate;`, which runs the
+check inside the routine while the bootstrap role is still current. The
+failure direction is safe either way: a role that cannot see the rows counts
+zero outcomes and the transaction is refused, so an invisible pipeline can
+never read as a valid one.
+
+**Verified by an isolated migration replay, not by assertion.** A disposable
+database was built beside the development one — never replacing it — with the
+real `auth` schema dumped into it, the ten predecessor migrations applied
+through `supabase migration up`, three workspaces created through the real
+pre-3A bootstrap path, and then 3A applied by the same runner:
+
+- the three existing workspaces each received 5 stages (one Won, one Lost)
+  and 5 sources, in `New → Contacted → Interested → Won` order;
+- a new workspace created through `app.create_initial_workspace`, as
+  `limenzy_app` under the tenant GUCs, was seeded the same way;
+- the migration's own verification block passed, which the runner's success
+  is: the block is inside the migration;
+- after customising a workspace through `limenzy_app` (rename, add, reorder,
+  deactivate a stage; rename, add, deactivate a source), the migration was
+  re-applied through the runner and the rows came back **byte-identical** —
+  same ids, names, sort orders and flags, no duplicates anywhere.
+
+A catalogue comparison between that database and the development one found
+**identical** function definitions (15), trigger definitions (11), policies
+(32), constraints (45), indexes (21), RLS flags (6), enums (3) and owners
+(24). The only differences were 125 `service_role` grants on the three
+Phase-1 tables, none on either 3A table and none for any other grantee: the
+`postgres` database carries Supabase's `ALTER DEFAULT PRIVILEGES … TO
+service_role`, which is per-database and so absent from a freshly created
+one. On the hosted apply that rule is in force, and the migration's explicit
+`revoke all … from anon, authenticated, service_role` is what strips it.
+
+**Applied to hosted development on 2026-10-17.**
+`20261020090000_lead_pipeline.sql` is applied and recorded on
+`limenzy-crm-dev`, through the Supabase migration runner, by the tooling in
+`~/Limenzy-dev-tools/hosted-3a`. The file is unchanged since review; its
+SHA-256 is still
+`efcdd3f0ddf80c2c9b9651762de323e7060b66c8424e8ec6581c3ff1b7708c02`, and the
+apply confirmed that hash against both the working tree and the committed
+blob at `614acbf` before it did anything.
+
+The **preflight reported 29 passed, 0 failed, 29 total.** It established, in
+this order: the artifact; then the transport, from the client — the endpoint
+answered PostgreSQL's SSLRequest, the chain verified against the pinned CA at
+TLSv1.3 / TLS_AES_256_GCM_SHA384 with leaf `CN=*.pooler.supabase.com` issued
+by `CN=Supabase Intermediate 2021 CA`, and the two negative controls, a
+mismatched server name and an unrelated CA, were both refused; then identity
+at each layer — the pooler login `postgres.<project-ref>` and the backend role
+`postgres` it resolves to, on PostgreSQL 17.11; then the ten predecessor
+migrations recorded, exactly `20261020090000` pending, the prerequisite
+objects and roles present, and all of 3A's own objects absent.
+
+**`pg_stat_ssl` reported `ssl=false`, and that is not a finding.** Behind
+Supavisor it describes the pooler-to-database hop inside Supabase's network,
+not the client's transport. An earlier revision of the tooling read it as the
+client's and failed a correct connection over it; it is now printed as
+labelled context with no verdict, and the client's own handshake is what is
+checked. The identity check made the mirror-image mistake — comparing the
+backend's `current_user` against the pooler login, which are two different
+layers' names — and now checks each against what it is actually expected to
+be. Neither was relaxed to make the other pass.
+
+**No aggregate apply total was captured**, so none is claimed here. Every
+check the apply printed passed, individually:
+
+- the runner reported success and the history table shows **11 recorded,
+  latest `20261020090000`**, with no other migration recorded by that run;
+- schema — both tables with exactly their designed columns, the
+  `lead_stage_kind` enum carrying `active,won,lost`, both composite
+  `UNIQUE (workspace_id, id)` keys, the `UNIQUE (workspace_id, sort_order)
+DEFERRABLE INITIALLY DEFERRED` ordering constraint, the four partial unique
+  indexes, and all five triggers including the deferred `check_shape`;
+- row-level security enabled **and** forced on both tables, the nine designed
+  policies each scoped to a single role, none reaching a browser role, the
+  owner or PUBLIC;
+- grants — table-wide SELECT only to the two roles that need it,
+  `limenzy_app` able to update only `name`, `sort_order` and `is_active`, no
+  column grant on the timestamps, no DELETE or TRUNCATE for any application
+  role, and nothing at all for the Data API roles;
+- routine ownership and security — an empty `search_path` pinned on all six,
+  both default-vocabulary functions IMMUTABLE, invoker and owned by
+  `limenzy_owner` with EXECUTE to `limenzy_bootstrap` alone, the three trigger
+  routines SECURITY INVOKER, and `app.create_initial_workspace` still SECURITY
+  DEFINER owned by `limenzy_bootstrap` with EXECUTE to `limenzy_app` alone;
+- default seeding — the workspace has a pipeline, exactly one Won and one
+  Lost, an active ordinary stage and sources, and the seeded rows are exactly
+  what `app.lead_stage_defaults()` and `app.lead_source_defaults()` return.
+
+**Existing records were unchanged, in all four tables.** The fingerprint taken
+before the apply and recomputed after it is identical, digest for digest:
+`workspaces` 1 row `394a4867e737…`, `user_profiles` 5 rows `eb6eb83c588f…`,
+`workspace_memberships` 5 rows `99010f601bfb…`, `workspace_invitations` 9 rows
+`fa6fc06b4182…`. The digests are computed server-side over every column of
+every row in order, so an edited value would show even where a count would
+not. The two tables this migration creates are deliberately outside that
+fingerprint — it is supposed to add configuration rows to them — and that they
+received the right ones is the seeding check above.
+
+**The application's own read path works against hosted.** `leadStages()`
+returned `1:New(active) → 2:Contacted(active) → 3:Interested(active) →
+4:Won(won) → 5:Lost(lost)` through `withTenant()`, with Won last among the
+stages the pipeline shows, and `leadSources()` returned `Campaign, Other,
+Referral, Walk-in, Website`. The probe reads a workspace and an Owner/Admin
+the project already had; it creates no fixture and changes no setting.
+
+**Manual walkthrough — user-reported.** The maintainer reports that the
+Settings → Leads walkthrough passed against hosted development. Nothing
+further about it is recorded here, because nothing further was witnessed.
+
+**Stage occupancy is still unenforced on hosted, exactly as it is locally.**
+Applying this migration changed nothing about that: there is no `leads` table
+on hosted either, so §34's and §165's rule that a stage holding active Leads
+cannot be deactivated is neither implemented nor checked anywhere. It remains
+a dependency of the Lead slice, described below.
+
+**Fixture teardown, fixed and measured.** Seeding a pipeline with every
+workspace broke teardowns that deleted the workspace without its stages, and
+two suites hid the failure behind `.catch(() => {})` with no read-back.
+Measured before the fix: `bootstrap.test.ts` alone leaked **11 workspaces a
+run**, the full database suite **9**. `tenant-fixture.ts`, `schema.test.ts`,
+`bootstrap.test.ts` and `create-initial-workspace.db.test.ts` now delete
+stages and sources first, report failures instead of discarding them, and
+read back. Measured after: a full `npm run test:db:local` leaves the
+workspace count **unchanged — zero leak** — with 348 tests passing and no
+cleanup problems printed. Two pre-existing leaks in the shared fixture were
+fixed along the way: memberships written by an accepted invitation, and
+invitation rows, neither of which the teardown had ever removed.
+
+**Remaining local residue.** 65 workspaces and 36 membership-less profiles
+from runs before the teardown fixes, whose ids were never printed, are still
+in the local development database. They were left alone deliberately —
+provenance could not be established from recorded output, and a name or a
+timestamp is not provenance. Their only effect is that the migration's two
+**coverage** checks ("every workspace has a Won stage", "every workspace has
+sources") fail against that database; every structural check passes, and the
+isolated replay shows the whole block passing on a clean apply. 28 workspaces
+and 4 profiles whose ids WERE recorded verbatim in test output were removed,
+in the corrected teardown order, and verified absent.
+
+**Stage occupancy is still unenforced, and must stay on the Lead slice's
+list.** §34 and §165 require that a stage holding active Leads cannot be
+deactivated until those Leads move. There is no `leads` table yet, so nothing
+checks it and nothing tests it — the isolation suite asserts
+`to_regclass('public.leads')` is null so the gap cannot read as coverage. The
+locking contract a future `leads.stage_id` write must follow is written down
+in `src/server/auth/workspace-lead-pipeline.ts` and
+`src/server/db/schema/lead-pipeline.ts`: take the stage's row lock with
+`select … for update` before referencing it, re-read `is_active`, and put the
+occupancy check in a BEFORE UPDATE trigger.
+
+**Verification reused for this slice:** one local browser pass over sign-in,
+workspace creation, the seeded pipeline and sources, add/rename/reorder,
+duplicate-name refusal, switch off and on, the last-active-stage refusal, and
+source add/duplicate/switch; the live-database isolation suite (20 tests,
+including a rename of both outcomes that leaves kind, position and active
+flag untouched); and the focused component test for the controls each row
+offers.
+
 ## Milestone 4 — Sales Teams and Team membership foundation
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.

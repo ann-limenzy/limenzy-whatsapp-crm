@@ -86,10 +86,13 @@ const MILESTONE_2_MIGRATIONS = [
   "20261018090000_workspace_members_auth_id.sql",
   "20261019090000_workspace_invitations.sql",
 ];
+/** Milestone 3A — Lead pipeline and Lead sources (§34, §164, §165). */
+const MILESTONE_3A_MIGRATIONS = ["20261020090000_lead_pipeline.sql"];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
   ...MILESTONE_2_MIGRATIONS,
+  ...MILESTONE_3A_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
@@ -562,6 +565,8 @@ describe("the tenant gateway import boundary", () => {
     ],
     // Settings → Users (spec §159, §160). Same shape again.
     "src/server/auth/workspace-members.ts": ["the context constructor"],
+    // Lead pipeline and Lead sources (spec §34, §164, §165). Same shape again.
+    "src/server/auth/workspace-lead-pipeline.ts": ["the context constructor"],
     // Invitation administration (spec §159). Same shape again.
     "src/server/auth/workspace-invitations.ts": ["the context constructor"],
     // Accepting an invitation consumes the pool for one transaction around
@@ -619,7 +624,7 @@ describe("the tenant gateway import boundary", () => {
     expect(dbLayer).toContain("src/server/db/tenant.ts");
   });
 
-  it("allows exactly five files, each only for what it needs", async () => {
+  it("allows exactly the listed files, each only for what it needs", async () => {
     const allowed = Object.keys(ALLOWED).sort();
     expect(allowed).toEqual([
       "src/server/auth/create-initial-workspace.ts",
@@ -627,6 +632,7 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/workspace-business-settings.ts",
       "src/server/auth/workspace-context.ts",
       "src/server/auth/workspace-invitations.ts",
+      "src/server/auth/workspace-lead-pipeline.ts",
       "src/server/auth/workspace-members.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
@@ -817,6 +823,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/business-settings.ts",
       // Milestone 2C — copyable workspace invitations (spec §159).
       "src/app/actions/invitations.ts",
+      // Milestone 3A — Lead pipeline and Lead sources (spec §34, §164, §165).
+      "src/app/actions/lead-pipeline.ts",
       // Milestone 1D — module enable/disable (spec §171).
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).

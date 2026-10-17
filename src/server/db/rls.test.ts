@@ -615,10 +615,12 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
        where n.nspname = 'app' order by p.proname`;
 
     // Schema `app` holds the three context readers, the Phase 4C-1 bootstrap
-    // routine, and since Milestone 2B the three Settings → Users routines plus
-    // the authorisation predicate they share. Naming all of them means a new
-    // function — especially another SECURITY DEFINER one — cannot appear
-    // without failing here.
+    // routine, since Milestone 2B the three Settings → Users routines plus the
+    // authorisation predicate they share, and since Milestone 3A the two
+    // IMMUTABLE default-vocabulary functions the bootstrap routine and the
+    // backfill both read, so the two cannot drift apart. Naming all of them
+    // means a new function — especially another SECURITY DEFINER one — cannot
+    // appear without failing here.
     expect(rows.map((r) => r.proname)).toEqual([
       "accept_workspace_invitation",
       "create_initial_workspace",
@@ -626,6 +628,8 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       "current_user_is_owner_admin",
       "current_user_profile_id",
       "current_workspace_id",
+      "lead_source_defaults",
+      "lead_stage_defaults",
       "pending_invitations_for",
       "set_member_role",
       "set_member_status",
@@ -723,6 +727,9 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     "user_profiles",
     "workspace_memberships",
     "workspace_invitations",
+    // Milestone 3A's two configuration tables.
+    "workspace_lead_stages",
+    "workspace_lead_sources",
   ]);
   const APPROVED_FUNCTIONS = new Set([
     "current_auth_user_id",
@@ -772,11 +779,21 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
         from pg_catalog.pg_policy pol
         join pg_catalog.pg_class polrel on polrel.oid = pol.polrelid`;
 
-  /** Tables named in a FROM clause inside the policy expression. */
+  /**
+   * Tables named in the FROM clause of a policy expression, including the
+   * further arms of a join.
+   *
+   * PostgreSQL renders a join tree parenthesised — `FROM (a x JOIN b y ON …)`
+   * — so matching only the word after FROM would see neither table and
+   * silently understate the graph. Milestone 3A's bootstrap SELECT policy is
+   * the first policy here with a join, which is what exposed it.
+   */
+  const NOT_A_TABLE = new Set(["select", "lateral", "values", "only", "rows"]);
   const fromTables = (expr: string): string[] =>
-    [...expr.matchAll(/\bFROM\s+([a-z_][a-z0-9_]*)/gi)]
+    [...expr.matchAll(/\b(?:FROM|JOIN)\s+\(*\s*([a-z_][a-z0-9_]*)/gi)]
       .map((m) => m[1])
-      .filter((name): name is string => name !== undefined);
+      .filter((name): name is string => name !== undefined)
+      .filter((name) => !NOT_A_TABLE.has(name.toLowerCase()));
 
   it("references only approved tables and functions", async () => {
     const edges = await catalogueEdges();
@@ -911,6 +928,18 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "user_profiles",
       "workspace_memberships",
     ]);
+    // Milestone 3A. Both configuration tables are leaves in the same
+    // direction: reading them is a plain workspace-scope test, and only the
+    // write policies reach anything, through the shared Owner/Admin
+    // predicate. Nothing reads them back.
+    expect(shape("limenzy_app", "workspace_lead_stages")).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
+    expect(shape("limenzy_app", "workspace_lead_sources")).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
 
     // The bootstrap role: memberships -> profiles, and nothing from workspaces.
     expect(shape("limenzy_bootstrap", "workspaces")).toEqual([]);
@@ -919,6 +948,14 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     ]);
     expect(shape("limenzy_bootstrap", "user_profiles")).toEqual([]);
     expect(shape("limenzy_bootstrap", "workspace_invitations")).toEqual([]);
+    // Milestone 3A: the one SELECT this role holds on the stage table, which
+    // the deferred shape check needs, is scoped through the membership it
+    // has just written. Sources stay insert-only, so that node has no edge.
+    expect(shape("limenzy_bootstrap", "workspace_lead_stages")).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
+    expect(shape("limenzy_bootstrap", "workspace_lead_sources")).toEqual([]);
 
     // The user-management role: profiles -> memberships, which terminates
     // because its membership policies reference no table at all. This is the
@@ -928,6 +965,8 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     ]);
     expect(shape("limenzy_members", "workspace_memberships")).toEqual([]);
     expect(shape("limenzy_members", "workspaces")).toEqual([]);
+    expect(shape("limenzy_members", "workspace_lead_stages")).toEqual([]);
+    expect(shape("limenzy_members", "workspace_lead_sources")).toEqual([]);
 
     /*
      * The invitation-acceptance role: profiles and memberships both reach
@@ -941,6 +980,8 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     ]);
     expect(shape("limenzy_invites", "workspace_invitations")).toEqual([]);
     expect(shape("limenzy_invites", "workspaces")).toEqual([]);
+    expect(shape("limenzy_invites", "workspace_lead_stages")).toEqual([]);
+    expect(shape("limenzy_invites", "workspace_lead_sources")).toEqual([]);
 
     // Cycle detection by depth-first search with an explicit recursion stack.
     const permanent = new Set<string>();
@@ -1019,7 +1060,17 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "set_member_status",
       "workspace_members",
     ]);
-    const readers = rows.filter((r) => !TOUCHES_TABLES.has(r.proname));
+    // Milestone 3A's two default-vocabulary functions reach no table either —
+    // they are constant VALUES lists — but they are not context readers and no
+    // policy calls them, so they are named here rather than silently swelling
+    // the reader list below.
+    const NOT_A_READER = new Set([
+      "lead_stage_defaults",
+      "lead_source_defaults",
+    ]);
+    const readers = rows.filter(
+      (r) => !TOUCHES_TABLES.has(r.proname) && !NOT_A_READER.has(r.proname),
+    );
     expect(readers.map((r) => r.proname).sort()).toEqual([
       "current_auth_user_id",
       "current_user_profile_id",

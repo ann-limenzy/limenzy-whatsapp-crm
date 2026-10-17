@@ -8,6 +8,7 @@ import { ModulePlaceholder } from "@/components/data/module-placeholder";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
 import { ModuleSettingsForm } from "@/components/settings/module-settings-form";
 import { InvitationSettings } from "@/components/settings/invitation-settings";
+import { LeadPipelineSettings } from "@/components/settings/lead-pipeline-settings";
 import { UserSettingsList } from "@/components/settings/user-settings-list";
 import { PermissionSettingsForm } from "@/components/settings/permission-settings-form";
 import { MEMBERS_PER_PAGE, pageOf, parsePageParam } from "@/lib/member-list";
@@ -15,6 +16,7 @@ import { CONFIGURABLE_PERMISSIONS, can } from "@/lib/permissions";
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import { workspaceMembers } from "@/server/auth/workspace-members";
 import { pendingInvitations } from "@/server/auth/workspace-invitations";
+import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
 import { businessSettingsFor } from "@/server/auth/workspace-business-settings";
 import { emailsForAuthUsers } from "@/server/auth/member-emails";
 import {
@@ -41,6 +43,16 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
   const mayConfigure = can({ role, action: "configure_crm_settings" });
 
   const { enabled, usingDefaults } = await enabledModulesFor(context);
+
+  /*
+   * §172: "Lead Assignment and Pipeline configuration are available only when
+   * Leads is enabled", and §30 hides the whole module when Lead Management is
+   * off. Read only when it will be rendered, and the Server Actions behind
+   * these controls re-check the same thing — hiding a section is presentation.
+   */
+  const leadsEnabled = mayConfigure && enabled.has("leads");
+  const stages = leadsEnabled ? await leadStages(context) : [];
+  const sources = leadsEnabled ? await leadSources(context) : [];
   const permissions = await workspacePermissionSettings(context);
   // Read only when it will be rendered — a Manager or Staff member has no use
   // for these values and no reason for the request to fetch them.
@@ -198,6 +210,33 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
         </section>
       ) : null}
 
+      {leadsEnabled ? (
+        <section aria-labelledby="leads-heading" className="grid gap-4">
+          <div className="grid gap-1">
+            <h2 id="leads-heading" className="text-lg font-semibold">
+              Leads
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              The stages a lead moves through, and where your leads come from.
+            </p>
+          </div>
+          <LeadPipelineSettings
+            stages={stages.map((stage) => ({
+              id: stage.id,
+              name: stage.name,
+              kind: stage.kind,
+              isActive: stage.isActive,
+            }))}
+            sources={sources.map((source) => ({
+              id: source.id,
+              name: source.name,
+              isActive: source.isActive,
+            }))}
+            workspaceId={workspaceId}
+          />
+        </section>
+      ) : null}
+
       {mayConfigure ? (
         <section aria-labelledby="permissions-heading" className="grid gap-4">
           <div className="grid gap-1">
@@ -221,7 +260,7 @@ export default async function SettingsPage(props: PageProps<"/settings">) {
       <ModulePlaceholder
         icon={Settings}
         title="Settings"
-        description="Workspace administration still to come: pipeline, products and services, custom fields and reminder defaults."
+        description="Workspace administration still to come: products and services, custom fields and reminder defaults."
       />
     </div>
   );

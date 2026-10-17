@@ -37,6 +37,9 @@ const SUITES = [
   // Milestone 2B — Settings → Users: co-member visibility and the last-Owner
   // rule, including its behaviour under concurrency.
   "src/server/db/users-isolation.db.test.ts",
+  // Milestone 3A — Lead pipeline and Lead sources: cross-workspace
+  // invisibility, Owner/Admin-only writes, and the Won/Lost invariants.
+  "src/server/db/lead-pipeline-isolation.db.test.ts",
   // Milestone 2C — invitations: tenant scoping, identity binding, expiry,
   // regeneration and concurrent acceptance.
   "src/server/db/invitations-isolation.db.test.ts",
