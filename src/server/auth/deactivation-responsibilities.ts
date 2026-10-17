@@ -9,11 +9,19 @@ import "server-only";
  *     Leads · Customers · incomplete Follow-ups · Renewal actions ·
  *     open WhatsApp conversations
  *
- * **None of them exists.** There is no Leads table, no Customers table, no
- * Follow-ups, Renewals or WhatsApp conversation table — the business modules
- * are Milestones 3 and later. So today the precondition is not merely passing,
- * it is vacuous: there is no record of any kind that a person could own or be
- * assigned, so deactivating someone cannot strand anything.
+ * **One of them exists.** Milestone 3B shipped Leads, so Leads are registered
+ * below and counted for real: a person who is the Record Owner of any Lead
+ * cannot be deactivated. The other four tables do not exist yet, so nobody
+ * can be responsible for them and the check for those is not merely passing,
+ * it is vacuous.
+ *
+ * **What this does NOT yet give anyone: a way out.** §160 asks for
+ * responsibilities to be REASSIGNED first, and reassigning a Lead's Record
+ * Owner is §162's `change_record_owner` with §26's eligibility rules, which
+ * Milestone 3B deliberately did not implement. So today the answer to "this
+ * person owns leads" is a refusal with no offered remedy. That is the order
+ * this file has always described — refuse first, build the workflow next —
+ * and it is a limitation to state, not a gap to paper over.
  *
  * ## Why this file exists at all
  *
@@ -95,18 +103,40 @@ export const NO_RESPONSIBILITY_TABLES: readonly string[] = Object.freeze([
    */
   "workspace_lead_stages",
   "workspace_lead_sources",
+  /*
+   * An override record is an audit entry about something that already
+   * happened. Nobody is responsible for one in the §160 sense, and
+   * deactivating the person who made it changes nothing about it — least of
+   * all whether the override was recorded.
+   */
+  "lead_duplicate_overrides",
 ]);
 
 /**
  * Sources that make a person responsible for active work.
  *
- * **Empty, and correctly so.** The five §160 categories have no tables yet.
- * This is not a placeholder: the test beside it fails the moment a table
- * appears that is in neither list, so the emptiness is checked rather than
- * assumed.
+ * Registering a source here is a commitment, not a label: the check below
+ * refuses to answer at all unless a count was supplied for every registered
+ * category, so a source cannot be registered and then left unenforced.
  */
 export const RESPONSIBILITY_SOURCES: readonly ResponsibilitySource[] =
-  Object.freeze([]);
+  Object.freeze([
+    {
+      table: "leads",
+      category: "leads",
+      /*
+       * §26: a Lead's responsible person is its RECORD OWNER. Not its
+       * creator, who may have been someone else and is only history, and not
+       * anyone it is "assigned" to — §162.1 is explicit that operational
+       * assignment is never record responsibility.
+       *
+       * Every Lead counts, because no Lead can be archived yet (§50 is a
+       * later milestone). When archive arrives this narrows to active Leads.
+       */
+      countsActiveWorkFor:
+        "leads where record_owner_user_profile_id = the profile",
+    },
+  ]);
 
 /** The five categories §160 names, and whether each can be checked today. */
 export const SECTION_160_CATEGORIES: readonly {
@@ -154,13 +184,26 @@ export type ResponsibilityCheck =
  * callers change with it — a compile error at every call site, which is the
  * intended way to find them.
  */
-export function responsibilitiesBlockingDeactivation(): ResponsibilityCheck {
+export function responsibilitiesBlockingDeactivation(
+  counts: Partial<Record<ResponsibilityCategory, number>> = {},
+): ResponsibilityCheck {
   if (RESPONSIBILITY_SOURCES.length === 0) return { kind: "no_sources_exist" };
 
-  // Unreachable while the registry is empty. Left as a throw rather than a
-  // permissive default so that registering a source without implementing its
-  // count fails loudly on the first deactivation instead of allowing one.
-  throw new Error(
-    "a responsibility source is registered but no count is implemented for it",
-  );
+  /*
+   * Every registered category must have been counted. A missing count throws
+   * rather than defaulting to zero, so registering a source without wiring
+   * its count fails loudly on the first deactivation instead of silently
+   * allowing one — which is the whole reason this registry exists.
+   */
+  const blocking: { category: ResponsibilityCategory; count: number }[] = [];
+  for (const source of RESPONSIBILITY_SOURCES) {
+    const count = counts[source.category];
+    if (count === undefined) {
+      throw new Error(
+        `a responsibility source is registered but no count was supplied for ${source.category}`,
+      );
+    }
+    if (count > 0) blocking.push({ category: source.category, count });
+  }
+  return { kind: "counted", blocking: Object.freeze(blocking) };
 }

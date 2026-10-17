@@ -40,6 +40,9 @@ const SUITES = [
   // Milestone 3A — Lead pipeline and Lead sources: cross-workspace
   // invisibility, Owner/Admin-only writes, and the Won/Lost invariants.
   "src/server/db/lead-pipeline-isolation.db.test.ts",
+  // Milestone 3B — Leads: §162.1 record access, cross-workspace invisibility,
+  // §130.1 duplicate detection, and the stage-occupancy race.
+  "src/server/db/leads-isolation.db.test.ts",
   // Milestone 2C — invitations: tenant scoping, identity binding, expiry,
   // regeneration and concurrent acceptance.
   "src/server/db/invitations-isolation.db.test.ts",

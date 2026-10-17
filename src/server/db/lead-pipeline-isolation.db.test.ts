@@ -25,11 +25,13 @@ import {
  *   * seeding is idempotent, and re-running it never overwrites configuration
  *     a workspace has since changed.
  *
- * WHAT IS NOT TESTED HERE, DELIBERATELY. §34 and §165 also require that a
- * stage holding active Leads cannot be deactivated. There is no `leads` table,
- * so that rule is neither implemented nor exercised, and nothing below should
- * be read as covering it. It is the Lead slice's to add — see the migration
- * header and `schema/lead-pipeline.ts`.
+ * WHERE THE OCCUPANCY RULE LIVES NOW. §34 and §165 also require that a stage
+ * holding active Leads cannot be deactivated. This suite could not exercise
+ * that when it was written, because there was no `leads` table; Milestone 3B
+ * added both the table and the rule, and the behaviour is exercised in
+ * `src/server/db/leads-isolation.db.test.ts`, which has Leads to occupy a
+ * stage with. The last test below asserts only that the mechanism exists, so
+ * that removing it would fail here as well as there.
  */
 
 const TOOLING = process.env.DRIZZLE_TOOLING_DATABASE_URL ?? "";
@@ -487,15 +489,32 @@ describe.skipIf(!reachable)("what a Lead will later rely on", () => {
     ]);
   });
 
-  it("does not pretend to enforce stage occupancy", async () => {
-    // §34 and §165 require that a stage holding active Leads cannot be
-    // deactivated. There is no `leads` table, so there is nothing to occupy a
-    // stage and nothing to enforce. Asserted so the gap cannot be mistaken
-    // for coverage, and fails the day `leads` appears.
+  it("now enforces stage occupancy, which this milestone could not", async () => {
+    /*
+     * §34 and §165 require that a stage holding active Leads cannot be
+     * deactivated. Milestone 3A could not enforce that — there was no `leads`
+     * table — and this test asserted the absence so the gap could not be
+     * mistaken for coverage. Milestone 3B brought the table and the rule, so
+     * the assertion is inverted rather than deleted: the guard trigger must
+     * actually consult `public.leads`.
+     *
+     * The rule's behaviour is exercised in
+     * `src/server/db/leads-isolation.db.test.ts`, which has Leads to occupy a
+     * stage with. Here it is enough that the mechanism exists.
+     */
     const exists = (await admin()`
       select to_regclass('public.leads')::text as t`) as unknown as {
       t: string | null;
     }[];
-    expect(exists[0]?.t).toBeNull();
+    expect(exists[0]?.t).toBe("leads");
+
+    const guard = (await admin()`
+      select p.prosrc like '%public.leads%' as checks_occupancy
+        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public'
+         and p.proname = 'workspace_lead_stages_guard_row'`) as unknown as {
+      checks_occupancy: boolean;
+    }[];
+    expect(guard[0]?.checks_occupancy).toBe(true);
   });
 });

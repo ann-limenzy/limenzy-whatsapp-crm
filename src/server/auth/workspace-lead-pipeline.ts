@@ -83,6 +83,8 @@ export type LeadPipelineWriteResult =
   | { readonly ok: false; readonly reason: "cannot_move" }
   /** A database invariant refused it — the last active stage, or an outcome. */
   | { readonly ok: false; readonly reason: "refused" }
+  /** §34: leads are sitting in this stage and must be moved first. */
+  | { readonly ok: false; readonly reason: "stage_occupied" }
   | { readonly ok: false; readonly reason: "unavailable" };
 
 const UNIQUE_VIOLATION = "23505";
@@ -90,6 +92,14 @@ const CHECK_VIOLATION = "23514";
 const INSUFFICIENT_PRIVILEGE = "42501";
 /** A deferred constraint trigger raises at COMMIT, which postgres.js surfaces here. */
 const RAISE_EXCEPTION = "P0001";
+
+/** The `constraint` a RAISE set, when the driver surfaced one. */
+const constraintName = (error: unknown): string | undefined => {
+  const named = error as { constraint_name?: unknown; constraint?: unknown };
+  if (typeof named?.constraint_name === "string") return named.constraint_name;
+  if (typeof named?.constraint === "string") return named.constraint;
+  return undefined;
+};
 
 const sqlState = (error: unknown): string | undefined =>
   typeof error === "object" &&
@@ -107,7 +117,15 @@ function refusal(error: unknown): LeadPipelineWriteResult {
     return { ok: false, reason: "not_permitted" };
   }
   if (state === CHECK_VIOLATION || state === RAISE_EXCEPTION) {
-    return { ok: false, reason: "refused" };
+    /*
+     * §34's occupancy rule and the "keep one active stage" rule both arrive
+     * as check violations, and they need different words on screen. The
+     * trigger names the first one, so the two are told apart by what the
+     * database said rather than by guessing from the message text.
+     */
+    return constraintName(error) === "stage_has_leads"
+      ? { ok: false, reason: "stage_occupied" }
+      : { ok: false, reason: "refused" };
   }
   throw error;
 }

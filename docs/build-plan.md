@@ -1822,6 +1822,147 @@ including a rename of both outcomes that leaves kind, position and active
 flag untouched); and the focused component test for the controls each row
 offers.
 
+### 3B — Leads: creation, list and detail (§30–§32, §35–§37) — local only
+
+The first BUSINESS RECORD in this application. Everything before it was
+tenancy or workspace configuration; a Lead belongs to one person inside a
+workspace, and who may see it is decided by §162.1 rather than by membership.
+
+**What it does.** Add Lead (§32) with Lead Name required and at least one of
+phone or email; Stage defaults to the first active ordinary stage and Lead
+Source is optional, both taken from 3A's configuration. The Lead list (§31)
+with search over name, phone and email and the All / My Leads quick filters —
+Staff/Sales default to My Leads, because anyone who cannot see every record is
+only ever shown their own. Lead Detail (§35–§37) with the header, the
+information panel, click-to-call (§27.1) and the one §27 activity this slice
+can honestly show. Record Owner is the creator, and nothing can change it:
+there is **no UPDATE grant on that column at all**.
+
+**Workspace-safe by construction.** Stage, source, Record Owner and creator
+are all composite foreign keys carrying `workspace_id`. The owner and creator
+key to `workspace_memberships (workspace_id, user_profile_id)`, so a Lead
+owned by someone who is not a member of its workspace is unrepresentable
+rather than merely refused. No application role may DELETE either table.
+
+**The 3A occupancy gap is closed.** The stage guard refuses to deactivate a
+stage any Lead occupies, and the Lead write takes the stage row lock first, so
+the two cannot race. Its refusal has its own message, told apart from "that
+would leave no active stage" by a named constraint rather than by matching
+text.
+
+#### What the work turned up
+
+Four things that were not in the plan, each found by a check rather than by
+reading:
+
+1. **`SELECT … FOR UPDATE` requires the UPDATE privilege** — measured, not
+   assumed. `limenzy_app` holds that grant on stages but its UPDATE policy
+   admits only Owner/Admin, so an inline lock returned no rows for a
+   Staff/Sales user and **they could not create a Lead at all**. Locking now
+   goes through `app.lock_lead_stage()`, owned by a NOLOGIN
+   `limenzy_lead_support` role whose UPDATE policy carries `with check
+(false)`: it may take the lock and can never write.
+2. **§130.1 and §162.1 pull opposite ways.** Duplicate matching must cover the
+   whole workspace; a record the actor may not access must not be revealed.
+   `app.lead_duplicate_candidates()` returns ids and matched fields only, and
+   the gateway re-reads those ids through the ordinary policy — so an
+   inaccessible match is counted, never described.
+3. **The driver returns `timestamptz` as a string inside Next and a `Date` in
+   plain Node**, which made every Lead Detail render "Invalid time value". The
+   gateway coerces rather than trusting the driver.
+4. **React resets a form after an action**, so the duplicate warning appeared
+   over an empty form and Save Anyway submitted nothing. The fields are
+   controlled, and the post-save navigation is a server redirect rather than a
+   client push that raced `revalidatePath`.
+
+#### Security review, and what it changed
+
+A focused review after the slice was complete found three material issues and
+one piece of drift. All are fixed:
+
+- **Inaccessible candidate ids and matched fields were reaching the browser.**
+  The action put the gateway's candidate list straight into state, which
+  `useActionState` serialises — so ids of Leads the actor may not access, and
+  which field matched on each, crossed the boundary even though the screen
+  drew only a count. The response now carries described candidates and a bare
+  `hiddenMatches` count.
+- **A posted `override=true` was treated as approval.** The permission was
+  checked but nothing established that a warning had been SHOWN, so a client
+  that always sent the flag never showed one. Create Anyway now also requires
+  an acknowledgement this server issued — an HMAC over the workspace, the
+  actor and a fingerprint of the normalised submission, valid fifteen
+  minutes. **Changed data requires another warning**, because the fingerprint
+  covers every value that would be written. The key derives one-way from
+  `DATABASE_URL`, the one secret the application cannot run without;
+  `SUPABASE_SECRET_KEY` is optional and degradable and would have made a core
+  feature fail where it is absent.
+- **The §160 responsibility count was incomplete and not atomic.** It ran
+  through the actor's own policy — correct only while §162 keeps user
+  management with Owner/Admin — and it ran in a different transaction from the
+  status change, so a Lead created between the two left someone deactivated
+  and still owning work. The foreign key's own lock does not help: an insert
+  takes FOR KEY SHARE on the membership row and `update … set status` takes
+  FOR NO KEY UPDATE, and **those two do not conflict**. Now
+  `app.count_leads_owned_by()` is a definer routine covering every Lead in the
+  workspace and **refusing with null** for anyone who is not an active
+  Owner/Admin, and `deactivateMember()` changes the status and counts in ONE
+  transaction. The lock order is stage → membership on the Lead side and
+  membership alone on the deactivation side, so no cycle exists. Concurrency
+  aborts return the existing `unavailable` result and are **not retried**.
+- **Drift:** the development database carried a stale `limenzy_dedupe` role
+  from an earlier revision of this migration, holding SELECT on `leads`.
+  Roles are cluster-level, so both a file-built database and the development
+  one inherited it and every catalogue comparison was blind to it. It is
+  dropped, and `roles.test.ts` now names the six reserved roles exactly.
+
+#### Verification
+
+- **381 → 387 live-database tests**, none skipped, no fixture leak. The new
+  `leads-isolation.db.test.ts` covers §162.1 for all three roles including an
+  unconfigured Manager scope, cross-workspace invisibility by id, the
+  composite-key refusals, a hand-written cross-tenant insert refused 42501,
+  §162's add permission, §130.1 across the workspace with and without
+  visibility, override records that cannot be forged, the occupancy rule, and
+  three races driven with real concurrent transactions: create versus stage
+  deactivation, create versus member deactivation, and §130.1's mandatory
+  fourth checkpoint.
+- Unit coverage for validation, the action gates, the acknowledgement and the
+  controls each list row offers.
+- **One browser walkthrough**: empty state, add, detail, list, duplicate
+  warning with fields preserved and Save Anyway, contact-required, a
+  national-format number stored verbatim and flagged, search, the no-match
+  empty state, My Leads, and the occupancy refusal leaving the stage on.
+- The final migration was **replayed on a disposable database with its eleven
+  predecessors**, and the membership-lock routine, its policy, ownership and
+  grants verified against the intended state — 16 checks, all passing. A
+  catalogue comparison against the development database found functions,
+  policies, constraints, indexes, triggers and owners identical, with only the
+  per-database `service_role` default privileges differing, as in 3A.
+
+#### Limitations — all still open
+
+- **National-format numbers take no part in phone duplicate detection.**
+  §130.1 forbids inventing a country code and there is no dial-code table, so
+  only an already-international number normalises. Anything else is stored
+  exactly as typed, flagged for review, and matched on email alone. The Lead
+  Detail screen says so.
+- **No explicit record sharing.** §162.1 defines it; there is no table, so
+  `isExplicitlyShared` is false everywhere and a Manager scoped to "Own,
+  Assigned and Explicitly Shared" sees only what they own.
+- **No reassignment of a Record Owner**, so deactivating someone who owns
+  Leads is refused with no remedy offered. That is the order this plan has
+  always described — refuse first, build the workflow next — and it is a real
+  restriction from today.
+- **An unconfigured Manager record scope shows a Manager no Leads**, which is
+  what §162.1 requires of an unmade choice, and worth knowing before testing
+  as a Manager.
+- **Deferred as scoped:** Product / Service Interested In (a §166 reference,
+  not a text field), custom fields, the pipeline view, §31's other filters and
+  row actions, editing a Lead, assignment and Sales Teams, archive,
+  conversion, and the rest of the §27 timeline — the detail screen shows the
+  derived "record created" entry only.
+- **Not applied to hosted development.** Local only.
+
 ## Milestone 4 — Sales Teams and Team membership foundation
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.

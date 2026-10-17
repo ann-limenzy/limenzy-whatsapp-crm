@@ -94,17 +94,19 @@ function Problem({ state }: { state: LeadPipelineState }) {
             : "Enter a name."
         : state.status === "cannot_move"
           ? "That stage is already at the end of the pipeline."
-          : state.status === "refused"
-            ? "That change would leave the pipeline with no stage to put a new lead in."
-            : state.status === "forbidden"
-              ? "You do not have permission to change these settings."
-              : state.status === "module_disabled"
-                ? "Leads are switched off for this workspace."
-                : state.status === "stale"
-                  ? "This page is out of date. Reload it and try again."
-                  : state.status === "unavailable"
-                    ? "That did not work. Nothing was changed — please try again."
-                    : null;
+          : state.status === "stage_occupied"
+            ? "There are leads in this stage. Move them to another stage first."
+            : state.status === "refused"
+              ? "That change would leave the pipeline with no stage to put a new lead in."
+              : state.status === "forbidden"
+                ? "You do not have permission to change these settings."
+                : state.status === "module_disabled"
+                  ? "Leads are switched off for this workspace."
+                  : state.status === "stale"
+                    ? "This page is out of date. Reload it and try again."
+                    : state.status === "unavailable"
+                      ? "That did not work. Nothing was changed — please try again."
+                      : null;
   if (!message) return null;
 
   return (

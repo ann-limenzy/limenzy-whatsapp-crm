@@ -8,9 +8,10 @@ import {
   isUserProfileId,
   isWorkspaceRole,
 } from "@/lib/validation/users";
-import { responsibilitiesBlockingDeactivation } from "@/server/auth/deactivation-responsibilities";
+
 import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import {
+  deactivateMember,
   setMemberRole,
   setMemberStatus,
 } from "@/server/auth/workspace-members";
@@ -161,23 +162,26 @@ export async function setMemberStatusAction(
    * §160's reassignment precondition.
    *
    * `no_sources_exist` is a distinct answer from "counted, and found none" —
-   * see the registry for why that distinction is the point. While no business
-   * module exists there is genuinely nothing a person can own, so deactivation
-   * proceeds. The moment a source is registered this branch starts refusing
-   * until the reassignment workflow is built, which is the intended order.
+   * see the registry for why that distinction is the point. Milestone 3B
+   * registered Leads, so the count below is real: a person who is the Record
+   * Owner of any Lead cannot be deactivated. There is no reassignment
+   * workflow to offer them yet, which is the order the registry describes.
+   *
+   * The count and the status change are ONE transaction, in `deactivateMember`
+   * — separate statements left a window in which a Lead could be created for
+   * someone between the count and the change. The count also covers every
+   * Lead in the workspace rather than only the ones this actor can see, and
+   * it refuses rather than answering zero when it cannot be taken. All of
+   * that lives in the gateway, where the transaction is.
    */
-  if (status === "inactive") {
-    const check = responsibilitiesBlockingDeactivation();
-    if (check.kind === "counted" && check.blocking.length > 0) {
-      return { status: "blocked_by_responsibilities", attempt };
-    }
-  }
+  const result =
+    status === "inactive"
+      ? await deactivateMember(gate.context, gate.userProfileId)
+      : await setMemberStatus(gate.context, gate.userProfileId, status);
 
-  const result = await setMemberStatus(
-    gate.context,
-    gate.userProfileId,
-    status,
-  );
+  if (!result.ok && result.reason === "blocked") {
+    return { status: "blocked_by_responsibilities", attempt };
+  }
   if (!result.ok) return { status: refusal(result.reason), attempt };
 
   revalidatePath("/", "layout");

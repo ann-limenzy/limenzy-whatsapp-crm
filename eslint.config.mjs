@@ -144,6 +144,13 @@ const GATEWAY_FILES = {
    * pool.
    */
   workspaceLeadPipeline: "src/server/auth/workspace-lead-pipeline.ts",
+  /**
+   * Leads (§30–§32, §35–§37). The first BUSINESS RECORD gateway, and the same
+   * shape as the settings gateways above: it names the `TenantContext` TYPE
+   * and reads and writes through `withTenant()`, mints no context and never
+   * reaches the pool.
+   */
+  workspaceLeads: "src/server/auth/workspace-leads.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -200,6 +207,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceMembers,
       GATEWAY_FILES.workspaceInvitations,
       GATEWAY_FILES.workspaceLeadPipeline,
+      GATEWAY_FILES.workspaceLeads,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -282,6 +290,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceMembers,
       GATEWAY_FILES.workspaceInvitations,
       GATEWAY_FILES.workspaceLeadPipeline,
+      GATEWAY_FILES.workspaceLeads,
     ],
     rules: {
       "no-restricted-imports": [

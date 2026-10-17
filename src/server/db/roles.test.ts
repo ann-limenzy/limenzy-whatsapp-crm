@@ -66,6 +66,27 @@ const app = () => {
 };
 
 const ROLES = ["limenzy_owner", "limenzy_bootstrap", "limenzy_app"] as const;
+
+/**
+ * Every reserved role this application defines, and nothing else.
+ *
+ * Roles are CLUSTER-level, not per database, so a role created by an earlier
+ * revision of a migration survives every re-apply and every fresh database on
+ * the same server — the catalogue comparisons between a file-built database
+ * and the development one cannot see it, because both inherit it. A 3B
+ * revision left a `limenzy_dedupe` role behind holding SELECT on `leads`, and
+ * nothing failed. This is what would have failed.
+ */
+const RESERVED_ROLES = [
+  "limenzy_app",
+  "limenzy_bootstrap",
+  "limenzy_invites",
+  // Milestone 3B: the two things §162.1 denies the acting user — matching
+  // duplicates across the workspace, and taking the stage row lock.
+  "limenzy_lead_support",
+  "limenzy_members",
+  "limenzy_owner",
+] as const;
 const TABLES = [
   "workspaces",
   "user_profiles",
@@ -75,6 +96,9 @@ const TABLES = [
   // Milestone 3A — Lead pipeline and Lead sources (§34, §164, §165).
   "workspace_lead_stages",
   "workspace_lead_sources",
+  // Milestone 3B — Leads, the first business record (§30–§32, §130.1).
+  "leads",
+  "lead_duplicate_overrides",
 ] as const;
 
 /** The fixed role literal the provisioning script uses. */
@@ -147,6 +171,20 @@ describe.skipIf(!reachable)("Phase 1 roles", () => {
         `${member}->${target}=false`,
       );
     }
+  });
+});
+
+describe.skipIf(!reachable)("the reserved roles", () => {
+  it("defines exactly the reserved roles, and no leftovers", async () => {
+    const rows = await db()<{ rolname: string; rolcanlogin: boolean }[]>`
+      select rolname, rolcanlogin from pg_roles
+       where rolname like 'limenzy%' order by rolname`;
+    expect(rows.map((r) => r.rolname)).toEqual([...RESERVED_ROLES]);
+    // Only the runtime role logs in. Every other reserved role is reachable
+    // solely through the definer routines it owns.
+    expect(rows.filter((r) => r.rolcanlogin).map((r) => r.rolname)).toEqual([
+      "limenzy_app",
+    ]);
   });
 });
 
@@ -304,12 +342,24 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
         from pg_policies where schemaname = 'public' order by policyname`;
 
     expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+      // Milestone 3B — Leads. `limenzy_lead_support` is a NOLOGIN role that
+      // owns two definer routines: one matches duplicates across the whole
+      // workspace (§130.1) without describing what it found, and one takes
+      // the stage row lock a Lead write needs, under an UPDATE policy whose
+      // WITH CHECK is `false` so it can never write.
+      "lead_duplicate_overrides_insert -> {limenzy_app}",
+      "lead_duplicate_overrides_select -> {limenzy_app}",
+      "leads_add_insert -> {limenzy_app}",
+      "leads_edit_update -> {limenzy_app}",
+      "leads_record_access_select -> {limenzy_app}",
+      "leads_support_select -> {limenzy_lead_support}",
       "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
       "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
       "user_profiles_invites_insert -> {limenzy_invites}",
       "user_profiles_invites_select -> {limenzy_invites}",
       "user_profiles_members_select -> {limenzy_members}",
       "user_profiles_self_select -> {limenzy_app}",
+      "user_profiles_support_select -> {limenzy_lead_support}",
       "workspace_invitations_invites_select -> {limenzy_invites}",
       "workspace_invitations_invites_update -> {limenzy_invites}",
       "workspace_invitations_owner_admin_insert -> {limenzy_app}",
@@ -324,6 +374,8 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "workspace_lead_stages_member_select -> {limenzy_app}",
       "workspace_lead_stages_owner_admin_insert -> {limenzy_app}",
       "workspace_lead_stages_owner_admin_update -> {limenzy_app}",
+      "workspace_lead_stages_support_lock -> {limenzy_lead_support}",
+      "workspace_lead_stages_support_select -> {limenzy_lead_support}",
       "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
       "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
       "workspace_memberships_invites_insert -> {limenzy_invites}",
@@ -332,9 +384,15 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "workspace_memberships_members_select -> {limenzy_members}",
       "workspace_memberships_members_update -> {limenzy_members}",
       "workspace_memberships_self_select -> {limenzy_app}",
+      "workspace_memberships_support_lock -> {limenzy_lead_support}",
+      "workspace_memberships_support_select -> {limenzy_lead_support}",
       "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
       "workspaces_invites_select -> {limenzy_invites}",
       "workspaces_member_select -> {limenzy_app}",
+      // Milestone 3B: two columns of the workspace row, so the co-member
+      // name routine can read the Manager record scope. Column-scoped, so
+      // the §158 business settings stay out of reach.
+      "workspaces_members_select -> {limenzy_members}",
       "workspaces_owner_admin_update -> {limenzy_app}",
     ]);
 
@@ -399,6 +457,11 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
     expect(
       runtimeGrants.map((r) => `${r.table_name}:${r.privilege_type}`).sort(),
     ).toEqual([
+      // Milestone 3B. Table-wide SELECT on both; what the runtime role may
+      // WRITE is column-scoped and asserted column by column in the leads
+      // suite — notably no write at all on the Record Owner.
+      "lead_duplicate_overrides:SELECT",
+      "leads:SELECT",
       "user_profiles:SELECT",
       // Milestone 2C. The runtime role's INSERT and UPDATE here are COLUMN
       // privileges, so they do not appear in this table-wide listing; the

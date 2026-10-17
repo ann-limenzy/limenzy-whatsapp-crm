@@ -644,3 +644,34 @@ describe("a role permission is never record access", () => {
     ).toBe(false);
   });
 });
+
+describe("couplings other code depends on", () => {
+  /**
+   * The §34 stage-occupancy guard in `20261021090000_leads.sql` is SECURITY
+   * INVOKER: it counts the Leads the CALLER can see. That is sound only
+   * because deactivating a stage needs `configure_crm_settings`, and an
+   * Owner/Admin's Lead policy covers every Lead in the workspace.
+   *
+   * If this row ever became configurable for Managers, a Manager scoped to
+   * "Own, Assigned and Explicitly Shared" could see fewer Leads than exist
+   * and the occupancy check would under-count — so the migration would have
+   * to change in the same breath. This test is what makes that impossible to
+   * do quietly.
+   */
+  it("keeps Configure CRM Settings to Owner/Admin, which the occupancy guard relies on", () => {
+    expect(can({ role: "owner_admin", action: "configure_crm_settings" })).toBe(
+      true,
+    );
+    for (const role of ["manager", "staff_sales"] as const) {
+      // Not merely "denied today": denied with no toggle that could grant it.
+      expect(can({ role, action: "configure_crm_settings" })).toBe(false);
+      expect(
+        can({
+          role,
+          action: "configure_crm_settings",
+          toggles: { configure_crm_settings: true },
+        }),
+      ).toBe(false);
+    }
+  });
+});

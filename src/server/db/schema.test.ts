@@ -439,6 +439,10 @@ const TABLES = [
   // continues to assert.
   "workspace_lead_stages",
   "workspace_lead_sources",
+  // Milestone 3B — Leads, the first BUSINESS RECORD, and the §130.1 audit of
+  // every Create Anyway.
+  "leads",
+  "lead_duplicate_overrides",
 ];
 
 // A workspace row that satisfies every constraint, with synthetic values.
@@ -484,7 +488,9 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "sales_teams",
         "sales_team_memberships",
         "lead_assignment_rules",
-        "leads",
+        // `leads` is no longer forbidden: Milestone 3B created it, and it is
+        // named in TABLES above. Everything still listed here belongs to a
+        // milestone that has not run.
         "customers",
         "follow_ups",
         "renewals",
@@ -530,7 +536,20 @@ describe.skipIf(!reachable)("1C-B schema", () => {
           `${row.table_name}.${row.column_name}=${expected}`,
         );
       }
-      expect(rows).toHaveLength(TABLES.length * 3);
+      /*
+       * Three columns per table, less the one that is deliberately absent:
+       * `lead_duplicate_overrides` has no `updated_at`, because §130.1's
+       * override record describes something that happened at a moment and is
+       * never revised. A row that could be edited would be a worse audit
+       * trail than no row.
+       */
+      const withoutUpdatedAt = rows.filter(
+        (r) =>
+          r.table_name === "lead_duplicate_overrides" &&
+          r.column_name === "updated_at",
+      );
+      expect(withoutUpdatedAt).toEqual([]);
+      expect(rows).toHaveLength(TABLES.length * 3 - 1);
     });
 
     it("matches the intended nullability", async () => {
@@ -546,6 +565,22 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         .sort();
       // Every optional column, and why each one is allowed to be absent.
       expect(nullable).toEqual([
+        // §130.1: an override's explanation is explicitly optional.
+        "lead_duplicate_overrides.explanation",
+        /*
+         * §32 makes Lead Name the only required field and asks for at least
+         * ONE of phone or email, which is a CHECK constraint rather than a
+         * NOT NULL on either. The normalised columns are null whenever their
+         * source is, and `phone_normalised` is also null when §130.1 would
+         * have had to invent a country code to produce one.
+         */
+        "leads.email",
+        "leads.email_normalised",
+        "leads.notes",
+        "leads.phone",
+        "leads.phone_normalised",
+        // §32 lists Lead Source among the optional fields.
+        "leads.source_id",
         // A profile may exist before its auth user does.
         "user_profiles.auth_user_id",
         // §11 collects a name with an invitation; it is optional, and is used
@@ -871,12 +906,22 @@ describe.skipIf(!reachable)("1C-B schema", () => {
           from pg_policies where schemaname = 'public'
          order by policyname`;
       expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+        // Milestone 3B — Leads, plus the two definer routines a Lead write
+        // needs: workspace-wide duplicate matching (§130.1) and the stage row
+        // lock, both owned by the NOLOGIN `limenzy_lead_support` role.
+        "lead_duplicate_overrides_insert -> {limenzy_app}",
+        "lead_duplicate_overrides_select -> {limenzy_app}",
+        "leads_add_insert -> {limenzy_app}",
+        "leads_edit_update -> {limenzy_app}",
+        "leads_record_access_select -> {limenzy_app}",
+        "leads_support_select -> {limenzy_lead_support}",
         "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
         "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
         "user_profiles_invites_insert -> {limenzy_invites}",
         "user_profiles_invites_select -> {limenzy_invites}",
         "user_profiles_members_select -> {limenzy_members}",
         "user_profiles_self_select -> {limenzy_app}",
+        "user_profiles_support_select -> {limenzy_lead_support}",
         "workspace_invitations_invites_select -> {limenzy_invites}",
         "workspace_invitations_invites_update -> {limenzy_invites}",
         "workspace_invitations_owner_admin_insert -> {limenzy_app}",
@@ -891,6 +936,8 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "workspace_lead_stages_member_select -> {limenzy_app}",
         "workspace_lead_stages_owner_admin_insert -> {limenzy_app}",
         "workspace_lead_stages_owner_admin_update -> {limenzy_app}",
+        "workspace_lead_stages_support_lock -> {limenzy_lead_support}",
+        "workspace_lead_stages_support_select -> {limenzy_lead_support}",
         "workspace_memberships_bootstrap_insert -> {limenzy_bootstrap}",
         "workspace_memberships_bootstrap_select -> {limenzy_bootstrap}",
         "workspace_memberships_invites_insert -> {limenzy_invites}",
@@ -899,9 +946,14 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "workspace_memberships_members_select -> {limenzy_members}",
         "workspace_memberships_members_update -> {limenzy_members}",
         "workspace_memberships_self_select -> {limenzy_app}",
+        "workspace_memberships_support_lock -> {limenzy_lead_support}",
+        "workspace_memberships_support_select -> {limenzy_lead_support}",
         "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
         "workspaces_invites_select -> {limenzy_invites}",
         "workspaces_member_select -> {limenzy_app}",
+        // Two columns only, so the co-member name routine can read the
+        // Manager record scope.
+        "workspaces_members_select -> {limenzy_members}",
         "workspaces_owner_admin_update -> {limenzy_app}",
       ]);
     });
