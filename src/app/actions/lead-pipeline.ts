@@ -49,6 +49,7 @@ export type LeadPipelineState = {
     | "name_taken"
     | "cannot_move"
     | "refused"
+    | "stage_occupied"
     | "forbidden"
     | "module_disabled"
     | "stale"
@@ -109,11 +110,13 @@ function settle(
       ? "name_taken"
       : result.reason === "cannot_move"
         ? "cannot_move"
-        : result.reason === "refused"
-          ? "refused"
-          : result.reason === "not_permitted"
-            ? "forbidden"
-            : "unavailable";
+        : result.reason === "stage_occupied"
+          ? "stage_occupied"
+          : result.reason === "refused"
+            ? "refused"
+            : result.reason === "not_permitted"
+              ? "forbidden"
+              : "unavailable";
   return { status, targetId, attempt };
 }
 

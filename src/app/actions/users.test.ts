@@ -19,7 +19,9 @@ vi.mock("@/server/auth/require-workspace", () => ({ requireWorkspaceContext }));
 
 const setMemberRole = vi.hoisted(() => vi.fn());
 const setMemberStatus = vi.hoisted(() => vi.fn());
+const deactivateMember = vi.hoisted(() => vi.fn());
 vi.mock("@/server/auth/workspace-members", () => ({
+  deactivateMember,
   setMemberRole,
   setMemberStatus,
 }));
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   setMemberRole.mockResolvedValue({ ok: true });
   setMemberStatus.mockResolvedValue({ ok: true });
+  deactivateMember.mockResolvedValue({ ok: true });
 });
 
 describe("only an Owner/Admin may manage users (§162)", () => {
@@ -75,7 +78,9 @@ describe("only an Owner/Admin may manage users (§162)", () => {
     as("owner_admin");
     const state = await setMemberStatusAction(IDLE, statusForm());
     expect(state.status).toBe("ok");
-    expect(setMemberStatus).toHaveBeenCalledWith(CONTEXT, TARGET, "inactive");
+    // Deactivation goes through the gateway that also checks §160, in one
+    // transaction; see "the §160 precondition" below.
+    expect(deactivateMember).toHaveBeenCalledWith(CONTEXT, TARGET);
   });
 
   it.each(["manager", "staff_sales"])(
@@ -277,11 +282,51 @@ describe("the §160 precondition is consulted on deactivation", () => {
     expect(setMemberStatus).toHaveBeenCalledWith(CONTEXT, TARGET, "active");
   });
 
-  it("proceeds while no responsibility source exists", async () => {
-    // Today there is genuinely nothing a person can own: the registry has no
-    // sources because the tables do not exist. The guard test beside the
-    // registry is what keeps that true rather than assumed.
+  it("deactivates through the gateway that checks §160 in one transaction", async () => {
+    /*
+     * The count and the status change cannot be separate statements: a Lead
+     * created between them would leave someone deactivated and still owning
+     * work. `deactivateMember` is where both happen, under one lock, so the
+     * action's job here is only to ask it and translate the answer.
+     */
     as("owner_admin");
     expect((await setMemberStatusAction(IDLE, statusForm())).status).toBe("ok");
+    expect(deactivateMember).toHaveBeenCalledWith(CONTEXT, TARGET);
+    expect(setMemberStatus).not.toHaveBeenCalled();
+  });
+
+  it("refuses while the person is the Record Owner of a lead", async () => {
+    /*
+     * §160: active responsibilities must be reassigned to an active user
+     * before deactivation. There is no reassignment workflow yet, so this is
+     * a refusal with no offered remedy — the order the registry describes,
+     * and a limitation recorded with it rather than smoothed over here.
+     */
+    as("owner_admin");
+    deactivateMember.mockResolvedValue({ ok: false, reason: "blocked" });
+    const state = await setMemberStatusAction(IDLE, statusForm());
+    expect(state.status).toBe("blocked_by_responsibilities");
+  });
+
+  it("passes a concurrency abort through as the safe result", async () => {
+    // The gateway maps 40001/40P01 to `unavailable` and does not retry.
+    as("owner_admin");
+    deactivateMember.mockResolvedValue({ ok: false, reason: "unavailable" });
+    expect((await setMemberStatusAction(IDLE, statusForm())).status).toBe(
+      "unavailable",
+    );
+  });
+
+  it("reactivates through the ordinary status gateway", async () => {
+    // Reactivation strands nothing, so it has no §160 precondition and no
+    // reason to take the heavier path.
+    as("owner_admin");
+    const state = await setMemberStatusAction(
+      IDLE,
+      statusForm({ status: "active" }),
+    );
+    expect(state.status).toBe("ok");
+    expect(setMemberStatus).toHaveBeenCalledWith(CONTEXT, TARGET, "active");
+    expect(deactivateMember).not.toHaveBeenCalled();
   });
 });

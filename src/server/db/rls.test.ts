@@ -623,16 +623,29 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
     // appear without failing here.
     expect(rows.map((r) => r.proname)).toEqual([
       "accept_workspace_invitation",
+      /*
+       * §160's precondition. Definer, so the count covers every Lead in the
+       * workspace rather than only the ones the asker can see — and it
+       * refuses, by answering null, for anyone who is not an active
+       * Owner/Admin here.
+       */
+      "count_leads_owned_by",
       "create_initial_workspace",
       "current_auth_user_id",
       "current_user_is_owner_admin",
+      "current_user_may_access_all_records",
+      "current_user_may_add_leads",
       "current_user_profile_id",
       "current_workspace_id",
+      "lead_duplicate_candidates",
       "lead_source_defaults",
       "lead_stage_defaults",
+      "lock_actor_membership",
+      "lock_lead_stage",
       "pending_invitations_for",
       "set_member_role",
       "set_member_status",
+      "workspace_member_names",
       "workspace_members",
     ]);
 
@@ -646,10 +659,23 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       .sort();
     expect(definers).toEqual([
       "accept_workspace_invitation:limenzy_invites",
+      /*
+       * Milestone 3B's four. Three are owned by `limenzy_lead_support`, a
+       * NOLOGIN role for the things §162.1 deliberately denies the acting
+       * user: matching duplicates across the workspace without describing
+       * them, taking the stage row lock under an UPDATE policy whose WITH
+       * CHECK is `false`, and counting §160 responsibilities across every
+       * Lead rather than only the ones the asker can see.
+       */
+      "count_leads_owned_by:limenzy_lead_support",
       "create_initial_workspace:limenzy_bootstrap",
+      "lead_duplicate_candidates:limenzy_lead_support",
+      "lock_actor_membership:limenzy_lead_support",
+      "lock_lead_stage:limenzy_lead_support",
       "pending_invitations_for:limenzy_invites",
       "set_member_role:limenzy_members",
       "set_member_status:limenzy_members",
+      "workspace_member_names:limenzy_members",
       "workspace_members:limenzy_members",
     ]);
 
@@ -730,6 +756,9 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // Milestone 3A's two configuration tables.
     "workspace_lead_stages",
     "workspace_lead_sources",
+    // Milestone 3B's business record, and the §130.1 override audit.
+    "leads",
+    "lead_duplicate_overrides",
   ]);
   const APPROVED_FUNCTIONS = new Set([
     "current_auth_user_id",
@@ -739,6 +768,13 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // same predicate the Users routines use. It reads tables, so the graph
     // test accounts for it explicitly rather than treating it as a leaf.
     "current_user_is_owner_admin",
+    /*
+     * Milestone 3B: the Lead policies ask §162.1 and §162 the only two
+     * questions a policy can ask — may this actor see every record, and may
+     * they add one. Both read tables, and both are accounted for below.
+     */
+    "current_user_may_access_all_records",
+    "current_user_may_add_leads",
   ]);
 
   /** Relation and function dependencies as PostgreSQL itself records them. */
@@ -899,6 +935,25 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
           graph.get(row.on_table)!.add(target);
         }
       }
+      /*
+       * Milestone 3B's two predicates read the same two tables AND the
+       * workspace row, because §162.1's Manager scope is workspace
+       * configuration. Added here for the same reason as above: a policy
+       * that calls a table-reading function reaches those tables, and a
+       * graph that could not see it would understate what evaluation costs.
+       */
+      if (
+        /\bcurrent_user_may_(access_all_records|add_leads)\s*\(/.test(row.expr)
+      ) {
+        for (const target of [
+          "workspace_memberships",
+          "user_profiles",
+          "workspaces",
+        ]) {
+          if (target === row.on_table) continue;
+          graph.get(row.on_table)!.add(target);
+        }
+      }
     }
 
     // Exactly the roles that hold policies, and no other.
@@ -906,6 +961,9 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "limenzy_app",
       "limenzy_bootstrap",
       "limenzy_invites",
+      // Milestone 3B's NOLOGIN support role, reachable only through the two
+      // definer routines it owns.
+      "limenzy_lead_support",
       "limenzy_members",
     ]);
 
@@ -940,6 +998,19 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "user_profiles",
       "workspace_memberships",
     ]);
+    /*
+     * Milestone 3B. A Lead read asks §162.1 whether this actor sees every
+     * record, which reads the workspace row for the Manager scope as well as
+     * the membership and the profile. Nothing reads LEADS back, so it stays
+     * a leaf in the other direction.
+     */
+    for (const table of ["leads", "lead_duplicate_overrides"]) {
+      expect(shape("limenzy_app", table)).toEqual([
+        "user_profiles",
+        "workspace_memberships",
+        "workspaces",
+      ]);
+    }
 
     // The bootstrap role: memberships -> profiles, and nothing from workspaces.
     expect(shape("limenzy_bootstrap", "workspaces")).toEqual([]);
@@ -964,7 +1035,16 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "workspace_memberships",
     ]);
     expect(shape("limenzy_members", "workspace_memberships")).toEqual([]);
-    expect(shape("limenzy_members", "workspaces")).toEqual([]);
+    /*
+     * Milestone 3B gave this role a workspace policy, for two columns, so the
+     * co-member name routine can read the Manager record scope. It reaches
+     * memberships and profiles to decide membership — the same shape its
+     * other policies have, and still a straight line that terminates.
+     */
+    expect(shape("limenzy_members", "workspaces")).toEqual([
+      "user_profiles",
+      "workspace_memberships",
+    ]);
     expect(shape("limenzy_members", "workspace_lead_stages")).toEqual([]);
     expect(shape("limenzy_members", "workspace_lead_sources")).toEqual([]);
 
@@ -1014,10 +1094,20 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       for (const node of graph.keys()) {
         expect(() => visit(node, [`${role}:`])).not.toThrow();
       }
-      // No evaluation for any role may be deeper than the three-table chain.
+      /*
+       * How deep any single evaluation may go.
+       *
+       * It was two until Milestone 3B, which is the depth of the original
+       * `workspaces → memberships → profiles` chain. A Lead adds one more
+       * hop in front of it: the §162.1 predicate reads the workspace row for
+       * the Manager record scope, and the workspace policy then re-applies
+       * the chain beneath it. Three is therefore the cost of a Lead read, and
+       * raising this number is a decision rather than a side effect — which
+       * is why the exact chain is spelled out immediately below.
+       */
       for (const [table, depth] of longest) {
-        expect(`${role} ${table} depth<=2: ${depth <= 2}`).toBe(
-          `${role} ${table} depth<=2: true`,
+        expect(`${role} ${table} depth<=3: ${depth <= 3}`).toBe(
+          `${role} ${table} depth<=3: true`,
         );
       }
     }
@@ -1032,6 +1122,13 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     expect(longest.get("workspaces")).toBe(2);
     expect(longest.get("workspace_memberships")).toBe(1);
     expect(longest.get("user_profiles")).toBe(0);
+    /*
+     * Milestone 3B, stated exactly rather than left to the bound above:
+     * leads → workspaces → memberships → profiles. One hop more than a
+     * workspace read, and the deepest evaluation in the application.
+     */
+    expect(longest.get("leads")).toBe(3);
+    expect(longest.get("lead_duplicate_overrides")).toBe(3);
   });
 
   it("terminates because the context readers touch no table", async () => {
@@ -1067,6 +1164,19 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     const NOT_A_READER = new Set([
       "lead_stage_defaults",
       "lead_source_defaults",
+      /*
+       * Milestone 3B. The two predicates DO reach tables — which is why the
+       * graph below accounts for their reads explicitly rather than treating
+       * them as leaves — and the three definer routines reach tables as their
+       * owner. None of the five is a context reader.
+       */
+      "current_user_may_access_all_records",
+      "current_user_may_add_leads",
+      "count_leads_owned_by",
+      "lead_duplicate_candidates",
+      "lock_actor_membership",
+      "lock_lead_stage",
+      "workspace_member_names",
     ]);
     const readers = rows.filter(
       (r) => !TOUCHES_TABLES.has(r.proname) && !NOT_A_READER.has(r.proname),

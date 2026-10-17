@@ -88,11 +88,14 @@ const MILESTONE_2_MIGRATIONS = [
 ];
 /** Milestone 3A — Lead pipeline and Lead sources (§34, §164, §165). */
 const MILESTONE_3A_MIGRATIONS = ["20261020090000_lead_pipeline.sql"];
+/** Milestone 3B — Leads: creation, list and detail (§30–§32, §35–§37). */
+const MILESTONE_3B_MIGRATIONS = ["20261021090000_leads.sql"];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
   ...MILESTONE_2_MIGRATIONS,
   ...MILESTONE_3A_MIGRATIONS,
+  ...MILESTONE_3B_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
@@ -567,6 +570,11 @@ describe("the tenant gateway import boundary", () => {
     "src/server/auth/workspace-members.ts": ["the context constructor"],
     // Lead pipeline and Lead sources (spec §34, §164, §165). Same shape again.
     "src/server/auth/workspace-lead-pipeline.ts": ["the context constructor"],
+    // Leads (spec §30–§32, §35–§37, §130.1, §162.1) — the first BUSINESS
+    // RECORD gateway, and the same shape: it names the context TYPE and reads
+    // and writes through withTenant(), minting no context and never touching
+    // the pool.
+    "src/server/auth/workspace-leads.ts": ["the context constructor"],
     // Invitation administration (spec §159). Same shape again.
     "src/server/auth/workspace-invitations.ts": ["the context constructor"],
     // Accepting an invitation consumes the pool for one transaction around
@@ -633,6 +641,7 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/workspace-context.ts",
       "src/server/auth/workspace-invitations.ts",
       "src/server/auth/workspace-lead-pipeline.ts",
+      "src/server/auth/workspace-leads.ts",
       "src/server/auth/workspace-members.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
@@ -825,6 +834,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/invitations.ts",
       // Milestone 3A — Lead pipeline and Lead sources (spec §34, §164, §165).
       "src/app/actions/lead-pipeline.ts",
+      // Milestone 3B — adding a Lead (spec §32, §130.1).
+      "src/app/actions/leads.ts",
       // Milestone 1D — module enable/disable (spec §171).
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).

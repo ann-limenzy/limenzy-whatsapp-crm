@@ -650,6 +650,11 @@ describe.skipIf(!reachable)(
        where table_schema = 'public' and table_type = 'BASE TABLE'
        order by table_name`;
       expect(tables.map((t) => t.table_name)).toEqual([
+        // Milestone 3B — the §130.1 audit of every Create Anyway, and the
+        // first business record. Both are workspace-scoped records rather
+        // than lookup tables, and neither is written by this routine.
+        "lead_duplicate_overrides",
+        "leads",
         "user_profiles",
         // Milestone 2C — invitations (§159 Add User). Workspace
         // administration, not a lookup table and not a business module.
@@ -920,6 +925,8 @@ describe.skipIf(!reachable)(
        where relnamespace = 'public'::regnamespace and relkind = 'r'
        order by relname`;
       expect(rows).toEqual([
+        { relname: "lead_duplicate_overrides", rls: true, force: true },
+        { relname: "leads", rls: true, force: true },
         { relname: "user_profiles", rls: true, force: true },
         { relname: "workspace_invitations", rls: true, force: true },
         { relname: "workspace_lead_sources", rls: true, force: true },

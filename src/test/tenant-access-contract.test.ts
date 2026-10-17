@@ -96,6 +96,40 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/workspace-lead-pipeline.ts#leadStages": {
     evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
   },
+  /*
+   * Milestone 3B — the first BUSINESS RECORD repository. Every one of these
+   * is evidenced against a real database under row-level security, because
+   * what they are isolating is no longer workspace vocabulary but records
+   * that belong to one person inside a workspace (§162.1).
+   */
+  "src/server/auth/workspace-leads.ts#listLeads": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#leadDetail": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#createLead": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#findDuplicateCandidates": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#recordOwnerNames": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#countLeadsOwnedBy": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
+  /*
+   * Pure: it reduces candidates the server already has to what §162.1 lets
+   * the actor learn, and reaches no database at all. It appears here because
+   * discovery is a text search over files that NAME a gateway, and listing it
+   * is the honest resolution.
+   */
+  "src/server/auth/workspace-leads.ts#describeForActor": {
+    evidence: "src/app/actions/leads.test.ts",
+    note: "policy only — reduces candidates already read, opens no transaction",
+  },
   "src/server/auth/workspace-lead-pipeline.ts#leadSources": {
     evidence: "src/server/db/lead-pipeline-isolation.db.test.ts",
   },
@@ -137,6 +171,15 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   },
   "src/server/auth/workspace-members.ts#setMemberRole": {
     evidence: "src/server/db/users-isolation.db.test.ts",
+  },
+  /*
+   * Milestone 3B: deactivation now checks §160 inside the SAME transaction
+   * as the status change, so that a Lead created at that moment cannot slip
+   * between the two. Its evidence is the race test, which drives real
+   * concurrent transactions.
+   */
+  "src/server/auth/workspace-members.ts#deactivateMember": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
   },
   "src/server/auth/workspace-members.ts#setMemberStatus": {
     evidence: "src/server/db/users-isolation.db.test.ts",
@@ -264,8 +307,8 @@ describe("every tenant-data-access function is registered", () => {
   });
 });
 
-describe("the business-record inventory is empty, and that proves nothing", () => {
-  it("finds no business RECORD repository yet", async () => {
+describe("the business-record inventory, named rather than filtered", () => {
+  it("names every Lead-related function, configuration and record alike", async () => {
     const found = await discover();
     const business = found.filter((key) =>
       BUSINESS_ENTITIES.some((entity) => key.toLowerCase().includes(entity)),
@@ -273,12 +316,13 @@ describe("the business-record inventory is empty, and that proves nothing", () =
 
     /*
      * Milestone 3A added Lead CONFIGURATION — the pipeline stages and the
-     * Lead sources a Lead will later choose from. It did not add Leads.
+     * Lead sources a Lead chooses from. Milestone 3B added LEADS, which is
+     * the first business record in this application.
      *
-     * Those functions are listed here by name rather than filtered out by
-     * keyword, because the filter is the guard: the moment a `leads`
-     * repository appears it must be registered above with real database
-     * evidence, and widening the keyword list would hide exactly that.
+     * Everything is listed by name rather than filtered out by keyword,
+     * because the filter is the guard: a new Lead-shaped function must be
+     * registered above with real database evidence, and widening the keyword
+     * list would hide exactly that.
      */
     expect(business).toEqual([
       "src/server/auth/workspace-lead-pipeline.ts#addLeadSource",
@@ -290,6 +334,13 @@ describe("the business-record inventory is empty, and that proves nothing", () =
       "src/server/auth/workspace-lead-pipeline.ts#renameLeadStage",
       "src/server/auth/workspace-lead-pipeline.ts#setLeadSourceActive",
       "src/server/auth/workspace-lead-pipeline.ts#setLeadStageActive",
+      "src/server/auth/workspace-leads.ts#countLeadsOwnedBy",
+      "src/server/auth/workspace-leads.ts#createLead",
+      "src/server/auth/workspace-leads.ts#describeForActor",
+      "src/server/auth/workspace-leads.ts#findDuplicateCandidates",
+      "src/server/auth/workspace-leads.ts#leadDetail",
+      "src/server/auth/workspace-leads.ts#listLeads",
+      "src/server/auth/workspace-leads.ts#recordOwnerNames",
     ]);
   });
 

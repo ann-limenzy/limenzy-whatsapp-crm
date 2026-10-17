@@ -81,22 +81,38 @@ describe("every table is classified for §160", () => {
   });
 });
 
-describe("the registry reports an empty check as empty, not as clear", () => {
-  it("has no responsibility source yet", () => {
-    // Not an assertion that this must stay true — it becomes false the moment
-    // Leads ship. It records what today's answer rests on.
-    expect(RESPONSIBILITY_SOURCES).toEqual([]);
+describe("the registry counts what it registers", () => {
+  it("registers Leads, and only Leads", () => {
+    // Milestone 3B shipped the first §160 category. The other four have no
+    // table, so registering them would claim a check that cannot run.
+    expect(RESPONSIBILITY_SOURCES.map((source) => source.category)).toEqual([
+      "leads",
+    ]);
+    expect(RESPONSIBILITY_SOURCES[0]?.table).toBe("leads");
   });
 
-  it("answers no_sources_exist rather than a bare 'nothing found'", () => {
-    const check = responsibilitiesBlockingDeactivation();
-    expect(check.kind).toBe("no_sources_exist");
-    // A boolean here would let a caller print "checked, all clear" about a
-    // check that never ran. The distinct outcome is the whole point.
-    expect(check).not.toHaveProperty("blocking");
+  it("refuses to answer when a registered category was not counted", () => {
+    // The point of the registry: a source cannot be registered and then left
+    // unenforced. An omitted count is a programming error, not a zero.
+    expect(() => responsibilitiesBlockingDeactivation()).toThrow(
+      /no count was supplied for leads/,
+    );
+    expect(() => responsibilitiesBlockingDeactivation({})).toThrow();
   });
 
-  it("names all five §160 categories, none of them implemented", () => {
+  it("blocks on owned leads and clears when there are none", () => {
+    const blocked = responsibilitiesBlockingDeactivation({ leads: 3 });
+    expect(blocked.kind).toBe("counted");
+    expect(blocked.kind === "counted" ? blocked.blocking : []).toEqual([
+      { category: "leads", count: 3 },
+    ]);
+
+    const clear = responsibilitiesBlockingDeactivation({ leads: 0 });
+    expect(clear.kind).toBe("counted");
+    expect(clear.kind === "counted" ? clear.blocking : null).toEqual([]);
+  });
+
+  it("names all five §160 categories, and which are implemented", () => {
     expect(
       SECTION_160_CATEGORIES.map((entry) => entry.category).sort(),
     ).toEqual([
@@ -109,9 +125,12 @@ describe("the registry reports an empty check as empty, not as clear", () => {
     // Each names the milestone that will bring it, so the gap has an owner.
     for (const entry of SECTION_160_CATEGORIES) {
       expect(entry.milestone).toMatch(/^Milestone \d+$/);
-      expect(
-        RESPONSIBILITY_SOURCES.some((s) => s.category === entry.category),
-      ).toBe(false);
+      const registered = RESPONSIBILITY_SOURCES.some(
+        (s) => s.category === entry.category,
+      );
+      expect(`${entry.category}:${registered}`).toBe(
+        `${entry.category}:${entry.category === "leads"}`,
+      );
     }
   });
 });

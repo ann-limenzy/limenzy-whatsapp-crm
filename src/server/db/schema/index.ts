@@ -17,5 +17,6 @@ export * from "./enums";
 export * from "./user-profiles";
 export * from "./workspace-invitations";
 export * from "./lead-pipeline";
+export * from "./leads";
 export * from "./workspace-memberships";
 export * from "./workspaces";

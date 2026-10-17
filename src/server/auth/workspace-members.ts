@@ -2,6 +2,7 @@ import "server-only";
 
 import type { WorkspaceRole } from "@/lib/permissions";
 import type { MembershipStatus } from "@/lib/validation/users";
+import { responsibilitiesBlockingDeactivation } from "@/server/auth/deactivation-responsibilities";
 import { withTenant } from "@/server/db/tenant";
 import type { TenantContext } from "@/server/db/tenant-context";
 
@@ -202,6 +203,76 @@ export async function setMemberRole(
  * the person's account, and any membership they hold of another workspace,
  * are untouched. Nothing is deleted, so history keeps their name.
  */
+/**
+ * Deactivate a member, with §160's precondition checked in the SAME
+ * transaction — spec §159, §160.
+ *
+ * The two halves cannot be separate statements. Counting Leads in one
+ * transaction and deactivating in another leaves a window in which a Lead is
+ * created for someone between the count and the change, and they end up
+ * deactivated while owning work — the exact thing §160 exists to prevent.
+ *
+ * THE ORDER, AND WHY IT IS THIS WAY ROUND:
+ *
+ *   1. change the status, which takes the membership row's lock;
+ *   2. count the Leads that person owns, now holding that lock;
+ *   3. if any, throw — the transaction rolls back and nothing changed.
+ *
+ * Changing first is what acquires the lock. A Lead write takes the same row
+ * with `app.lock_actor_membership()` after it has locked the stage, so one of
+ * the two waits: a Lead committed before us is counted and blocks us, and a
+ * Lead being written after us reads `inactive` and is refused.
+ *
+ * A concurrency abort is returned as `unavailable` by `mutate()`, which does
+ * not retry — re-running a mutation that may already have applied is how a
+ * retry turns a deadlock into a double change.
+ */
+export async function deactivateMember(
+  context: TenantContext,
+  userProfileId: string,
+): Promise<MemberChangeResult | { ok: false; reason: "blocked" }> {
+  const BLOCKED = "__blocked_by_responsibilities__";
+  try {
+    return await mutate(async () => {
+      return withTenant(context, async (tx) => {
+        const changed = await tx<{ outcome: string }[]>`
+          select app.set_member_status(${userProfileId}::uuid, 'inactive') as outcome
+        `;
+        const outcome = changed[0]?.outcome;
+        /*
+         * "ok" is the routine's word for "changed"; every other word is a
+         * refusal that changed nothing, so there is nothing to count and
+         * nothing to roll back. Matching on the routine's own vocabulary
+         * rather than inventing one is what `toResult` does below.
+         */
+        if (outcome !== "ok") return outcome;
+
+        const counted = await tx<{ owned: number | null }[]>`
+          select app.count_leads_owned_by(${userProfileId}::uuid) as owned
+        `;
+        const owned = counted[0]?.owned;
+        /*
+         * Null means the count REFUSED — the caller is not an active
+         * Owner/Admin here. Not zero. Rolling back is the only safe answer to
+         * a precondition that could not be evaluated.
+         */
+        if (typeof owned !== "number") throw new Error(BLOCKED);
+
+        const check = responsibilitiesBlockingDeactivation({ leads: owned });
+        if (check.kind === "counted" && check.blocking.length > 0) {
+          throw new Error(BLOCKED);
+        }
+        return outcome;
+      });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === BLOCKED) {
+      return { ok: false, reason: "blocked" };
+    }
+    throw error;
+  }
+}
+
 export async function setMemberStatus(
   context: TenantContext,
   userProfileId: string,
