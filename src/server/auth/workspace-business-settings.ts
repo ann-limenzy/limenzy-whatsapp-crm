@@ -78,6 +78,31 @@ export async function businessSettingsFor(
   return rows.length === 0 ? null : toSettings(rows[0]!);
 }
 
+/**
+ * The workspace's §158 time zone, and nothing else.
+ *
+ * Separate from `businessSettingsFor` because the callers are different:
+ * that one serves the Settings screen, which only an Owner/Admin opens and
+ * which needs every stored field. This one serves any screen that has to
+ * render a timestamp, which is every role on every record — so it reads one
+ * column and says so.
+ *
+ * Returns `null` when the policy matched no row. That is reported to the
+ * caller rather than silently resolved to UTC here: "the workspace could not
+ * be read" and "the workspace works to UTC" are different facts, and a screen
+ * that confused them would print a confident wrong hour.
+ */
+export async function workspaceTimeZone(
+  context: TenantContext,
+): Promise<string | null> {
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<{ time_zone: string }[]>`select time_zone from public.workspaces`,
+  );
+  return rows.length === 0 ? null : (rows[0]?.time_zone ?? null);
+}
+
 export type BusinessSettingsUpdate =
   | { readonly ok: true; readonly settings: BusinessSettings }
   /** Row-level security refused the write: not an owner_admin of this workspace. */

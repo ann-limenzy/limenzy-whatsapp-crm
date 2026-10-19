@@ -16,6 +16,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet,
   SheetContent,
@@ -460,6 +468,97 @@ function MarkLostSheet({
   );
 }
 
+/**
+ * One labelled stage picker, shared by the move and reopen forms.
+ *
+ * Declared here rather than inside the panel: a component created during
+ * render is a NEW component type on every render, so React unmounts the old
+ * one and mounts a fresh one — which would throw away the open popup, the
+ * focus and the Radix state every time anything on this screen changed.
+ *
+ * **It lives OUTSIDE its form, and posts through a hidden field.** React
+ * resets a form once its action has run; while the picker was inside one,
+ * that reset reached the control, was reported back as though a person had
+ * changed it, and left the picker on the stage the Lead had just moved off.
+ * Measured in a browser, not reasoned about — it is the one failure mode
+ * that survived two earlier attempts at this. A control the reset cannot
+ * reach cannot be told a stale value by it.
+ */
+function StagePicker({
+  id,
+  label,
+  value,
+  stages,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  stages: readonly StageOption[];
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-56">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
+        {label}
+      </Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger id={id} aria-label={label}>
+          <SelectValue placeholder="Choose a stage" />
+        </SelectTrigger>
+        <SelectContent>
+          {stages.map((stage) => (
+            <SelectItem key={stage.id} value={stage.id}>
+              {stage.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/**
+ * Which stage the picker should be showing.
+ *
+ * The picker holds a CHOICE, not a value: `null` means "nothing in
+ * progress", and the control then shows whatever the server last confirmed.
+ * The choice is dropped the moment EITHER of two things happens — the
+ * submission settles, or the server comes back with a different stage.
+ *
+ * ## Why both, and not just the first
+ *
+ * Traced rather than guessed. React resets a form once its action has run.
+ * The reset puts the hidden control Radix posts with back to the stage the
+ * server rendered, Radix reads that as a change and reports it, and the
+ * picker is handed the OLD stage as though a person had picked it. Clearing
+ * on the settle alone does not survive that: the reset's report lands after
+ * the clear, so the stale choice is written back and the picker stays on the
+ * previous stage while the rest of the screen shows the new one — which is
+ * precisely the defect reported from the walkthrough.
+ *
+ * Dropping the choice when the CONFIRMED stage changes is what makes the
+ * ordering stop mattering. Whatever the reset did, the moment the server
+ * says "this Lead is on Contacted now", that is what the picker shows.
+ *
+ * A refused save leaves the confirmed stage alone, so the settle clears the
+ * choice and the picker snaps back to the stage the Lead really has — an
+ * attempt that failed never sits on screen looking like it took. And an
+ * action that is not this one, such as adding a note, settles without
+ * touching either input, so a selection in progress survives it.
+ */
+function useStagePicker(confirmedStageId: string, attempt: number) {
+  const [choice, setChoice] = useState<string | null>(null);
+  const [seen, setSeen] = useState({ attempt, confirmedStageId });
+
+  if (seen.attempt !== attempt || seen.confirmedStageId !== confirmedStageId) {
+    setSeen({ attempt, confirmedStageId });
+    setChoice(null);
+  }
+
+  return [choice ?? confirmedStageId, setChoice] as const;
+}
+
 export function LeadLifecyclePanel({
   lead,
   stages,
@@ -480,105 +579,123 @@ export function LeadLifecyclePanel({
   const [reopenState, reopenAction] = useActionState(reopenLeadAction, INITIAL);
   const [noteState, noteAction] = useActionState(addLeadNoteAction, INITIAL);
   const [note, setNote] = useState("");
-  const [stageId, setStageId] = useState(lead.stageId);
-  const [reopenStageId, setReopenStageId] = useState(stages[0]?.id ?? "");
+  const [stageId, setStageId] = useStagePicker(
+    lead.stageId,
+    stageState.attempt,
+  );
+  const [reopenStageId, setReopenStageId] = useStagePicker(
+    stages[0]?.id ?? "",
+    reopenState.attempt,
+  );
 
   const isOutcome = lead.stageKind !== "active";
   if (noteState.status === "ok" && note.length > 0) setNote("");
 
   return (
-    <div className="grid gap-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <EditLeadSheet
-          lead={lead}
-          sources={sources}
-          workspaceId={workspaceId}
-        />
-
+    <div className="grid gap-4">
+      {/*
+        One card, two rows, in order of how often each is used: where the
+        Lead goes next, then the things that finish or amend it. Loose
+        buttons on one line gave a stage move, an outcome and an edit the
+        same weight, which is not how any of them are used.
+      */}
+      <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
         {isOutcome ? (
-          <form
-            action={reopenAction}
-            className="flex flex-wrap items-end gap-2"
-          >
-            <Identity lead={lead} workspaceId={workspaceId} />
-            <div className="grid gap-1.5">
-              <Label htmlFor="reopen-stage" className="text-xs">
-                Reopen into
-              </Label>
-              <select
-                id="reopen-stage"
-                name="stageId"
-                value={reopenStageId}
-                onChange={(event) => setReopenStageId(event.target.value)}
-                className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
+          <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+            <StagePicker
+              id="reopen-stage"
+              label="Reopen into"
+              value={reopenStageId}
+              stages={stages}
+              onChange={setReopenStageId}
+            />
+            <form action={reopenAction}>
+              <Identity lead={lead} workspaceId={workspaceId} />
+              <input type="hidden" name="stageId" value={reopenStageId} />
+              <SubmitButton
+                busy="Reopening…"
+                variant="default"
+                size="default"
+                disabled={stages.length === 0}
               >
-                {stages.map((stage) => (
-                  <option key={stage.id} value={stage.id}>
-                    {stage.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <SubmitButton busy="Reopening…" disabled={stages.length === 0}>
-              Reopen
-            </SubmitButton>
-          </form>
+                Reopen
+              </SubmitButton>
+            </form>
+          </div>
         ) : (
-          <>
-            <form action={stageAction} className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+            <StagePicker
+              id="move-stage"
+              label="Stage"
+              value={stageId}
+              stages={stages}
+              onChange={setStageId}
+            />
+            <form action={stageAction}>
               <Identity lead={lead} workspaceId={workspaceId} />
-              <div className="grid gap-1.5">
-                <Label htmlFor="move-stage" className="text-xs">
-                  Stage
-                </Label>
-                <select
-                  id="move-stage"
-                  name="stageId"
-                  value={stageId}
-                  onChange={(event) => setStageId(event.target.value)}
-                  className="h-9 rounded-md border border-border bg-surface px-3 text-sm"
-                >
-                  {stages.map((stage) => (
-                    <option key={stage.id} value={stage.id}>
-                      {stage.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <SubmitButton busy="Moving…">Move</SubmitButton>
+              <input type="hidden" name="stageId" value={stageId} />
+              <SubmitButton busy="Moving…" variant="default" size="default">
+                Move
+              </SubmitButton>
             </form>
-
-            <form action={wonAction}>
-              <Identity lead={lead} workspaceId={workspaceId} />
-              <SubmitButton busy="Saving…">Mark as won</SubmitButton>
-            </form>
-
-            <MarkLostSheet lead={lead} workspaceId={workspaceId} />
-          </>
+          </div>
         )}
+
+        <Separator className="bg-border/70" />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <EditLeadSheet
+            lead={lead}
+            sources={sources}
+            workspaceId={workspaceId}
+          />
+          {isOutcome ? null : (
+            <>
+              <form action={wonAction}>
+                <Identity lead={lead} workspaceId={workspaceId} />
+                <SubmitButton busy="Saving…">Mark as won</SubmitButton>
+              </form>
+              <MarkLostSheet lead={lead} workspaceId={workspaceId} />
+            </>
+          )}
+        </div>
+
+        <Problem state={stageState} />
+        <Problem state={wonState} />
+        <Problem state={reopenState} />
       </div>
 
-      <Problem state={stageState} />
-      <Problem state={wonState} />
-      <Problem state={reopenState} />
-
+      {/*
+        A note is one or two lines in practice, so the box is two lines and
+        the button sits beside it on anything wider than a phone. Three rows
+        with the control stranded underneath made the commonest action on
+        this screen look like the largest.
+      */}
       <form action={noteAction} className="grid gap-2">
         <Identity lead={lead} workspaceId={workspaceId} />
-        <Label htmlFor="lead-note">Add a note</Label>
-        <textarea
-          id="lead-note"
-          name="note"
-          rows={2}
-          maxLength={MAX_ACTIVITY_NOTE}
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          placeholder="What happened?"
-          className="rounded-md border border-border bg-surface px-3 py-2 text-sm"
-        />
-        <Problem state={noteState} />
-        <div>
-          <SubmitButton busy="Adding…">Add note</SubmitButton>
+        <Label htmlFor="lead-note" className="text-xs text-muted-foreground">
+          Add a note
+        </Label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <textarea
+            id="lead-note"
+            name="note"
+            rows={2}
+            maxLength={MAX_ACTIVITY_NOTE}
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="What happened?"
+            className="min-h-16 w-full resize-y rounded-md border border-border bg-surface px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          />
+          <SubmitButton
+            busy="Adding…"
+            size="default"
+            disabled={note.length === 0}
+          >
+            Add note
+          </SubmitButton>
         </div>
+        <Problem state={noteState} />
       </form>
     </div>
   );

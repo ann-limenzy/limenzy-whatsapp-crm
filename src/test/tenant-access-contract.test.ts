@@ -77,6 +77,15 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/workspace-business-settings.ts#businessSettingsFor": {
     evidence: "src/server/db/settings-isolation.db.test.ts",
   },
+  /*
+   * The §158 time zone, read by every screen that renders a timestamp —
+   * which is every role on every record, not just the Settings screen. Same
+   * table and same policy as the full settings read, so the same evidence
+   * covers it.
+   */
+  "src/server/auth/workspace-business-settings.ts#workspaceTimeZone": {
+    evidence: "src/server/db/settings-isolation.db.test.ts",
+  },
   "src/server/auth/workspace-business-settings.ts#updateBusinessSettings": {
     evidence: "src/server/db/settings-isolation.db.test.ts",
   },

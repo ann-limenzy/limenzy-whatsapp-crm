@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The Lead screen's controls, and the §39 timeline — §28, §37, §39, §45, §48.
@@ -27,17 +27,30 @@ const actions = vi.hoisted(() => {
     previous: { status: string; attempt: number },
     data: FormData,
   ) => Promise<Record<string, unknown>>;
-  const noop = vi.fn<Action>(async () => idle);
+  /*
+   * One double PER ACTION. They shared a single `vi.fn` to begin with, so a
+   * call count or an implementation set in one test was visible to every
+   * other — a test could pass, or fail, because of the test before it.
+   */
+  const make = () => vi.fn<Action>(async () => idle);
   return {
-    editLeadAction: noop,
-    changeLeadStageAction: noop,
-    markLeadWonAction: noop,
-    markLeadLostAction: noop,
-    reopenLeadAction: noop,
-    addLeadNoteAction: noop,
+    editLeadAction: make(),
+    changeLeadStageAction: make(),
+    markLeadWonAction: make(),
+    markLeadLostAction: make(),
+    reopenLeadAction: make(),
+    addLeadNoteAction: make(),
   };
 });
 vi.mock("@/app/actions/lead-lifecycle", () => actions);
+
+/** Every test starts from "nothing called, nothing stubbed". */
+beforeEach(() => {
+  for (const double of Object.values(actions)) {
+    double.mockReset();
+    double.mockImplementation(async () => ({ status: "idle", attempt: 0 }));
+  }
+});
 
 const { LeadLifecyclePanel } =
   await import("@/components/leads/lead-lifecycle-panel");
@@ -110,12 +123,12 @@ describe("what an open Lead offers", () => {
     expect(screen.queryByRole("button", { name: "Reopen" })).toBeNull();
   });
 
-  it("offers only the stages a Lead may be moved to by hand", () => {
+  it("shows the stage the Lead is in, through the shared Select", () => {
     panel();
-    const picker = screen.getByLabelText("Stage");
-    expect(
-      [...picker.querySelectorAll("option")].map((o) => o.textContent),
-    ).toEqual(["New", "Contacted"]);
+    // The trigger displays the chosen item's text, which is what a reader
+    // sees — the old native <option> list is gone.
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("New");
+    expect(screen.getByLabelText("Stage")).toHaveAttribute("role", "combobox");
   });
 
   it("carries the Lead, the workspace and the revision on every form", () => {
@@ -148,12 +161,9 @@ describe("what a finished Lead offers", () => {
     expect(screen.queryByRole("button", { name: "Mark as lost" })).toBeNull();
   });
 
-  it("reopens only into an open, ordinary stage", () => {
+  it("reopens into the first open, ordinary stage by default", () => {
     panel({ stageKind: "won" });
-    const picker = screen.getByLabelText("Reopen into");
-    expect(
-      [...picker.querySelectorAll("option")].map((o) => o.textContent),
-    ).toEqual(["New", "Contacted"]);
+    expect(screen.getByLabelText("Reopen into")).toHaveTextContent("New");
   });
 
   it("cannot reopen a Lead when the pipeline has no open stage left", () => {
@@ -228,8 +238,9 @@ describe("the §39 timeline", () => {
         sources={SOURCES}
         workspaceId={WORKSPACE}
         ownerName="You"
-        createdOn="17 Oct 2026"
-        formatWhen={() => "17 Oct 2026, 10:00 UTC"}
+        createdOn="19 Oct 2026"
+        formatWhen={() => "19 Oct 2026, 10:04"}
+        timeZoneLabel="Asia/Kolkata (GMT+5:30)"
       />,
     );
 
@@ -285,6 +296,19 @@ describe("the §39 timeline", () => {
     expect(container.textContent).not.toMatch(
       /features arrive|milestone|coming soon|will appear here/i,
     );
+  });
+
+  it("says which clock the times are on, once rather than per entry", () => {
+    // Reported from the hosted walkthrough: an entry written at 10:04 in
+    // Kolkata read "04:34 UTC". The hour is now the workspace's, and the
+    // screen says whose clock it is instead of leaving the reader to guess.
+    view([entry({ kind: "record_created" })]);
+    expect(
+      screen.getByText("Times shown in Asia/Kolkata (GMT+5:30)."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("19 Oct 2026, 10:04")).toBeInTheDocument();
+    expect(screen.queryByText(/04:34/)).toBeNull();
+    expect(screen.queryByText(/UTC/)).toBeNull();
   });
 
   it("says plainly when there is nothing to show", () => {
@@ -410,5 +434,214 @@ describe("§130.1: the duplicate warning, across a round trip", () => {
     // offered a way through, and no explanation box is drawn to suggest one.
     expect(screen.queryByRole("button", { name: "Save anyway" })).toBeNull();
     expect(screen.queryByLabelText(/Why are these separate leads/)).toBeNull();
+  });
+});
+
+describe("the stage picker follows the server, not the last thing clicked", () => {
+  /**
+   * The defect this pins down, reported from the hosted walkthrough: after a
+   * successful stage change the information panel showed the new stage and
+   * the picker showed the previous one until the page was reloaded.
+   *
+   * The cause is not the server. React resets a form once its action has
+   * run, which puts the control back to the option the server rendered as
+   * selected — the OLD stage. React then re-renders, finds the same `value`
+   * it rendered last time, writes nothing to the DOM, and the browser's
+   * reset stands. A value held in component state can never recover from
+   * that, because it never changes.
+   *
+   * So the picker now holds a CHOICE that is cleared when its submission
+   * settles, and shows the server's stage the rest of the time. These assert
+   * the three things that has to get right.
+   */
+  const settling = (status: string) =>
+    vi.fn(async (previous: { status: string; attempt: number }) => ({
+      status,
+      attempt: previous.attempt + 1,
+    }));
+
+  const open = async (label: string) => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    await user.click(screen.getByLabelText(label));
+    return user;
+  };
+
+  it("shows the stage the server confirmed, once it confirms it", async () => {
+    actions.changeLeadStageAction.mockImplementation(settling("ok"));
+    const { rerender } = render(
+      <LeadLifecyclePanel
+        lead={lead()}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("New");
+
+    const user = await open("Stage");
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
+
+    await user.click(screen.getByRole("button", { name: "Move" }));
+    await waitFor(() =>
+      expect(actions.changeLeadStageAction).toHaveBeenCalledTimes(1),
+    );
+
+    // The server revalidates and the Lead comes back on its new stage.
+    rerender(
+      <LeadLifecyclePanel
+        lead={lead({ stageId: CONTACTED, revision: 8 })}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
+  });
+
+  it("snaps back to the real stage when the save is refused", async () => {
+    // A stale or refused submission must not leave the attempt on screen
+    // looking like it took. The Lead is still on "New", so the picker says
+    // "New" — and the refusal message says why.
+    actions.changeLeadStageAction.mockImplementation(settling("stale"));
+    render(
+      <LeadLifecyclePanel
+        lead={lead()}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+
+    const user = await open("Stage");
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
+
+    await user.click(screen.getByRole("button", { name: "Move" }));
+
+    expect(
+      await screen.findByText(/Somebody else changed this lead/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Stage")).toHaveTextContent("New"),
+    );
+  });
+
+  it("leaves a choice in progress alone when an unrelated action settles", async () => {
+    actions.addLeadNoteAction.mockImplementation(settling("ok"));
+    render(
+      <LeadLifecyclePanel
+        lead={lead()}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+
+    const user = await open("Stage");
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+
+    // Somebody adds a note before pressing Move. That must not discard the
+    // stage they had already picked.
+    await user.type(screen.getByLabelText("Add a note"), "Rang them");
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await waitFor(() =>
+      expect(actions.addLeadNoteAction).toHaveBeenCalledTimes(1),
+    );
+
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
+  });
+
+  it("posts the chosen stage with the form", async () => {
+    const submissions: FormData[] = [];
+    actions.changeLeadStageAction.mockImplementation(
+      async (previous: { status: string; attempt: number }, data: FormData) => {
+        submissions.push(data);
+        return { status: "ok", attempt: previous.attempt + 1 };
+      },
+    );
+    render(
+      <LeadLifecyclePanel
+        lead={lead()}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+
+    const user = await open("Stage");
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+    await user.click(screen.getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(submissions).toHaveLength(1));
+
+    // The Select is not a native <select>, so this also proves the value
+    // still reaches the server — now through a hidden field, because the
+    // control itself sits outside the form.
+    expect(submissions[0]!.get("stageId")).toBe(CONTACTED);
+    expect(submissions[0]!.get("revision")).toBe("7");
+  });
+
+  it("does the same for Reopen", async () => {
+    actions.reopenLeadAction.mockImplementation(settling("stale"));
+    render(
+      <LeadLifecyclePanel
+        lead={lead({ stageKind: "won" })}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+
+    const user = await open("Reopen into");
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+    expect(screen.getByLabelText("Reopen into")).toHaveTextContent("Contacted");
+
+    await user.click(screen.getByRole("button", { name: "Reopen" }));
+    // Refused, so it goes back to the default rather than keeping the
+    // attempt. Awaited rather than asserted outright: the action settles on
+    // its own schedule, and a bare expect here races it.
+    expect(
+      await screen.findByText(/Somebody else changed this lead/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Reopen into")).toHaveTextContent("New"),
+    );
+  });
+});
+
+describe("a form reset cannot strand the picker", () => {
+  /**
+   * The mechanism behind the report, pinned down directly.
+   *
+   * React resets a form after its action runs. With a native `<select>` that
+   * put the control back to the option the server rendered as selected, and
+   * React — seeing the same `value` it rendered last time — wrote nothing
+   * back, so the browser's reset stood. The displayed stage is now React
+   * state rendered as text rather than a DOM value a reset can reach, so the
+   * failure mode is gone by construction as well as by the clearing above.
+   */
+  it("keeps showing the chosen stage after the form is reset", async () => {
+    const { default: userEvent } = await import("@testing-library/user-event");
+    const user = userEvent.setup();
+    const { container } = render(
+      <LeadLifecyclePanel
+        lead={lead()}
+        stages={STAGES}
+        sources={SOURCES}
+        workspaceId={WORKSPACE}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Stage"));
+    await user.click(await screen.findByRole("option", { name: "Contacted" }));
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
+
+    // Exactly what React does to the form once the action settles.
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    form!.reset();
+
+    expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
   });
 });

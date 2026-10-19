@@ -1999,7 +1999,7 @@ recorded here, because nothing further was witnessed.
 - **Applied to hosted development**, see below. The limitations above are
   unchanged by that: none of them is a deployment question.
 
-### 3C — Lead editing, stage changes and activity history (§37, §39, §45, §48) — local only
+### 3C — Lead editing, stage changes and activity history (§37, §39, §45, §48) — applied to hosted development
 
 3B could create a Lead and read it back. This is the slice where a Lead
 CHANGES, which brings three problems the create path did not have: two people
@@ -2090,7 +2090,7 @@ retry.
 - **Final migration SHA-256:**
   `e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
 
-#### Local browser walkthrough — 22 of 22 steps, witnessed
+#### Local browser walkthrough — 26 of 26 steps, witnessed
 
 Real Chrome driven over the DevTools Protocol, against an isolated production
 build on its own port with local Auth and database supplied through the
@@ -2099,13 +2099,15 @@ page and the database together, and the run was repeated three times from a
 clean seed with the same result.
 
 Sign-in · list · timeline · edit saving with no confirmation and surviving a
-reload · a stale save refused with nothing overwritten · stage change · Won
-pointing at the workspace's `won` row · Lost refused with no reason, refused
-again for "Something else" with no explanation, then recorded · Reopen
-clearing the reason from the record while the history keeps it · note · the
-whole nine-entry timeline after a reload · the duplicate warning retaining
-both typed fields and then writing the override row · 320px with no horizontal
-overflow, every control present, and the edit sheet open and usable.
+reload · a stale save refused with nothing overwritten · **a stage change
+whose picker and record agree WITHOUT a reload** · Won pointing at the
+workspace's `won` row · Lost refused with no reason, refused again for
+"Something else" with no explanation, then recorded · Reopen showing the
+stage it reopened into, again without a reload, and clearing the reason from
+the record while the history keeps it · note · the whole nine-entry timeline
+after a reload · the duplicate warning retaining both typed fields and then
+writing the override row · 320px with no horizontal overflow, every control
+present, and the edit sheet open and usable.
 
 Four accommodations were needed, all properties of the harness rather than of
 the product, and all recorded with it: dev-mode hydration never completes in
@@ -2138,7 +2140,103 @@ its screenshots are kept outside the repository, at
 - **Still out of scope, unchanged from 3B:** owner reassignment, archive,
   sharing, assignment and Sales Teams, and national-format phone duplicate
   detection.
-- **Local only.** This slice has not been applied to hosted development.
+- **Applied to hosted development**, see below. None of the limitations above
+  is changed by that: none of them is a deployment question.
+
+#### Applied to hosted development — 2026-10-19
+
+Through the tooling in `~/Limenzy-dev-tools/hosted-3c`, adapted from the
+validated 3B tooling and locally validated first on a disposable database
+built to the same state (preflight 39, apply 67, both clean, plus four
+negative controls). Totals below are read from the saved summaries, not from
+scrollback.
+
+- **Preflight: 44 passed, 0 failed.** TLSv1.3 to
+  `aws-0-ap-northeast-2.pooler.supabase.com`, chain verified against the
+  pinned CA, certificate naming the host, and both negative controls — a
+  mismatched server name and an unrelated CA — refused. Login
+  `postgres.<ref>` for the intended project, backend role `postgres`,
+  PostgreSQL 17.11. **Twelve predecessors recorded and exactly this migration
+  pending.**
+- **Apply: 67 passed, 0 failed.** Thirteen migrations recorded afterwards and
+  nothing else brought along.
+- **The intended data changes, accounted for separately.** All seven
+  fingerprinted tables came back byte-identical. `leads` was digested over
+  its fifteen PRE-EXISTING columns and came back identical too — then checked
+  separately for having gained exactly `revision`, `lost_reason` and
+  `lost_reason_note` and lost nothing. An intended addition could not stand
+  as the explanation for an unintended change, which is the reason the two
+  were ever separated.
+- **The backfill, checked per Lead.** Four Leads existed; four creation
+  entries were written, one each, every one carrying its own Lead's creator,
+  creation time and revision — dated **2026-10-17**, when those Leads were
+  made, not the moment of the apply. The digest matched what the preflight
+  recorded beforehand. No Lead was left without an entry, no entry was
+  orphaned, every Lead is still at revision 1, and none was given a Lost
+  reason.
+- **The completeness guarantee, verified on the target.** All three history
+  triggers present and enabled, `require_history` confirmed DEFERRABLE
+  INITIALLY DEFERRED, the history append-only by grant, and neither revision
+  column writable by the runtime role.
+- **Runtime read probes passed**, through `limenzy_app` on the transaction
+  pooler — the role and endpoint the application itself uses. `listLeads()`
+  saw four Leads, `leadDetail()` and `leadActivity()` answered nothing for an
+  id that is not a Lead there, `leadForEdit()` returned the revision every
+  control carries, and the backfilled timeline read back with its creation
+  entry naming the Lead's own creator at the Lead's own time. Nothing was
+  written.
+
+#### Follow-up: three UI defects found in use, and closed
+
+Reported after the hosted walkthrough. The slice's behaviour was correct;
+what it looked like, and what clock it was on, were not.
+
+- **The stage picker went stale after a save.** The record updated and the
+  picker showed the previous stage until the page was reloaded. The cause was
+  not the server: React resets a form once its action has run, and while the
+  picker sat inside that form the reset put its posted value back to the
+  stage the server had rendered, which the control then reported as though a
+  person had chosen it. **Measured in a browser, not reasoned about** — two
+  earlier attempts at this looked right and did not hold. The picker now sits
+  OUTSIDE its form and posts through a hidden field, so the reset cannot
+  reach it; and it holds a CHOICE rather than a value, dropped when the
+  submission settles or when the server confirms a different stage. A refused
+  save therefore snaps back to the stage the Lead really has instead of
+  leaving the attempt on screen, and an unrelated action such as adding a
+  note leaves a selection in progress alone. Move and Reopen both.
+- **A shared, themed Select, and controls with a hierarchy.** There was no
+  Select in `components/ui`; a native one cannot be themed, because its popup
+  belongs to the operating system — it ignored the colour tokens, the focus
+  ring and dark mode, and opened a system wheel on a phone. The new one is
+  built on the same `radix-ui` package and tokens as `dropdown-menu.tsx`, so
+  the popup, focus, keyboard and touch behaviour match what was already
+  here. The "Update this lead" area is now one card: the stage picker with
+  its primary action, a rule, then the secondary row. The note composer is
+  two rows with its button alongside, and the timeline is a rule with dots
+  rather than nine bordered boxes.
+- **Timestamps are in the workspace's §158 clock.** They were printed in UTC,
+  so a team in Kolkata read 04:34 for something they did at 10:04.
+  `src/lib/workspace-time.ts` formats on the server in the workspace's stored
+  IANA zone, following the pattern `invitation-display.ts` already set, and
+  the Activity section names the zone once rather than on every line. No
+  offset is written down anywhere: the label is asked of `Intl` for the
+  instant, so the same workspace reads BST in July and GMT in January. A
+  stored zone this runtime cannot use falls back to UTC **and says UTC**, so
+  a reader is never shown an hour under the wrong clock.
+
+**Focused results:** 194 tests across seven affected suites, including six new
+for the picker and ten for the time zone. The picker tests were checked
+against the broken code and against a half-fix, and fail on both. Two defects
+in the work itself were found and fixed on the way: a component declared
+during render, and a test harness in which all six action doubles were the
+same `vi.fn`, so calls and stubs leaked between tests and the suite was
+intermittently green for the wrong reason. The browser walkthrough was
+re-run against the shipped build — **26 of 26**, with three new steps
+asserting that the picker and the record agree without a reload.
+
+**No migration change.** These are application-only fixes; the applied
+migration is untouched and its SHA-256 is unchanged at
+`e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
 
 ## Milestone 4 — Sales Teams and Team membership foundation
 

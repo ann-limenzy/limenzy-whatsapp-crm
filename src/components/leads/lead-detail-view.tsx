@@ -103,6 +103,7 @@ export function LeadDetailView({
   ownerName,
   createdOn,
   formatWhen,
+  timeZoneLabel,
 }: {
   lead: LeadDetail;
   /**
@@ -121,7 +122,15 @@ export function LeadDetailView({
   ownerName: string;
   /** Formatted on the server, so the markup does not depend on the locale. */
   createdOn: string;
+  /**
+   * A moment, in the WORKSPACE's §158 time zone — not UTC and not the
+   * reader's laptop. Passed in already formatted, because a client component
+   * that formatted it itself would render one string on the server and
+   * another in the browser.
+   */
   formatWhen: (when: Date) => string;
+  /** How to name that zone on screen, e.g. "Asia/Kolkata (GMT+5:30)". */
+  timeZoneLabel: string;
 }) {
   return (
     <div className="grid gap-6">
@@ -236,29 +245,50 @@ export function LeadDetailView({
           <p className="text-sm text-muted-foreground">
             Nothing has been recorded for this lead yet.
           </p>
-        ) : null}
-        <ol className="grid gap-2">
-          {activity.map((entry) => {
-            const actor = entry.actorUserProfileId
-              ? (actorNames[entry.actorUserProfileId] ?? "a team member")
-              : "the system";
-            const { headline, detail } = describe(entry, actor);
-            return (
-              <li
-                key={entry.id}
-                className="rounded-lg border border-border p-3"
-              >
-                <p className="text-sm font-medium">{headline}</p>
-                {detail ? (
-                  <p className="mt-0.5 text-sm whitespace-pre-wrap">{detail}</p>
-                ) : null}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {formatWhen(entry.occurredAt)}
-                </p>
-              </li>
-            );
-          })}
-        </ol>
+        ) : (
+          /*
+           * A rule with dots, not a stack of cards. Nine bordered boxes read
+           * as nine separate things; a timeline reads as one sequence, which
+           * is what it is — and it costs less vertical space on a phone,
+           * where this list is the longest thing on the screen.
+           */
+          <ol className="relative ml-1.5 grid gap-0 border-l border-border pl-5">
+            {activity.map((entry) => {
+              const actor = entry.actorUserProfileId
+                ? (actorNames[entry.actorUserProfileId] ?? "a team member")
+                : "the system";
+              const { headline, detail } = describe(entry, actor);
+              return (
+                <li key={entry.id} className="relative py-2.5">
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-[1.1rem] -left-[1.4rem] size-2 rounded-full border-2 border-surface bg-border"
+                  />
+                  {/*
+                    Stacked on a phone, ranged right on anything wider. Left
+                    to wrap, the time sat beside a short headline and under a
+                    long one, which made the column look accidental.
+                  */}
+                  <div className="flex flex-col gap-y-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-x-3">
+                    <p className="text-sm font-medium">{headline}</p>
+                    <time className="order-first text-xs whitespace-nowrap text-muted-foreground sm:order-none">
+                      {formatWhen(entry.occurredAt)}
+                    </time>
+                  </div>
+                  {detail ? (
+                    <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted-foreground">
+                      {detail}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {/* Said once, rather than on all nine lines. */}
+        <p className="text-xs text-muted-foreground">
+          Times shown in {timeZoneLabel}.
+        </p>
       </section>
 
       <div>

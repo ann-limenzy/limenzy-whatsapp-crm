@@ -2,7 +2,14 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { LeadDetailView } from "@/components/leads/lead-detail-view";
+import {
+  formatWorkspaceDate,
+  formatWorkspaceMoment,
+  resolveTimeZone,
+  timeZoneLabel,
+} from "@/lib/workspace-time";
 import { requireModule } from "@/server/auth/require-module";
+import { workspaceTimeZone } from "@/server/auth/workspace-business-settings";
 import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
 import {
   leadActivity,
@@ -53,13 +60,15 @@ export default async function LeadPage({
     "edit_permitted_records",
   ).allowed;
 
-  const [owners, activity, editable, stages, sources] = await Promise.all([
-    recordOwnerNames(context),
-    leadActivity(context, id),
-    canEdit ? leadForEdit(context, id) : Promise.resolve(null),
-    canEdit ? leadStages(context) : Promise.resolve([]),
-    canEdit ? leadSources(context) : Promise.resolve([]),
-  ]);
+  const [owners, activity, editable, stages, sources, storedZone] =
+    await Promise.all([
+      recordOwnerNames(context),
+      leadActivity(context, id),
+      canEdit ? leadForEdit(context, id) : Promise.resolve(null),
+      canEdit ? leadStages(context) : Promise.resolve([]),
+      canEdit ? leadSources(context) : Promise.resolve([]),
+      workspaceTimeZone(context),
+    ]);
 
   const ownerName = lead.isOwnedByActor
     ? "You"
@@ -79,25 +88,20 @@ export default async function LeadPage({
     .map((source) => ({ id: source.id, name: source.name }));
 
   /*
-   * Formatted on the server with a fixed locale and the UTC time zone. A
-   * date rendered from the browser's locale differs between the server pass
-   * and the client pass, which React reports as a hydration mismatch.
+   * Formatted HERE, on the server, in the WORKSPACE's §158 time zone.
+   *
+   * Two things are being avoided. A date rendered from the browser's locale
+   * differs between the server pass and the client pass, which React reports
+   * as a hydration mismatch — so the locale and the zone are both fixed. And
+   * UTC, which this screen used to print, is nobody's clock: a team in
+   * Kolkata reading "04:34" for something they did at 10:04 is being told
+   * the wrong hour about their own work.
+   *
+   * `resolveTimeZone` falls back to UTC only when the stored zone cannot be
+   * used by this runtime, and the label below then says UTC — so the reader
+   * is never shown an hour without being told which clock it is on.
    */
-  const day = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-  const moment = new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "UTC",
-  });
+  const zone = resolveTimeZone(storedZone);
 
   return (
     <LeadDetailView
@@ -109,8 +113,9 @@ export default async function LeadPage({
       sources={activeSources}
       workspaceId={context.workspaceId}
       ownerName={ownerName}
-      createdOn={day.format(lead.createdAt)}
-      formatWhen={(when) => `${moment.format(when)} UTC`}
+      createdOn={formatWorkspaceDate(lead.createdAt, zone)}
+      formatWhen={(when) => formatWorkspaceMoment(when, zone)}
+      timeZoneLabel={timeZoneLabel(lead.createdAt, zone)}
     />
   );
 }

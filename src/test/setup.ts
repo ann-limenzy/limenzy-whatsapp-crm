@@ -33,6 +33,24 @@ if (typeof window !== "undefined") {
     unobserve() {}
     disconnect() {}
   };
+
+  /*
+   * Radix's Select drives its popup with pointer capture and scrolls the
+   * chosen item into view. jsdom implements neither, and the component
+   * throws rather than degrading — so a select that works in a browser
+   * cannot be opened in a test without these three.
+   *
+   * They are no-ops on purpose: the behaviour being tested is which value
+   * the control holds, not how the browser scrolled to it.
+   */
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
 }
 
 /**
