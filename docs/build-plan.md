@@ -1999,6 +1999,245 @@ recorded here, because nothing further was witnessed.
 - **Applied to hosted development**, see below. The limitations above are
   unchanged by that: none of them is a deployment question.
 
+### 3C — Lead editing, stage changes and activity history (§37, §39, §45, §48) — applied to hosted development
+
+3B could create a Lead and read it back. This is the slice where a Lead
+CHANGES, which brings three problems the create path did not have: two people
+editing the same record, an outcome that is more than a stage, and a history
+that has to be true.
+
+**What it does.** Editing the §37 fields — name, phone, email, notes and
+source — gated by §162's `edit_permitted_records`, with which Lead decided by
+the existing §162.1 policies rather than restated. Ordinary stage changes.
+Mark as won (§45) and Mark as lost (§48) with one of §33's five fixed reasons
+and a required explanation for "Something else". Reopen, which clears the
+reason from the record and leaves it permanently in the history. Notes, capped
+at 2000 characters in the validation layer and in a CHECK constraint. §28 is
+followed: no confirmation for a standard edit or a note.
+
+**Won and Lost are the workspace's own stage rows, found by immutable `kind`.**
+§34 lets a workspace rename them, so a lookup by label would break the day
+someone did. The ordinary stage picker refuses outcome stages, so neither can
+be reached without its reason and its history entry. §34's occupancy rule
+therefore already counts only ordinary-stage Leads — a won Lead has left the
+column it was in — and the predicate now says so out loud.
+
+**Stale edits are caught by an integer `revision` the database owns.**
+`updated_at` was rejected: the driver hands a `timestamptz` back as a
+JavaScript `Date` in one runtime and a string in another, and a `Date` loses
+microseconds, so two saves inside one millisecond stop being distinguishable.
+The trigger increments `revision`; `limenzy_app` holds no grant on the column
+and so cannot hold it still. Every control carries it, the UPDATE carries it
+in its WHERE clause, and whoever saves second is told rather than silently
+overwriting work they never saw.
+
+#### History is enforced by the database, not by the gateway
+
+An earlier draft had the application write every §39 entry beside the change
+it describes. **Measured against the runtime role, that left two open paths:**
+`limenzy_app` — not privileged tooling — could insert a Lead with no creation
+entry, and update any column it holds a grant on with no entry at all. Nothing
+was privileged about either; they needed only a code path that forgot. A
+history that has to be true cannot rest on remembering.
+
+Three triggers close it, in the smallest form that still leaves authorship
+with the actor:
+
+- `record_creation` — AFTER INSERT on `leads`, writes the creation entry
+  itself, attributed to `created_by_user_profile_id`. Invoker rights, so it
+  can never write history the inserting role could not have written. No Lead
+  can exist without one, whatever inserted it.
+- `stamp_revision` — BEFORE INSERT on `lead_activities`, stamps each entry
+  with the Lead revision it describes, read from the Lead row. No role holds a
+  grant on `lead_revision`, so it cannot be set, held still or back-dated.
+- `require_history` — a DEFERRABLE INITIALLY DEFERRED constraint trigger. At
+  COMMIT, a material change must have an entry stamped with the revision it
+  produced, or the whole transaction goes. That is the atomicity guarantee
+  stated as a constraint rather than as a convention. It fires only when a
+  material column actually changed, and `note_added` is excluded: a note is
+  something somebody wrote, not a description of a change, and must not stand
+  in for the entry a change owes.
+
+The history itself is append-only by GRANT — no UPDATE, no DELETE, and
+`occurred_at` is not insertable — visible exactly where its Lead is, through
+an EXISTS that re-applies the Lead's own policy instead of restating §162.1 in
+a second place. That costs one more hop in the policy graph (four rather than
+three), which is recorded as a decision in `rls.test.ts` rather than left to
+be discovered.
+
+**Duplicate detection on an edit.** Re-run only when a normalised contact
+value CHANGES, through a three-argument matcher that excludes the Lead being
+edited. The §130.1 acknowledgement now binds the Lead id as well as actor,
+workspace and normalised submission, so a warning answered on one Lead cannot
+be replayed against another.
+
+**Lock order is unchanged:** stage row, then the acting member's row.
+Deactivation takes the membership only and stage deactivation the stage only,
+so no cycle exists. Authority is rechecked after every lock that may have
+waited, and 40001/40P01 map to a safe failure with rollback and no automatic
+retry.
+
+#### Verification
+
+- **Database suites: 244 passed**, seven files, against the local stack —
+  including eleven new tests that drive the tables directly, bypassing the
+  gateway, to prove the completeness guarantee lives in the database.
+- **Unit and component suites: 219 passed**, eight files.
+- **Migration replay: 13/13 applied** from their files on a disposable local
+  database, twelve state checks passed, database dropped afterwards. The
+  replay is what caught the missing `alter table ... owner to limenzy_owner`
+  on `lead_activities`, which left the table owned by the migration role.
+- **Final migration SHA-256:**
+  `e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
+
+#### Local browser walkthrough — 26 of 26 steps, witnessed
+
+Real Chrome driven over the DevTools Protocol, against an isolated production
+build on its own port with local Auth and database supplied through the
+process environment. Not user-reported: each step asserts against the rendered
+page and the database together, and the run was repeated three times from a
+clean seed with the same result.
+
+Sign-in · list · timeline · edit saving with no confirmation and surviving a
+reload · a stale save refused with nothing overwritten · **a stage change
+whose picker and record agree WITHOUT a reload** · Won pointing at the
+workspace's `won` row · Lost refused with no reason, refused again for
+"Something else" with no explanation, then recorded · Reopen showing the
+stage it reopened into, again without a reload, and clearing the reason from
+the record while the history keeps it · note · the whole nine-entry timeline
+after a reload · the duplicate warning retaining both typed fields and then
+writing the override row · 320px with no horizontal overflow, every control
+present, and the edit sheet open and usable.
+
+Four accommodations were needed, all properties of the harness rather than of
+the product, and all recorded with it: dev-mode hydration never completes in
+this headless Chrome, so the walkthrough runs against a production build;
+Radix opens its triggers on pointerdown, so clicks are real input events;
+React reverts a controlled input it never saw as a genuine edit, so text is
+typed through `Input.insertText`; and this renderer does not advance CSS
+animations, which would leave a sheet at its off-screen start. The harness and
+its screenshots are kept outside the repository, at
+`~/Limenzy-dev-tools/hosted-3c/local-verification`.
+
+#### Dependencies and limitations — all still open
+
+- **No conversion (§45, §46).** There is no `customers` table. No Convert
+  control is drawn, no choice is offered, and the screen says nothing about
+  conversion — a control that cannot run is worse than its absence, and a
+  sentence about when it will arrive is worse than both.
+- **No follow-up cancellation (§48).** There are no follow-ups to cancel.
+- Both are declared in `src/server/auth/lead-lifecycle-dependencies.ts` and
+  written up in `docs/dependencies.md`, and
+  `src/test/lead-lifecycle-dependencies.test.ts` fails the build the day
+  either table appears. A `TODO` would have kept passing.
+- **The timeline shows only the kinds this application can emit** — creation,
+  edits, stage moves, outcomes and notes. Calls, WhatsApp, email and follow-up
+  activity arrive with the features that produce them, and the screen does not
+  list what it cannot do.
+- **`outcome_missing` is unreachable** while §34's shape check holds a Won and
+  a Lost row in every workspace, so that branch exists for a database
+  corrupted by hand and is not exercised by any test.
+- **Still out of scope, unchanged from 3B:** owner reassignment, archive,
+  sharing, assignment and Sales Teams, and national-format phone duplicate
+  detection.
+- **Applied to hosted development**, see below. None of the limitations above
+  is changed by that: none of them is a deployment question.
+
+#### Applied to hosted development — 2026-10-19
+
+Through the tooling in `~/Limenzy-dev-tools/hosted-3c`, adapted from the
+validated 3B tooling and locally validated first on a disposable database
+built to the same state (preflight 39, apply 67, both clean, plus four
+negative controls). Totals below are read from the saved summaries, not from
+scrollback.
+
+- **Preflight: 44 passed, 0 failed.** TLSv1.3 to
+  `aws-0-ap-northeast-2.pooler.supabase.com`, chain verified against the
+  pinned CA, certificate naming the host, and both negative controls — a
+  mismatched server name and an unrelated CA — refused. Login
+  `postgres.<ref>` for the intended project, backend role `postgres`,
+  PostgreSQL 17.11. **Twelve predecessors recorded and exactly this migration
+  pending.**
+- **Apply: 67 passed, 0 failed.** Thirteen migrations recorded afterwards and
+  nothing else brought along.
+- **The intended data changes, accounted for separately.** All seven
+  fingerprinted tables came back byte-identical. `leads` was digested over
+  its fifteen PRE-EXISTING columns and came back identical too — then checked
+  separately for having gained exactly `revision`, `lost_reason` and
+  `lost_reason_note` and lost nothing. An intended addition could not stand
+  as the explanation for an unintended change, which is the reason the two
+  were ever separated.
+- **The backfill, checked per Lead.** Four Leads existed; four creation
+  entries were written, one each, every one carrying its own Lead's creator,
+  creation time and revision — dated **2026-10-17**, when those Leads were
+  made, not the moment of the apply. The digest matched what the preflight
+  recorded beforehand. No Lead was left without an entry, no entry was
+  orphaned, every Lead is still at revision 1, and none was given a Lost
+  reason.
+- **The completeness guarantee, verified on the target.** All three history
+  triggers present and enabled, `require_history` confirmed DEFERRABLE
+  INITIALLY DEFERRED, the history append-only by grant, and neither revision
+  column writable by the runtime role.
+- **Runtime read probes passed**, through `limenzy_app` on the transaction
+  pooler — the role and endpoint the application itself uses. `listLeads()`
+  saw four Leads, `leadDetail()` and `leadActivity()` answered nothing for an
+  id that is not a Lead there, `leadForEdit()` returned the revision every
+  control carries, and the backfilled timeline read back with its creation
+  entry naming the Lead's own creator at the Lead's own time. Nothing was
+  written.
+
+#### Follow-up: three UI defects found in use, and closed
+
+Reported after the hosted walkthrough. The slice's behaviour was correct;
+what it looked like, and what clock it was on, were not.
+
+- **The stage picker went stale after a save.** The record updated and the
+  picker showed the previous stage until the page was reloaded. The cause was
+  not the server: React resets a form once its action has run, and while the
+  picker sat inside that form the reset put its posted value back to the
+  stage the server had rendered, which the control then reported as though a
+  person had chosen it. **Measured in a browser, not reasoned about** — two
+  earlier attempts at this looked right and did not hold. The picker now sits
+  OUTSIDE its form and posts through a hidden field, so the reset cannot
+  reach it; and it holds a CHOICE rather than a value, dropped when the
+  submission settles or when the server confirms a different stage. A refused
+  save therefore snaps back to the stage the Lead really has instead of
+  leaving the attempt on screen, and an unrelated action such as adding a
+  note leaves a selection in progress alone. Move and Reopen both.
+- **A shared, themed Select, and controls with a hierarchy.** There was no
+  Select in `components/ui`; a native one cannot be themed, because its popup
+  belongs to the operating system — it ignored the colour tokens, the focus
+  ring and dark mode, and opened a system wheel on a phone. The new one is
+  built on the same `radix-ui` package and tokens as `dropdown-menu.tsx`, so
+  the popup, focus, keyboard and touch behaviour match what was already
+  here. The "Update this lead" area is now one card: the stage picker with
+  its primary action, a rule, then the secondary row. The note composer is
+  two rows with its button alongside, and the timeline is a rule with dots
+  rather than nine bordered boxes.
+- **Timestamps are in the workspace's §158 clock.** They were printed in UTC,
+  so a team in Kolkata read 04:34 for something they did at 10:04.
+  `src/lib/workspace-time.ts` formats on the server in the workspace's stored
+  IANA zone, following the pattern `invitation-display.ts` already set, and
+  the Activity section names the zone once rather than on every line. No
+  offset is written down anywhere: the label is asked of `Intl` for the
+  instant, so the same workspace reads BST in July and GMT in January. A
+  stored zone this runtime cannot use falls back to UTC **and says UTC**, so
+  a reader is never shown an hour under the wrong clock.
+
+**Focused results:** 194 tests across seven affected suites, including six new
+for the picker and ten for the time zone. The picker tests were checked
+against the broken code and against a half-fix, and fail on both. Two defects
+in the work itself were found and fixed on the way: a component declared
+during render, and a test harness in which all six action doubles were the
+same `vi.fn`, so calls and stubs leaked between tests and the suite was
+intermittently green for the wrong reason. The browser walkthrough was
+re-run against the shipped build — **26 of 26**, with three new steps
+asserting that the picker and the record agree without a reload.
+
+**No migration change.** These are application-only fixes; the applied
+migration is untouched and its SHA-256 is unchanged at
+`e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
+
 ## Milestone 4 — Sales Teams and Team membership foundation
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.

@@ -110,6 +110,14 @@ export const NO_RESPONSIBILITY_TABLES: readonly string[] = Object.freeze([
    * all whether the override was recorded.
    */
   "lead_duplicate_overrides",
+  /*
+   * §39's timeline is history: an append-only record of what already
+   * happened, attributed to whoever did it. Nobody is responsible for a
+   * past event, and the entries deliberately survive their author's
+   * deactivation — removing or reassigning them would falsify the record
+   * §29 says must be kept.
+   */
+  "lead_activities",
 ]);
 
 /**

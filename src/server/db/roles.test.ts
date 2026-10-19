@@ -99,6 +99,8 @@ const TABLES = [
   // Milestone 3B — Leads, the first business record (§30–§32, §130.1).
   "leads",
   "lead_duplicate_overrides",
+  // Milestone 3C — the §39 activity history, append-only.
+  "lead_activities",
 ] as const;
 
 /** The fixed role literal the provisioning script uses. */
@@ -209,8 +211,9 @@ describe.skipIf(!reachable)("Phase 1 ownership", () => {
         from pg_catalog.pg_type t
         join pg_catalog.pg_namespace n on n.oid = t.typnamespace
        where n.nspname = 'public' and t.typtype = 'e'`;
-    // Milestone 3A adds lead_stage_kind.
-    expect(types).toHaveLength(3);
+    // Milestone 3A adds lead_stage_kind; 3C adds lead_lost_reason and
+    // lead_activity_kind.
+    expect(types).toHaveLength(5);
     for (const row of types) {
       expect(`${row.typname}:${row.owner}`).toBe(
         `${row.typname}:limenzy_owner`,
@@ -347,6 +350,10 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       // workspace (§130.1) without describing what it found, and one takes
       // the stage row lock a Lead write needs, under an UPDATE policy whose
       // WITH CHECK is `false` so it can never write.
+      // Milestone 3C — §39's history: visible exactly where the Lead is,
+      // and written only in the acting member's own name.
+      "lead_activities_actor_insert -> {limenzy_app}",
+      "lead_activities_record_access_select -> {limenzy_app}",
       "lead_duplicate_overrides_insert -> {limenzy_app}",
       "lead_duplicate_overrides_select -> {limenzy_app}",
       "leads_add_insert -> {limenzy_app}",
@@ -460,6 +467,11 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       // Milestone 3B. Table-wide SELECT on both; what the runtime role may
       // WRITE is column-scoped and asserted column by column in the leads
       // suite — notably no write at all on the Record Owner.
+      // Milestone 3C. SELECT is table-wide; INSERT is column-scoped (and
+      // excludes `occurred_at`, which the database owns), so it does not
+      // appear here. There is no UPDATE and no DELETE at all — §39's
+      // "permanent" is a grant rather than a convention.
+      "lead_activities:SELECT",
       "lead_duplicate_overrides:SELECT",
       "leads:SELECT",
       "user_profiles:SELECT",

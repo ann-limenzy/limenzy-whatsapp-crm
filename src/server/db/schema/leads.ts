@@ -4,6 +4,8 @@ import {
   check,
   foreignKey,
   index,
+  integer,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -56,6 +58,32 @@ import { workspaces } from "./workspaces";
  *     The one §27 "record created" entry the detail screen shows is DERIVED
  *     from `created_at` and `created_by_user_profile_id`.
  */
+/** §48, with §33's list. Fixed rather than configurable — see the migration. */
+export const leadLostReason = pgEnum("lead_lost_reason", [
+  "not_interested",
+  "price",
+  "chose_competitor",
+  "unable_to_contact",
+  "other",
+]);
+
+/**
+ * §27's activity types, limited to the ones this application can emit.
+ *
+ * §27 lists more — calls, WhatsApp, email, follow-ups, conversion — and each
+ * arrives with the feature that produces it. A value nothing can write would
+ * imply coverage that does not exist.
+ */
+export const leadActivityKind = pgEnum("lead_activity_kind", [
+  "record_created",
+  "details_edited",
+  "stage_changed",
+  "marked_won",
+  "marked_lost",
+  "reopened",
+  "note_added",
+]);
+
 export const leads = pgTable(
   "leads",
   {
@@ -87,6 +115,22 @@ export const leads = pgTable(
     recordOwnerUserProfileId: uuid("record_owner_user_profile_id").notNull(),
     createdByUserProfileId: uuid("created_by_user_profile_id").notNull(),
 
+    /**
+     * The stale-edit token — §37.
+     *
+     * An integer, not `updated_at`. A timestamp has to survive a round trip
+     * through the browser exactly, and the driver hands `timestamptz` back as
+     * a `Date` in one runtime and a string in another; a `Date` holds only
+     * milliseconds, so two saves in the same millisecond stop being
+     * distinguishable. The database owns this column — the guard trigger
+     * increments it and the runtime role holds no grant on it.
+     */
+    revision: integer("revision").notNull().default(1),
+
+    /** §48, §33. Set only while the Lead sits in its workspace's lost stage. */
+    lostReason: leadLostReason("lost_reason"),
+    lostReasonNote: text("lost_reason_note"),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -96,6 +140,15 @@ export const leads = pgTable(
   },
   (table) => [
     unique("leads_workspace_id_key").on(table.workspaceId, table.id),
+    check("leads_revision_positive", sql`${table.revision} > 0`),
+    check(
+      "leads_lost_reason_note_length",
+      sql`${table.lostReasonNote} is null or char_length(${table.lostReasonNote}) <= 500`,
+    ),
+    check(
+      "leads_lost_reason_note_requires_reason",
+      sql`${table.lostReasonNote} is null or ${table.lostReason} is not null`,
+    ),
 
     foreignKey({
       name: "leads_stage_fkey",
@@ -266,6 +319,142 @@ export const leadDuplicateOverrides = pgTable(
     index("lead_duplicate_overrides_lead_idx").on(
       table.workspaceId,
       table.leadId,
+    ),
+  ],
+);
+
+/**
+ * The activity history — §27, §39.
+ *
+ * **Append-only.** §39 calls notes "part of the Lead's permanent activity
+ * history", and permanent is enforced as a grant rather than a convention:
+ * no application role holds UPDATE or DELETE here, so nobody can rewrite the
+ * record of what they did.
+ *
+ * Every reference carries the workspace, including both ends of a stage
+ * change, so an entry cannot describe a move between another tenant's stages.
+ *
+ * `changed_fields` names which fields an edit touched and never their old
+ * values: the feed is visible to everyone who can see the Lead, and a
+ * previous phone number is contact data rather than history anyone needs on
+ * screen.
+ */
+export const leadActivities = pgTable(
+  "lead_activities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
+
+    leadId: uuid("lead_id").notNull(),
+
+    kind: leadActivityKind("kind").notNull(),
+
+    /**
+     * §39 requires an author. Nullable only for a backfilled creation entry
+     * whose creator is no longer resolvable — never for a row this
+     * application writes, which the insert policy pins to the acting profile.
+     */
+    actorUserProfileId: uuid("actor_user_profile_id"),
+
+    fromStageId: uuid("from_stage_id"),
+    toStageId: uuid("to_stage_id"),
+
+    changedFields: text("changed_fields").array(),
+
+    /** §39's note content, and §48's optional explanation. */
+    note: text("note"),
+
+    lostReason: leadLostReason("lost_reason"),
+
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+
+    /**
+     * Which version of the Lead this entry describes.
+     *
+     * Stamped by a trigger from the Lead row, and read at COMMIT by a
+     * deferred constraint that refuses a material change leaving no entry
+     * for the revision it produced. No application role holds a grant on
+     * it, so nothing here can set, hold or back-date it.
+     */
+    leadRevision: integer("lead_revision").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: "lead_activities_lead_fkey",
+      columns: [table.workspaceId, table.leadId],
+      foreignColumns: [leads.workspaceId, leads.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "lead_activities_actor_fkey",
+      columns: [table.workspaceId, table.actorUserProfileId],
+      foreignColumns: [
+        workspaceMemberships.workspaceId,
+        workspaceMemberships.userProfileId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "lead_activities_from_stage_fkey",
+      columns: [table.workspaceId, table.fromStageId],
+      foreignColumns: [workspaceLeadStages.workspaceId, workspaceLeadStages.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "lead_activities_to_stage_fkey",
+      columns: [table.workspaceId, table.toStageId],
+      foreignColumns: [workspaceLeadStages.workspaceId, workspaceLeadStages.id],
+    }).onDelete("restrict"),
+
+    /**
+     * A note is a timeline entry, not a document. 2000 characters is about
+     * four phone screens, past the point where the next note is the better
+     * answer; the Lead's own `notes` field stays 4000 for standing
+     * information about the person.
+     */
+    check(
+      "lead_activities_note_length",
+      sql`${table.note} is null or char_length(${table.note}) <= 2000`,
+    ),
+    check(
+      "lead_activities_note_not_blank",
+      sql`${table.note} is null or btrim(${table.note}) <> ''`,
+    ),
+    check(
+      "lead_activities_note_requires_kind",
+      sql`${table.note} is null or ${table.kind} in ('note_added', 'marked_lost')`,
+    ),
+    check(
+      "lead_activities_note_added_has_note",
+      sql`${table.kind} <> 'note_added' or ${table.note} is not null`,
+    ),
+    check(
+      "lead_activities_stage_move_has_both_ends",
+      sql`${table.kind} not in ('stage_changed', 'marked_won', 'marked_lost', 'reopened') or (${table.fromStageId} is not null and ${table.toStageId} is not null)`,
+    ),
+    check(
+      "lead_activities_lost_reason_only_when_lost",
+      sql`${table.lostReason} is null or ${table.kind} = 'marked_lost'`,
+    ),
+    check(
+      "lead_activities_marked_lost_has_reason",
+      sql`${table.kind} <> 'marked_lost' or ${table.lostReason} is not null`,
+    ),
+    check(
+      "lead_activities_changed_fields_only_on_edit",
+      sql`${table.changedFields} is null or (${table.kind} = 'details_edited' and array_length(${table.changedFields}, 1) >= 1)`,
+    ),
+    check(
+      "lead_activities_edit_names_fields",
+      sql`${table.kind} <> 'details_edited' or ${table.changedFields} is not null`,
+    ),
+
+    index("lead_activities_lead_idx").on(
+      table.workspaceId,
+      table.leadId,
+      sql`${table.occurredAt} desc`,
     ),
   ],
 );

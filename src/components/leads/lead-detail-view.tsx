@@ -1,10 +1,19 @@
-import { Info, Mail, Phone, TriangleAlert } from "lucide-react";
+import { Mail, Phone, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 
 import { StatusBadge } from "@/components/data/status-badge";
+import {
+  LeadLifecyclePanel,
+  type StageOption,
+} from "@/components/leads/lead-lifecycle-panel";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { LeadDetail } from "@/server/auth/workspace-leads";
+import { LEAD_LOST_REASON_LABELS } from "@/lib/validation/leads";
+import type {
+  LeadActivityEntry,
+  LeadDetail,
+  LeadForEdit,
+} from "@/server/auth/workspace-leads";
 
 /**
  * Lead Detail — §35, §36, §37, and the one §27 activity this slice can show.
@@ -18,10 +27,11 @@ import type { LeadDetail } from "@/server/auth/workspace-leads";
  * actions that do not exist. Drawing them disabled would promise six features
  * instead of shipping one honestly.
  *
- * **The activity section is the §27 "record created" entry and nothing else.**
- * It is derived from the Lead's own `created_at` and creator rather than read
- * from a timeline table, because there is no timeline: notes, calls, stage
- * changes and the rest arrive with the features that emit them.
+ * **The activity section is the real §39 timeline**, read from
+ * `lead_activities`. It renders the kinds this application can emit — notes,
+ * edits, stage moves and outcomes — and says nothing about the ones it
+ * cannot. A screen that lists what the product does not do yet is a build
+ * plan, not a record; the gaps are tracked in `docs/dependencies.md`.
  */
 
 function Row({
@@ -39,17 +49,88 @@ function Row({
   );
 }
 
+/** One line of §39's timeline, in plain words. */
+function describe(
+  entry: LeadActivityEntry,
+  actorName: string,
+): { readonly headline: string; readonly detail?: string } {
+  switch (entry.kind) {
+    case "record_created":
+      return { headline: `Lead created by ${actorName}` };
+    case "details_edited":
+      return {
+        headline: `${actorName} edited the details`,
+        detail: (entry.changedFields ?? []).join(", "),
+      };
+    case "stage_changed":
+      return {
+        headline: `${actorName} changed the stage`,
+        detail: `${entry.fromStageName} → ${entry.toStageName}`,
+      };
+    case "marked_won":
+      return { headline: `${actorName} marked it won` };
+    case "marked_lost":
+      return {
+        headline: `${actorName} marked it lost`,
+        detail: [
+          entry.lostReason ? LEAD_LOST_REASON_LABELS[entry.lostReason] : null,
+          entry.note,
+        ]
+          .filter(Boolean)
+          .join(" — "),
+      };
+    case "reopened":
+      return {
+        headline: `${actorName} reopened it`,
+        detail: `moved to ${entry.toStageName}`,
+      };
+    case "note_added":
+      return {
+        headline: `${actorName} added a note`,
+        detail: entry.note ?? "",
+      };
+  }
+}
+
 export function LeadDetailView({
   lead,
+  editable,
+  activity,
+  actorNames,
+  stages,
+  sources,
+  workspaceId,
   ownerName,
-  createdByName,
   createdOn,
+  formatWhen,
+  timeZoneLabel,
 }: {
   lead: LeadDetail;
+  /**
+   * The same Lead, with the revision every control has to carry — `null`
+   * when §162 withholds `edit_permitted_records`, in which case no control
+   * is drawn at all rather than one that would be refused on submission.
+   */
+  editable: LeadForEdit | null;
+  activity: readonly LeadActivityEntry[];
+  /** Profile id to display name, for §39's authorship. */
+  actorNames: Readonly<Record<string, string>>;
+  /** Open, ordinary stages — the only ones a Lead can be moved to by hand. */
+  stages: readonly StageOption[];
+  sources: readonly StageOption[];
+  workspaceId: string;
   ownerName: string;
-  createdByName: string;
   /** Formatted on the server, so the markup does not depend on the locale. */
   createdOn: string;
+  /**
+   * A moment, in the WORKSPACE's §158 time zone — not UTC and not the
+   * reader's laptop. Passed in already formatted, because a client component
+   * that formatted it itself would render one string on the server and
+   * another in the browser.
+   */
+  formatWhen: (when: Date) => string;
+  /** How to name that zone on screen, e.g. "Asia/Kolkata (GMT+5:30)". */
+  timeZoneLabel: string;
 }) {
   return (
     <div className="grid gap-6">
@@ -119,6 +200,12 @@ export function LeadDetailView({
           <Row label="Record owner">{ownerName}</Row>
           <Row label="Phone">{lead.phone ?? "Not recorded"}</Row>
           <Row label="Email">{lead.email ?? "Not recorded"}</Row>
+          {editable?.lostReason ? (
+            <Row label="Lost reason">
+              {LEAD_LOST_REASON_LABELS[editable.lostReason]}
+              {editable.lostReasonNote ? ` — ${editable.lostReasonNote}` : null}
+            </Row>
+          ) : null}
           <Row label="Created">{createdOn}</Row>
           <Row label="Notes">
             {lead.notes ? (
@@ -130,26 +217,77 @@ export function LeadDetailView({
         </dl>
       </section>
 
+      {editable ? (
+        <>
+          <Separator />
+
+          <section aria-labelledby="lead-actions" className="grid gap-3">
+            <h2 id="lead-actions" className="text-base font-semibold">
+              Update this lead
+            </h2>
+            <LeadLifecyclePanel
+              lead={editable}
+              stages={stages}
+              sources={sources}
+              workspaceId={workspaceId}
+            />
+          </section>
+        </>
+      ) : null}
+
       <Separator />
 
       <section aria-labelledby="lead-activity" className="grid gap-2">
         <h2 id="lead-activity" className="text-base font-semibold">
           Activity
         </h2>
-        <ol className="grid gap-2">
-          <li className="rounded-lg border border-border p-3">
-            <p className="text-sm font-medium">Lead created</p>
-            <p className="text-xs text-muted-foreground">
-              {createdOn} · by {createdByName}
-            </p>
-          </li>
-        </ol>
-        <p className="flex items-start gap-2 text-xs text-muted-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            Notes, calls, follow-ups and stage changes will appear here as those
-            features arrive.
-          </span>
+        {activity.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing has been recorded for this lead yet.
+          </p>
+        ) : (
+          /*
+           * A rule with dots, not a stack of cards. Nine bordered boxes read
+           * as nine separate things; a timeline reads as one sequence, which
+           * is what it is — and it costs less vertical space on a phone,
+           * where this list is the longest thing on the screen.
+           */
+          <ol className="relative ml-1.5 grid gap-0 border-l border-border pl-5">
+            {activity.map((entry) => {
+              const actor = entry.actorUserProfileId
+                ? (actorNames[entry.actorUserProfileId] ?? "a team member")
+                : "the system";
+              const { headline, detail } = describe(entry, actor);
+              return (
+                <li key={entry.id} className="relative py-2.5">
+                  <span
+                    aria-hidden="true"
+                    className="absolute top-[1.1rem] -left-[1.4rem] size-2 rounded-full border-2 border-surface bg-border"
+                  />
+                  {/*
+                    Stacked on a phone, ranged right on anything wider. Left
+                    to wrap, the time sat beside a short headline and under a
+                    long one, which made the column look accidental.
+                  */}
+                  <div className="flex flex-col gap-y-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-x-3">
+                    <p className="text-sm font-medium">{headline}</p>
+                    <time className="order-first text-xs whitespace-nowrap text-muted-foreground sm:order-none">
+                      {formatWhen(entry.occurredAt)}
+                    </time>
+                  </div>
+                  {detail ? (
+                    <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted-foreground">
+                      {detail}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+        {/* Said once, rather than on all nine lines. */}
+        <p className="text-xs text-muted-foreground">
+          Times shown in {timeZoneLabel}.
         </p>
       </section>
 

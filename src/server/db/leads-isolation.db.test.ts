@@ -148,6 +148,10 @@ afterAll(async () => {
   if (reachable && recorded) {
     for (const workspace of recorded.workspaces) {
       await admin()`
+        delete from public.lead_activities where workspace_id = ${workspace}`.catch(
+        () => {},
+      );
+      await admin()`
         delete from public.lead_duplicate_overrides where workspace_id = ${workspace}`.catch(
         () => {},
       );
@@ -783,6 +787,12 @@ describe.skipIf(!reachable)(
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${target.userProfileId}`;
       await admin()`
+        delete from public.lead_activities a
+         using public.leads l
+         where a.workspace_id = l.workspace_id and a.lead_id = l.id
+           and l.workspace_id = ${fixture.workspaceA}
+           and l.record_owner_user_profile_id = ${target.userProfileId}`;
+      await admin()`
         delete from public.leads
          where workspace_id = ${fixture.workspaceA}
            and record_owner_user_profile_id = ${target.userProfileId}`;
@@ -861,6 +871,12 @@ describe.skipIf(!reachable)(
       // The other order: the deactivation commits first, and the Lead write
       // reads the committed status rather than its own stale snapshot.
       const target = fixture.manager;
+      await admin()`
+        delete from public.lead_activities a
+         using public.leads l
+         where a.workspace_id = l.workspace_id and a.lead_id = l.id
+           and l.workspace_id = ${fixture.workspaceA}
+           and l.record_owner_user_profile_id = ${target.userProfileId}`;
       await admin()`
         delete from public.leads
          where workspace_id = ${fixture.workspaceA}

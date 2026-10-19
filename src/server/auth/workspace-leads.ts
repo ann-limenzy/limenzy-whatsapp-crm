@@ -1,7 +1,13 @@
 import "server-only";
 
-import type { DuplicateMatchField, ParsedLead } from "@/lib/validation/leads";
-import { normaliseSearch } from "@/lib/validation/leads";
+import type {
+  DuplicateMatchField,
+  EditableLeadField,
+  LeadLostReason,
+  ParsedLead,
+} from "@/lib/validation/leads";
+import { changedLeadFields, normaliseSearch } from "@/lib/validation/leads";
+import type { LeadStageKind } from "@/lib/validation/lead-pipeline";
 import { withTenant, type TenantTx } from "@/server/db/tenant";
 import type { TenantContext } from "@/server/db/tenant-context";
 
@@ -344,6 +350,8 @@ async function duplicateCandidates(
     readonly phoneNormalised: string | null;
     readonly emailNormalised: string | null;
   },
+  /** The Lead being edited, which must not report itself as its own match. */
+  excludeLeadId: string | null = null,
 ): Promise<readonly DuplicateCandidate[]> {
   if (contact.phoneNormalised === null && contact.emailNormalised === null) {
     return [];
@@ -351,7 +359,8 @@ async function duplicateCandidates(
   const matches = await tx<{ lead_id: string; matched_fields: string[] }[]>`
     select lead_id, matched_fields
       from app.lead_duplicate_candidates(
-        ${contact.phoneNormalised}, ${contact.emailNormalised})
+        ${contact.phoneNormalised}, ${contact.emailNormalised},
+        ${excludeLeadId}::uuid)
   `;
   if (matches.length === 0) return [];
 
@@ -502,19 +511,16 @@ export async function createLead(
       const id = inserted[0]?.id;
       if (!id) return { ok: false, reason: "not_permitted" } as const;
 
+      /*
+       * §39's first entry is NOT written here. An AFTER INSERT trigger on
+       * `leads` writes it, so a Lead cannot exist without the history saying
+       * where it came from — whatever inserted it, and whether or not a
+       * future code path remembers to. Leads created before 3C were given
+       * theirs by the migration's backfill.
+       */
+
       if (options.override === true && candidates.length > 0) {
-        const fields = [...new Set(candidates.flatMap((c) => c.matchedFields))];
-        await tx`
-          insert into public.lead_duplicate_overrides
-            (workspace_id, lead_id, overridden_by_user_profile_id,
-             candidate_lead_ids, matched_fields, explanation)
-          values
-            (${context.workspaceId}::uuid, ${id}::uuid,
-             ${context.userProfileId}::uuid,
-             ${candidates.map((c) => c.id)}::uuid[],
-             ${fields}::text[],
-             ${options.overrideExplanation ?? null})
-        `;
+        await recordOverride(tx, context, id, candidates, options);
       }
 
       return { ok: true, leadId: id } as const;
@@ -556,4 +562,618 @@ export async function countLeadsOwnedBy(
    * distinction impossible to ignore.
    */
   return typeof owned === "number" ? owned : null;
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 3C — editing, stage changes and history
+// ---------------------------------------------------------------------------
+
+/**
+ * Every mutation below shares one shape, and it is worth stating once.
+ *
+ * ## Lock order, across the whole application
+ *
+ *     stage row  →  the acting member's own row
+ *
+ * A Lead write that touches a stage takes `app.lock_lead_stage()` first, then
+ * `app.lock_actor_membership()`. Deactivating a member takes only the
+ * membership row; deactivating a stage takes only the stage row; changing a
+ * role takes only the membership row. Nothing takes membership before stage,
+ * so no cycle exists and no pair can deadlock.
+ *
+ * ## Authority is rechecked AFTER the waits
+ *
+ * Both locks can block. Whatever the actor's membership was when the request
+ * began, what matters is what it is once the locks are held — so the
+ * membership status is read from the lock itself and an inactive member is
+ * refused, even though their request began while they were active.
+ *
+ * ## Every change and its history entry are one transaction
+ *
+ * §39 calls the history permanent. A change without its entry would be a
+ * record of something that did not happen, and an entry without its change
+ * the reverse, so both are written inside one `withTenant()` call and roll
+ * back together.
+ *
+ * ## Aborts are refusals, never retries
+ *
+ * 40001 and 40P01 come back as `unavailable`. Re-running a mutation that may
+ * already have applied is how a deadlock becomes a double change.
+ */
+
+const ABORTED_SQLSTATES: ReadonlySet<string> = new Set(["40001", "40P01"]);
+
+const isConcurrencyAbort = (error: unknown): boolean =>
+  ABORTED_SQLSTATES.has(sqlState(error) ?? "");
+
+export type LeadChangeResult =
+  | { readonly ok: true }
+  /** §162.1 does not let this actor touch this Lead, or it is not here. */
+  | { readonly ok: false; readonly reason: "not_permitted" }
+  /** Somebody else saved first. §37's edits are not merged. */
+  | { readonly ok: false; readonly reason: "stale" }
+  /** The chosen stage is closed, or is an outcome where one is not allowed. */
+  | { readonly ok: false; readonly reason: "stage_unavailable" }
+  /** The workspace has no Won or Lost row — §34 says it must. */
+  | { readonly ok: false; readonly reason: "outcome_missing" }
+  /** §130.1 candidates exist and the actor did not, or may not, override. */
+  | {
+      readonly ok: false;
+      readonly reason: "duplicate";
+      readonly candidates: readonly DuplicateCandidate[];
+    }
+  | { readonly ok: false; readonly reason: "refused" }
+  | { readonly ok: false; readonly reason: "unavailable" };
+
+function changeRefusal(error: unknown): LeadChangeResult {
+  if (isConcurrencyAbort(error)) return { ok: false, reason: "unavailable" };
+  const state = sqlState(error);
+  if (state === INSUFFICIENT_PRIVILEGE || state === FOREIGN_KEY_VIOLATION) {
+    return { ok: false, reason: "not_permitted" };
+  }
+  if (
+    state === CHECK_VIOLATION ||
+    state === RAISE_EXCEPTION ||
+    state === UNIQUE_VIOLATION
+  ) {
+    return { ok: false, reason: "refused" };
+  }
+  throw error;
+}
+
+export type LeadActivityEntry = {
+  readonly id: string;
+  readonly kind:
+    | "record_created"
+    | "details_edited"
+    | "stage_changed"
+    | "marked_won"
+    | "marked_lost"
+    | "reopened"
+    | "note_added";
+  readonly actorUserProfileId: string | null;
+  readonly fromStageName: string | null;
+  readonly toStageName: string | null;
+  readonly changedFields: readonly string[] | null;
+  readonly note: string | null;
+  readonly lostReason: LeadLostReason | null;
+  readonly occurredAt: Date;
+};
+
+/** The §39 timeline for one Lead, newest first. */
+export async function leadActivity(
+  context: TenantContext,
+  leadId: string,
+): Promise<readonly LeadActivityEntry[]> {
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<
+        {
+          id: string;
+          kind: LeadActivityEntry["kind"];
+          actor_user_profile_id: string | null;
+          from_stage_name: string | null;
+          to_stage_name: string | null;
+          changed_fields: string[] | null;
+          note: string | null;
+          lost_reason: LeadLostReason | null;
+          occurred_at: Date | string;
+        }[]
+      >`
+        select a.id, a.kind::text as kind, a.actor_user_profile_id,
+               f.name as from_stage_name, t.name as to_stage_name,
+               a.changed_fields, a.note, a.lost_reason::text as lost_reason,
+               a.occurred_at
+          from public.lead_activities a
+          left join public.workspace_lead_stages f
+            on f.workspace_id = a.workspace_id and f.id = a.from_stage_id
+          left join public.workspace_lead_stages t
+            on t.workspace_id = a.workspace_id and t.id = a.to_stage_id
+         where a.lead_id = ${leadId}::uuid
+         order by a.occurred_at desc, a.id desc
+         limit 200
+      `,
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    actorUserProfileId: row.actor_user_profile_id,
+    fromStageName: row.from_stage_name,
+    toStageName: row.to_stage_name,
+    changedFields: row.changed_fields,
+    note: row.note,
+    lostReason: row.lost_reason,
+    occurredAt: new Date(row.occurred_at),
+  }));
+}
+
+/** The Lead as the edit form needs it, including its revision. */
+export type LeadForEdit = {
+  readonly id: string;
+  readonly revision: number;
+  readonly name: string;
+  readonly phone: string | null;
+  readonly email: string | null;
+  readonly notes: string | null;
+  readonly stageId: string;
+  readonly stageKind: LeadStageKind;
+  readonly sourceId: string | null;
+  readonly lostReason: LeadLostReason | null;
+  readonly lostReasonNote: string | null;
+};
+
+export async function leadForEdit(
+  context: TenantContext,
+  leadId: string,
+): Promise<LeadForEdit | null> {
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<
+        {
+          id: string;
+          revision: number;
+          name: string;
+          phone: string | null;
+          email: string | null;
+          notes: string | null;
+          stage_id: string;
+          stage_kind: LeadStageKind;
+          source_id: string | null;
+          lost_reason: LeadLostReason | null;
+          lost_reason_note: string | null;
+        }[]
+      >`
+        select l.id, l.revision, l.name, l.phone, l.email, l.notes,
+               l.stage_id, s.kind::text as stage_kind, l.source_id,
+               l.lost_reason::text as lost_reason, l.lost_reason_note
+          from public.leads l
+          join public.workspace_lead_stages s
+            on s.workspace_id = l.workspace_id and s.id = l.stage_id
+         where l.id = ${leadId}::uuid
+      `,
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    revision: row.revision,
+    name: row.name,
+    phone: row.phone,
+    email: row.email,
+    notes: row.notes,
+    stageId: row.stage_id,
+    stageKind: row.stage_kind,
+    sourceId: row.source_id,
+    lostReason: row.lost_reason,
+    lostReasonNote: row.lost_reason_note,
+  };
+}
+
+/**
+ * Hold the acting member's row and confirm they are still active.
+ *
+ * Called after every lock a mutation takes, because a lock that waited may
+ * have waited on the very transaction that deactivated this person.
+ */
+async function actorStillActive(tx: TenantTx): Promise<boolean> {
+  const [row] = await tx<{ status: string | null }[]>`
+    select app.lock_actor_membership() as status
+  `;
+  return row?.status === "active";
+}
+
+export type EditLeadOptions = {
+  /** §130.1's Create Anyway, for an edit that collides with another Lead. */
+  readonly override?: boolean;
+  readonly overrideExplanation?: string | null;
+};
+
+/**
+ * Edit a Lead's details — §37, §39, §130.1.
+ *
+ * `expectedRevision` is the stale-edit guard. The UPDATE carries it in its
+ * WHERE clause, so two people who opened the same Lead cannot both save:
+ * whoever is second matches no row and is told, rather than silently
+ * overwriting work they never saw.
+ *
+ * Duplicate detection runs again when a normalised contact value CHANGES,
+ * excluding this Lead so it cannot report itself. §130.1 names creation, not
+ * editing; the same collision is the same problem, so the same check applies.
+ */
+export async function editLead(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  lead: ParsedLead,
+  options: EditLeadOptions = {},
+): Promise<LeadChangeResult> {
+  try {
+    return await withTenant(context, async (tx) => {
+      if (!(await actorStillActive(tx))) {
+        return { ok: false, reason: "not_permitted" } as const;
+      }
+
+      const [before] = await tx<
+        {
+          name: string;
+          phone: string | null;
+          email: string | null;
+          notes: string | null;
+          source_id: string | null;
+          phone_normalised: string | null;
+          email_normalised: string | null;
+          stage_id: string;
+        }[]
+      >`
+        select name, phone, email, notes, source_id,
+               phone_normalised, email_normalised, stage_id
+          from public.leads where id = ${leadId}::uuid
+      `;
+      // Filtered by §162.1, or simply not a Lead here. Same answer either way.
+      if (!before) return { ok: false, reason: "not_permitted" } as const;
+
+      /*
+       * Only when a comparison value CHANGES. Re-warning about a Lead's own
+       * unchanged number on every save would train people to click through
+       * the warning, which is how a warning stops working.
+       */
+      const contactChanged =
+        before.phone_normalised !== lead.phoneNormalised ||
+        before.email_normalised !== lead.emailNormalised;
+      let candidates: readonly DuplicateCandidate[] = [];
+      if (contactChanged) {
+        candidates = await duplicateCandidates(tx, lead, leadId);
+        if (candidates.length > 0 && options.override !== true) {
+          return { ok: false, reason: "duplicate", candidates } as const;
+        }
+      }
+
+      const changed = changedLeadFields(
+        {
+          name: before.name,
+          phone: before.phone,
+          email: before.email,
+          notes: before.notes,
+          sourceId: before.source_id,
+        },
+        lead,
+      );
+      // Nothing to record and nothing to write. Not an error — a no-op save.
+      if (changed.length === 0) return { ok: true } as const;
+
+      const updated = await tx<{ id: string }[]>`
+        update public.leads
+           set name = ${lead.name},
+               phone = ${lead.phone},
+               phone_normalised = ${lead.phoneNormalised},
+               phone_needs_review = ${lead.phoneNeedsReview},
+               email = ${lead.email},
+               email_normalised = ${lead.emailNormalised},
+               notes = ${lead.notes},
+               source_id = ${lead.sourceId}
+         where id = ${leadId}::uuid
+           and revision = ${expectedRevision}
+        returning id
+      `;
+      /*
+       * No row means the revision moved: somebody saved while this form was
+       * open. The row is still there and still theirs to edit — they simply
+       * have to look at what changed first.
+       */
+      if (updated.length === 0) return { ok: false, reason: "stale" } as const;
+
+      await recordActivity(tx, context, leadId, {
+        kind: "details_edited",
+        changedFields: changed,
+      });
+
+      if (options.override === true && candidates.length > 0) {
+        await recordOverride(tx, context, leadId, candidates, options);
+      }
+      return { ok: true } as const;
+    });
+  } catch (error) {
+    return changeRefusal(error);
+  }
+}
+
+/** Move a Lead to another ORDINARY stage — §39's "changed stage". */
+export async function changeLeadStage(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  stageId: string,
+): Promise<LeadChangeResult> {
+  return moveStage(context, leadId, expectedRevision, {
+    kind: "stage_changed",
+    resolve: async (tx) => {
+      // The lock the contract requires, before the stage is referenced.
+      const [stage] = await tx<
+        { stage_id: string; is_active: boolean; kind: string }[]
+      >`select stage_id, is_active, kind from app.lock_lead_stage(${stageId}::uuid)`;
+      if (!stage) return { problem: "not_permitted" as const };
+      /* §45 and §48 are how a Lead reaches an outcome; the picker cannot. */
+      if (stage.kind !== "active" || !stage.is_active) {
+        return { problem: "stage_unavailable" as const };
+      }
+      return { stageId: stage.stage_id };
+    },
+  });
+}
+
+/**
+ * Mark a Lead Won — §45.
+ *
+ * The outcome is the Lead's stage, found by the immutable `kind`. §34 lets a
+ * workspace rename Won, so a lookup by label would break the day someone did.
+ *
+ * No conversion is offered. §45 asks for "Convert this Lead into a Customer?"
+ * and there is no Customer; a prompt whose only honest answer is "not yet" is
+ * worse than none. Recorded in `lead-lifecycle-dependencies.ts`.
+ */
+export async function markLeadWon(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+): Promise<LeadChangeResult> {
+  return moveStage(context, leadId, expectedRevision, {
+    kind: "marked_won",
+    resolve: (tx) => outcomeStage(tx, "won"),
+  });
+}
+
+/** Mark a Lead Lost, with the reason §48 requires. */
+export async function markLeadLost(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  outcome: { readonly reason: LeadLostReason; readonly note: string | null },
+): Promise<LeadChangeResult> {
+  return moveStage(context, leadId, expectedRevision, {
+    kind: "marked_lost",
+    resolve: (tx) => outcomeStage(tx, "lost"),
+    lost: outcome,
+  });
+}
+
+/**
+ * Reopen a Lost Lead into an active ordinary stage — §48.
+ *
+ * The reason is cleared from the Lead and kept in its history: the Lead is no
+ * longer lost, but that it once was, and why, is permanent.
+ */
+export async function reopenLead(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  stageId: string,
+): Promise<LeadChangeResult> {
+  return moveStage(context, leadId, expectedRevision, {
+    /*
+     * No `lost` outcome, so the write below clears the reason. The Lead is
+     * no longer lost; that it once was, and why, stays in its history.
+     */
+    kind: "reopened",
+    resolve: async (tx) => {
+      const [stage] = await tx<
+        { stage_id: string; is_active: boolean; kind: string }[]
+      >`select stage_id, is_active, kind from app.lock_lead_stage(${stageId}::uuid)`;
+      if (!stage) return { problem: "not_permitted" as const };
+      if (stage.kind !== "active" || !stage.is_active) {
+        return { problem: "stage_unavailable" as const };
+      }
+      return { stageId: stage.stage_id };
+    },
+  });
+}
+
+/** Add a note — §39. No confirmation: §28 lists "add note" as not needing one. */
+export async function addLeadNote(
+  context: TenantContext,
+  leadId: string,
+  note: string,
+): Promise<LeadChangeResult> {
+  try {
+    return await withTenant(context, async (tx) => {
+      if (!(await actorStillActive(tx))) {
+        return { ok: false, reason: "not_permitted" } as const;
+      }
+      /*
+       * A note changes no Lead field, so there is no revision to check: two
+       * notes written at once are both wanted, which is the opposite of two
+       * edits written at once.
+       */
+      const [lead] = await tx<{ id: string }[]>`
+        select id from public.leads where id = ${leadId}::uuid
+      `;
+      if (!lead) return { ok: false, reason: "not_permitted" } as const;
+
+      await recordActivity(tx, context, leadId, { kind: "note_added", note });
+      return { ok: true } as const;
+    });
+  } catch (error) {
+    return changeRefusal(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The pieces every mutation shares
+// ---------------------------------------------------------------------------
+
+/** §130.1's override record, written in the same transaction as the change. */
+async function recordOverride(
+  tx: TenantTx,
+  context: TenantContext,
+  leadId: string,
+  candidates: readonly DuplicateCandidate[],
+  options: { readonly overrideExplanation?: string | null },
+): Promise<void> {
+  const fields = [...new Set(candidates.flatMap((c) => c.matchedFields))];
+  await tx`
+    insert into public.lead_duplicate_overrides
+      (workspace_id, lead_id, overridden_by_user_profile_id,
+       candidate_lead_ids, matched_fields, explanation)
+    values
+      (${context.workspaceId}::uuid, ${leadId}::uuid,
+       ${context.userProfileId}::uuid,
+       ${candidates.map((c) => c.id)}::uuid[],
+       ${fields}::text[],
+       ${options.overrideExplanation ?? null})
+  `;
+}
+
+type ActivityToRecord = {
+  readonly kind: LeadActivityEntry["kind"];
+  readonly fromStageId?: string;
+  readonly toStageId?: string;
+  readonly changedFields?: readonly EditableLeadField[];
+  readonly note?: string;
+  readonly lostReason?: LeadLostReason;
+};
+
+/**
+ * Write one history entry — §39.
+ *
+ * Always inside the caller's transaction, never after it, and always AFTER
+ * the change it describes: a trigger stamps the entry with the Lead's
+ * revision as it stands, and a deferred constraint checks at COMMIT that the
+ * revision each material change produced has an entry. Writing the entry
+ * first would stamp the old revision and abort the transaction.
+ *
+ * The author is the acting profile and the policy pins it there, so nobody
+ * writes history in somebody else's name; the time comes from the database.
+ */
+async function recordActivity(
+  tx: TenantTx,
+  context: TenantContext,
+  leadId: string,
+  entry: ActivityToRecord,
+): Promise<void> {
+  await tx`
+    insert into public.lead_activities
+      (workspace_id, lead_id, kind, actor_user_profile_id,
+       from_stage_id, to_stage_id, changed_fields, note, lost_reason)
+    values
+      (${context.workspaceId}::uuid, ${leadId}::uuid, ${entry.kind},
+       ${context.userProfileId}::uuid,
+       ${entry.fromStageId ?? null}, ${entry.toStageId ?? null},
+       ${entry.changedFields ? [...entry.changedFields] : null},
+       ${entry.note ?? null}, ${entry.lostReason ?? null})
+  `;
+}
+
+/** Find the workspace's Won or Lost row by its immutable kind, and lock it. */
+async function outcomeStage(
+  tx: TenantTx,
+  kind: "won" | "lost",
+): Promise<{ stageId: string } | { problem: "outcome_missing" }> {
+  const [row] = await tx<{ id: string }[]>`
+    select id from public.workspace_lead_stages
+     where kind = ${kind}::public.lead_stage_kind
+  `;
+  if (!row) return { problem: "outcome_missing" };
+  /*
+   * Locked like any other stage, so a Lead arriving at an outcome obeys the
+   * same contract as one arriving anywhere else. An outcome can never be
+   * deactivated, so this lock never fails — it keeps the ORDER uniform,
+   * which is what stops a cycle appearing later.
+   */
+  const [locked] = await tx<{ stage_id: string }[]>`
+    select stage_id from app.lock_lead_stage(${row.id}::uuid)
+  `;
+  if (!locked) return { problem: "outcome_missing" };
+  return { stageId: locked.stage_id };
+}
+
+type StageMove = {
+  readonly kind: LeadActivityEntry["kind"];
+  readonly resolve: (
+    tx: TenantTx,
+  ) => Promise<
+    | { stageId: string }
+    | { problem: "not_permitted" | "stage_unavailable" | "outcome_missing" }
+  >;
+  readonly lost?: {
+    readonly reason: LeadLostReason;
+    readonly note: string | null;
+  };
+};
+
+/**
+ * Every stage move, in one place.
+ *
+ * Stage lock first, then the acting member's row, then the write and its
+ * history entry — the order the whole application uses. The revision guard
+ * applies here too: moving a Lead someone else has since moved is the same
+ * surprise as overwriting their edit.
+ */
+async function moveStage(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  move: StageMove,
+): Promise<LeadChangeResult> {
+  try {
+    return await withTenant(context, async (tx) => {
+      const resolved = await move.resolve(tx);
+      if ("problem" in resolved) {
+        return { ok: false, reason: resolved.problem } as const;
+      }
+      // After the stage lock, which may have waited on a deactivation.
+      if (!(await actorStillActive(tx))) {
+        return { ok: false, reason: "not_permitted" } as const;
+      }
+
+      const [before] = await tx<{ stage_id: string }[]>`
+        select stage_id from public.leads where id = ${leadId}::uuid
+      `;
+      if (!before) return { ok: false, reason: "not_permitted" } as const;
+      if (before.stage_id === resolved.stageId) return { ok: true } as const;
+
+      const updated = await tx<{ id: string }[]>`
+        update public.leads
+           set stage_id = ${resolved.stageId}::uuid,
+               lost_reason = ${move.lost?.reason ?? null},
+               lost_reason_note = ${move.lost?.note ?? null}
+         where id = ${leadId}::uuid
+           and revision = ${expectedRevision}
+        returning id
+      `;
+      if (updated.length === 0) return { ok: false, reason: "stale" } as const;
+
+      await recordActivity(tx, context, leadId, {
+        kind: move.kind,
+        fromStageId: before.stage_id,
+        toStageId: resolved.stageId,
+        ...(move.lost
+          ? { lostReason: move.lost.reason, note: move.lost.note ?? undefined }
+          : {}),
+      });
+      return { ok: true } as const;
+    });
+  } catch (error) {
+    return changeRefusal(error);
+  }
 }

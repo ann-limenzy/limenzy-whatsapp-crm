@@ -20,12 +20,15 @@ import { fingerprintLead, type ParsedLead } from "@/lib/validation/leads";
  *
  * ## What the acknowledgement binds
  *
- * A message authentication code over the WORKSPACE, the ACTOR and a
- * fingerprint of the NORMALISED SUBMISSION — the exact values that would be
- * written. Any of the three differing produces a different code, so:
+ * A message authentication code over the WORKSPACE, the ACTOR, the LEAD it
+ * concerns and a fingerprint of the NORMALISED SUBMISSION — the exact values
+ * that would be written. Any of the four differing produces a different
+ * code, so:
  *
  *   * an acknowledgement issued to someone else does not work;
  *   * one issued in another workspace does not work;
+ *   * one issued while editing a DIFFERENT Lead does not work, and one
+ *     issued for a new Lead cannot be replayed against an existing one;
  *   * **changed data requires another warning**, because changing the name,
  *     either contact value, the notes, the stage or the source changes the
  *     fingerprint and the old code no longer verifies.
@@ -70,6 +73,8 @@ function key(): Buffer {
 function sign(
   workspaceId: string,
   actorUserProfileId: string,
+  /** The Lead being edited, or null while one is being created. */
+  leadId: string | null,
   issuedAt: number,
   lead: ParsedLead,
 ): string {
@@ -77,6 +82,7 @@ function sign(
     PURPOSE,
     workspaceId,
     actorUserProfileId,
+    leadId ?? "new",
     String(issuedAt),
     fingerprintLead(lead),
   ].join("\u0000");
@@ -87,10 +93,11 @@ function sign(
 export function issueDuplicateAcknowledgement(
   workspaceId: string,
   actorUserProfileId: string,
+  leadId: string | null,
   lead: ParsedLead,
 ): string {
   const issuedAt = Date.now();
-  return `${issuedAt}.${sign(workspaceId, actorUserProfileId, issuedAt, lead)}`;
+  return `${issuedAt}.${sign(workspaceId, actorUserProfileId, leadId, issuedAt, lead)}`;
 }
 
 /**
@@ -105,6 +112,7 @@ export function issueDuplicateAcknowledgement(
 export function acknowledgementIsValid(
   workspaceId: string,
   actorUserProfileId: string,
+  leadId: string | null,
   lead: ParsedLead,
   token: string,
   now: number = Date.now(),
@@ -117,7 +125,13 @@ export function acknowledgementIsValid(
   // Not issued in the future, and not older than one lifetime.
   if (issuedAt > now || now - issuedAt > LIFETIME_MS) return false;
 
-  const expected = sign(workspaceId, actorUserProfileId, issuedAt, lead);
+  const expected = sign(
+    workspaceId,
+    actorUserProfileId,
+    leadId,
+    issuedAt,
+    lead,
+  );
   const a = Buffer.from(expected, "hex");
   let b: Buffer;
   try {
