@@ -40,6 +40,7 @@ const actions = vi.hoisted(() => {
     markLeadLostAction: make(),
     reopenLeadAction: make(),
     addLeadNoteAction: make(),
+    reassignLeadAction: make(),
   };
 });
 vi.mock("@/app/actions/lead-lifecycle", () => actions);
@@ -64,6 +65,12 @@ const CONTACTED = "44444444-4444-4444-8444-444444444444";
 const STAGES = [
   { id: NEW_STAGE, name: "New" },
   { id: CONTACTED, name: "Contacted" },
+];
+const OWNER = "77777777-7777-4777-8777-777777777777";
+const COLLEAGUE = "88888888-8888-4888-8888-888888888888";
+const MEMBERS = [
+  { userProfileId: OWNER, fullName: "Ann Sebastian" },
+  { userProfileId: COLLEAGUE, fullName: "Priya Nair" },
 ];
 const SOURCES = [
   { id: "55555555-5555-4555-8555-555555555555", name: "Referral" },
@@ -92,6 +99,8 @@ const panel = (overrides: Record<string, unknown> = {}) =>
       stages={STAGES}
       sources={SOURCES}
       workspaceId={WORKSPACE}
+      assignableMembers={MEMBERS}
+      currentOwnerUserProfileId={OWNER}
     />,
   );
 
@@ -173,6 +182,8 @@ describe("what a finished Lead offers", () => {
         stages={[]}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
     expect(screen.getByRole("button", { name: "Reopen" })).toBeDisabled();
@@ -237,6 +248,7 @@ describe("the §39 timeline", () => {
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
         ownerName="You"
         createdOn="19 Oct 2026"
         formatWhen={() => "19 Oct 2026, 10:04"}
@@ -475,6 +487,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
     expect(screen.getByLabelText("Stage")).toHaveTextContent("New");
@@ -495,6 +509,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
     expect(screen.getByLabelText("Stage")).toHaveTextContent("Contacted");
@@ -511,6 +527,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
 
@@ -536,6 +554,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
 
@@ -567,6 +587,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
 
@@ -590,6 +612,8 @@ describe("the stage picker follows the server, not the last thing clicked", () =
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
 
@@ -630,6 +654,8 @@ describe("a form reset cannot strand the picker", () => {
         stages={STAGES}
         sources={SOURCES}
         workspaceId={WORKSPACE}
+        assignableMembers={MEMBERS}
+        currentOwnerUserProfileId={OWNER}
       />,
     );
 

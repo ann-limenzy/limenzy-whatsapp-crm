@@ -46,6 +46,16 @@ const SUITES = [
   // Milestone 2C — invitations: tenant scoping, identity binding, expiry,
   // regeneration and concurrent acceptance.
   "src/server/db/invitations-isolation.db.test.ts",
+  // Milestone 3C — Lead editing, stage changes and §39 activity history,
+  // including the revision guard and the append-only constraint.
+  "src/server/db/lead-lifecycle.db.test.ts",
+  // Milestone 3D — Record Owner reassignment: §162 authority independent of
+  // edit permission, §162.1 access checked before the transfer, §163.13
+  // history, and the deactivation and revocation races in both orders.
+  "src/server/db/lead-reassignment.db.test.ts",
+  // Milestone 3D — the stage/history lock order, including the deadlock it
+  // was introduced to close.
+  "src/server/db/lead-stage-locking.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";

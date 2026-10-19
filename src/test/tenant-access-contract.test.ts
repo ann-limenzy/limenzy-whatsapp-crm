@@ -159,6 +159,17 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
     evidence: "src/server/db/lead-lifecycle.db.test.ts",
   },
   /*
+   * Milestone 3D — manual Record Owner reassignment. Both go through a
+   * SECURITY DEFINER routine the runtime role cannot bypass, so the
+   * evidence has to be a real database under row-level security.
+   */
+  "src/server/auth/workspace-leads.ts#reassignLead": {
+    evidence: "src/server/db/lead-reassignment.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#assignableMembers": {
+    evidence: "src/server/db/lead-reassignment.db.test.ts",
+  },
+  /*
    * Pure: it reduces candidates the server already has to what §162.1 lets
    * the actor learn, and reaches no database at all. It appears here because
    * discovery is a text search over files that NAME a gateway, and listing it
@@ -373,6 +384,7 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-lead-pipeline.ts#setLeadSourceActive",
       "src/server/auth/workspace-lead-pipeline.ts#setLeadStageActive",
       "src/server/auth/workspace-leads.ts#addLeadNote",
+      "src/server/auth/workspace-leads.ts#assignableMembers",
       "src/server/auth/workspace-leads.ts#changeLeadStage",
       "src/server/auth/workspace-leads.ts#countLeadsOwnedBy",
       "src/server/auth/workspace-leads.ts#createLead",
@@ -385,6 +397,7 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-leads.ts#listLeads",
       "src/server/auth/workspace-leads.ts#markLeadLost",
       "src/server/auth/workspace-leads.ts#markLeadWon",
+      "src/server/auth/workspace-leads.ts#reassignLead",
       "src/server/auth/workspace-leads.ts#recordOwnerNames",
       "src/server/auth/workspace-leads.ts#reopenLead",
     ]);

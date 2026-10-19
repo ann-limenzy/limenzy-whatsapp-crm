@@ -696,7 +696,7 @@ describe.skipIf(!reachable)(
          * that reporting on them means the same thing in every workspace.
          */
         "lead_activity_kind=record_created,details_edited,stage_changed," +
-          "marked_won,marked_lost,reopened,note_added",
+          "marked_won,marked_lost,reopened,note_added,owner_changed",
         "lead_lost_reason=not_interested,price,chose_competitor," +
           "unable_to_contact,other",
         // Milestone 3A. This enum classifies a stage, it does not enumerate

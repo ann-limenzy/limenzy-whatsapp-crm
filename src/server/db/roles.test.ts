@@ -345,20 +345,31 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
         from pg_policies where schemaname = 'public' order by policyname`;
 
     expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+      // Milestone 3C — §39's history: visible exactly where the Lead is,
+      // and written only in the acting member's own name.
+      "lead_activities_actor_insert -> {limenzy_app}",
+      "lead_activities_record_access_select -> {limenzy_app}",
       // Milestone 3B — Leads. `limenzy_lead_support` is a NOLOGIN role that
       // owns two definer routines: one matches duplicates across the whole
       // workspace (§130.1) without describing what it found, and one takes
       // the stage row lock a Lead write needs, under an UPDATE policy whose
       // WITH CHECK is `false` so it can never write.
-      // Milestone 3C — §39's history: visible exactly where the Lead is,
-      // and written only in the acting member's own name.
-      "lead_activities_actor_insert -> {limenzy_app}",
-      "lead_activities_record_access_select -> {limenzy_app}",
+      // Milestone 3D — manual Record Owner reassignment (§163.10). Seven
+      // policies, all for the NOLOGIN support role, because a transfer needs
+      // four things §162.1 denies the acting user: a workspace-scoped read
+      // and LOCK of membership rows (the §160 race is about the RECIPIENT's
+      // row, not the actor's), the member names a picker has to show, the
+      // workspace columns a §162 decision is read from, the one Lead column
+      // no application role may write, and a history read that does not
+      // depend on who is committing.
+      "lead_activities_support_completeness_select -> {limenzy_lead_support}",
+      "lead_activities_support_insert -> {limenzy_lead_support}",
       "lead_duplicate_overrides_insert -> {limenzy_app}",
       "lead_duplicate_overrides_select -> {limenzy_app}",
       "leads_add_insert -> {limenzy_app}",
       "leads_edit_update -> {limenzy_app}",
       "leads_record_access_select -> {limenzy_app}",
+      "leads_support_reassign_update -> {limenzy_lead_support}",
       "leads_support_select -> {limenzy_lead_support}",
       "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
       "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
@@ -366,6 +377,7 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "user_profiles_invites_select -> {limenzy_invites}",
       "user_profiles_members_select -> {limenzy_members}",
       "user_profiles_self_select -> {limenzy_app}",
+      "user_profiles_support_member_select -> {limenzy_lead_support}",
       "user_profiles_support_select -> {limenzy_lead_support}",
       "workspace_invitations_invites_select -> {limenzy_invites}",
       "workspace_invitations_invites_update -> {limenzy_invites}",
@@ -393,6 +405,8 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "workspace_memberships_self_select -> {limenzy_app}",
       "workspace_memberships_support_lock -> {limenzy_lead_support}",
       "workspace_memberships_support_select -> {limenzy_lead_support}",
+      "workspace_memberships_support_workspace_lock -> {limenzy_lead_support}",
+      "workspace_memberships_support_workspace_select -> {limenzy_lead_support}",
       "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
       "workspaces_invites_select -> {limenzy_invites}",
       "workspaces_member_select -> {limenzy_app}",
@@ -401,6 +415,12 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       // the §158 business settings stay out of reach.
       "workspaces_members_select -> {limenzy_members}",
       "workspaces_owner_admin_update -> {limenzy_app}",
+      // Milestone 3D: a LOCK-ONLY update policy. WITH CHECK (false), over a
+      // grant of `time_zone` alone, so the reassignment routine can take a
+      // row lock on its workspace and serialise against a §162 revocation
+      // without gaining any ability to write one.
+      "workspaces_support_lock -> {limenzy_lead_support}",
+      "workspaces_support_select -> {limenzy_lead_support}",
     ]);
 
     // No policy reaches a browser-facing role, the owner, or PUBLIC.

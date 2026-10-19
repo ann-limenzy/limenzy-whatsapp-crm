@@ -650,11 +650,15 @@ export type LeadActivityEntry = {
     | "marked_won"
     | "marked_lost"
     | "reopened"
-    | "note_added";
+    | "note_added"
+    | "owner_changed";
   readonly actorUserProfileId: string | null;
   readonly fromStageName: string | null;
   readonly toStageName: string | null;
   readonly changedFields: readonly string[] | null;
+  /** §163.13: who a transfer moved the Lead from and to. */
+  readonly fromOwnerUserProfileId: string | null;
+  readonly toOwnerUserProfileId: string | null;
   readonly note: string | null;
   readonly lostReason: LeadLostReason | null;
   readonly occurredAt: Date;
@@ -676,6 +680,8 @@ export async function leadActivity(
           from_stage_name: string | null;
           to_stage_name: string | null;
           changed_fields: string[] | null;
+          from_owner_user_profile_id: string | null;
+          to_owner_user_profile_id: string | null;
           note: string | null;
           lost_reason: LeadLostReason | null;
           occurred_at: Date | string;
@@ -683,7 +689,9 @@ export async function leadActivity(
       >`
         select a.id, a.kind::text as kind, a.actor_user_profile_id,
                f.name as from_stage_name, t.name as to_stage_name,
-               a.changed_fields, a.note, a.lost_reason::text as lost_reason,
+               a.changed_fields, a.from_owner_user_profile_id,
+               a.to_owner_user_profile_id,
+               a.note, a.lost_reason::text as lost_reason,
                a.occurred_at
           from public.lead_activities a
           left join public.workspace_lead_stages f
@@ -702,6 +710,8 @@ export async function leadActivity(
     fromStageName: row.from_stage_name,
     toStageName: row.to_stage_name,
     changedFields: row.changed_fields,
+    fromOwnerUserProfileId: row.from_owner_user_profile_id,
+    toOwnerUserProfileId: row.to_owner_user_profile_id,
     note: row.note,
     lostReason: row.lost_reason,
     occurredAt: new Date(row.occurred_at),
@@ -908,18 +918,8 @@ export async function changeLeadStage(
 ): Promise<LeadChangeResult> {
   return moveStage(context, leadId, expectedRevision, {
     kind: "stage_changed",
-    resolve: async (tx) => {
-      // The lock the contract requires, before the stage is referenced.
-      const [stage] = await tx<
-        { stage_id: string; is_active: boolean; kind: string }[]
-      >`select stage_id, is_active, kind from app.lock_lead_stage(${stageId}::uuid)`;
-      if (!stage) return { problem: "not_permitted" as const };
-      /* §45 and §48 are how a Lead reaches an outcome; the picker cannot. */
-      if (stage.kind !== "active" || !stage.is_active) {
-        return { problem: "stage_unavailable" as const };
-      }
-      return { stageId: stage.stage_id };
-    },
+    target: async () => ({ stageId }),
+    accepts: ordinaryOpenStage,
   });
 }
 
@@ -940,7 +940,8 @@ export async function markLeadWon(
 ): Promise<LeadChangeResult> {
   return moveStage(context, leadId, expectedRevision, {
     kind: "marked_won",
-    resolve: (tx) => outcomeStage(tx, "won"),
+    target: (tx) => findOutcomeStage(tx, "won"),
+    accepts: (stage) => stage.kind === "won",
   });
 }
 
@@ -953,7 +954,8 @@ export async function markLeadLost(
 ): Promise<LeadChangeResult> {
   return moveStage(context, leadId, expectedRevision, {
     kind: "marked_lost",
-    resolve: (tx) => outcomeStage(tx, "lost"),
+    target: (tx) => findOutcomeStage(tx, "lost"),
+    accepts: (stage) => stage.kind === "lost",
     lost: outcome,
   });
 }
@@ -976,16 +978,8 @@ export async function reopenLead(
      * no longer lost; that it once was, and why, stays in its history.
      */
     kind: "reopened",
-    resolve: async (tx) => {
-      const [stage] = await tx<
-        { stage_id: string; is_active: boolean; kind: string }[]
-      >`select stage_id, is_active, kind from app.lock_lead_stage(${stageId}::uuid)`;
-      if (!stage) return { problem: "not_permitted" as const };
-      if (stage.kind !== "active" || !stage.is_active) {
-        return { problem: "stage_unavailable" as const };
-      }
-      return { stageId: stage.stage_id };
-    },
+    target: async () => ({ stageId }),
+    accepts: ordinaryOpenStage,
   });
 }
 
@@ -1084,8 +1078,15 @@ async function recordActivity(
   `;
 }
 
-/** Find the workspace's Won or Lost row by its immutable kind, and lock it. */
-async function outcomeStage(
+/**
+ * Which stage a move is heading for. Identified, NOT yet locked.
+ *
+ * Finding the target and locking it used to be one step, which forced the
+ * target to be locked before the Lead was read — and therefore before the
+ * stage it was moving FROM was even known. That is what made the lock order
+ * depend on which stage happened to be the target. See `lockStagesInOrder`.
+ */
+async function findOutcomeStage(
   tx: TenantTx,
   kind: "won" | "lost",
 ): Promise<{ stageId: string } | { problem: "outcome_missing" }> {
@@ -1093,41 +1094,84 @@ async function outcomeStage(
     select id from public.workspace_lead_stages
      where kind = ${kind}::public.lead_stage_kind
   `;
-  if (!row) return { problem: "outcome_missing" };
-  /*
-   * Locked like any other stage, so a Lead arriving at an outcome obeys the
-   * same contract as one arriving anywhere else. An outcome can never be
-   * deactivated, so this lock never fails — it keeps the ORDER uniform,
-   * which is what stops a cycle appearing later.
-   */
-  const [locked] = await tx<{ stage_id: string }[]>`
-    select stage_id from app.lock_lead_stage(${row.id}::uuid)
-  `;
-  if (!locked) return { problem: "outcome_missing" };
-  return { stageId: locked.stage_id };
+  return row ? { stageId: row.id } : { problem: "outcome_missing" };
+}
+
+type LockedStage = { stageId: string; isActive: boolean; kind: string };
+
+/**
+ * Lock the stage rows a move touches, in ascending id order.
+ *
+ * BOTH of them: the stage the Lead leaves as well as the one it arrives at.
+ * The old stage is not optional housekeeping — the history entry references
+ * it, and a foreign key takes its own `FOR KEY SHARE` on the referenced row.
+ * A lock taken implicitly, after the explicit ones, is a lock taken outside
+ * the order.
+ *
+ * MEASURED, not predicted. With only the target locked, a Lead move holding
+ * the target and then taking the implicit key-share on the old stage
+ * deadlocked against the pipeline's `lockStages`, which takes every stage
+ * `FOR UPDATE` ordered by id: `40P01`, reproduced in
+ * `lead-stage-locking.db.test.ts`. Ascending id order here is the same order
+ * that routine uses, which is what removes the cycle rather than making it
+ * rarer.
+ *
+ * uuids are compared as their canonical text, whose ordering matches
+ * PostgreSQL's byte ordering: the separators sit at fixed positions and the
+ * remaining characters are lowercase hex.
+ */
+async function lockStagesInOrder(
+  tx: TenantTx,
+  stageIds: readonly string[],
+): Promise<Map<string, LockedStage>> {
+  const ordered = [...new Set(stageIds)].sort();
+  const locked = new Map<string, LockedStage>();
+  for (const id of ordered) {
+    const [row] = await tx<
+      { stage_id: string; is_active: boolean; kind: string }[]
+    >`
+      select stage_id, is_active, kind
+        from app.lock_lead_stage(${id}::uuid)
+    `;
+    if (row) {
+      locked.set(row.stage_id, {
+        stageId: row.stage_id,
+        isActive: row.is_active,
+        kind: row.kind,
+      });
+    }
+  }
+  return locked;
 }
 
 type StageMove = {
   readonly kind: LeadActivityEntry["kind"];
-  readonly resolve: (
+  /** The destination, found without locking anything. */
+  readonly target: (
     tx: TenantTx,
   ) => Promise<
     | { stageId: string }
     | { problem: "not_permitted" | "stage_unavailable" | "outcome_missing" }
   >;
+  /** Whether the destination, as LOCKED, is one this move may use. */
+  readonly accepts: (stage: LockedStage) => boolean;
   readonly lost?: {
     readonly reason: LeadLostReason;
     readonly note: string | null;
   };
 };
 
+/** §45 and §48 are how a Lead reaches an outcome; the picker cannot. */
+const ordinaryOpenStage = (stage: LockedStage) =>
+  stage.kind === "active" && stage.isActive;
+
 /**
  * Every stage move, in one place.
  *
- * Stage lock first, then the acting member's row, then the write and its
- * history entry — the order the whole application uses. The revision guard
- * applies here too: moving a Lead someone else has since moved is the same
- * surprise as overwriting their edit.
+ * Stage rows (both, ascending) → the acting member's row → the Lead row,
+ * which is the order the whole application uses. The revision guard applies
+ * here too: moving a Lead someone else has since moved is the same surprise
+ * as overwriting their edit.
  */
 async function moveStage(
   context: TenantContext,
@@ -1137,11 +1181,35 @@ async function moveStage(
 ): Promise<LeadChangeResult> {
   try {
     return await withTenant(context, async (tx) => {
-      const resolved = await move.resolve(tx);
+      /*
+       * Read BEFORE locking, so both stage ids are known and the pair can be
+       * locked in a fixed order. Nothing is trusted from this read: the Lead
+       * is re-read under the revision guard below, and the destination is
+       * judged from its locked row rather than from this one.
+       */
+      const [seen] = await tx<{ stage_id: string }[]>`
+        select stage_id from public.leads where id = ${leadId}::uuid
+      `;
+      // Filtered by §162.1, or simply not a Lead here. Same answer either way.
+      if (!seen) return { ok: false, reason: "not_permitted" } as const;
+
+      const resolved = await move.target(tx);
       if ("problem" in resolved) {
         return { ok: false, reason: resolved.problem } as const;
       }
-      // After the stage lock, which may have waited on a deactivation.
+
+      const locked = await lockStagesInOrder(tx, [
+        seen.stage_id,
+        resolved.stageId,
+      ]);
+      const destination = locked.get(resolved.stageId);
+      // No row means the policy filtered it, or it is not this workspace's.
+      if (!destination) return { ok: false, reason: "not_permitted" } as const;
+      if (!move.accepts(destination)) {
+        return { ok: false, reason: "stage_unavailable" } as const;
+      }
+
+      // After the stage locks, which may have waited on a deactivation.
       if (!(await actorStillActive(tx))) {
         return { ok: false, reason: "not_permitted" } as const;
       }
@@ -1151,6 +1219,15 @@ async function moveStage(
       `;
       if (!before) return { ok: false, reason: "not_permitted" } as const;
       if (before.stage_id === resolved.stageId) return { ok: true } as const;
+      /*
+       * The Lead moved between the first read and the locks, so the stage it
+       * is leaving is not the one this transaction locked. Refusing is the
+       * honest answer: the revision guard would catch it too, but only after
+       * the history entry had already named a stage nobody held.
+       */
+      if (before.stage_id !== seen.stage_id) {
+        return { ok: false, reason: "stale" } as const;
+      }
 
       const updated = await tx<{ id: string }[]>`
         update public.leads
@@ -1174,6 +1251,154 @@ async function moveStage(
       return { ok: true } as const;
     });
   } catch (error) {
+    /*
+     * A deadlock or serialization failure rolls back the move AND its
+     * history entry together, and is reported as unavailable. Nothing is
+     * retried automatically.
+     */
     return changeRefusal(error);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manual Record Owner reassignment — §26, §49, §162, §162.1, §163.10, §163.13
+// ---------------------------------------------------------------------------
+
+export type AssignableMember = {
+  readonly userProfileId: string;
+  readonly fullName: string;
+};
+
+/**
+ * Who this actor may hand a Lead to — §163.10.
+ *
+ * Active members only, and only for a caller who holds Change Record Owner:
+ * the routine returns nothing to anyone else, so this is a picker rather
+ * than a directory. It cannot be derived from `recordOwnerNames()`, which
+ * answers a different question — a Manager scoped to their own records gets
+ * only their own name there, and such a Manager may still hold this
+ * permission.
+ */
+export async function assignableMembers(
+  context: TenantContext,
+): Promise<readonly AssignableMember[]> {
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<{ user_profile_id: string; full_name: string }[]>`
+        select user_profile_id, full_name from app.assignable_member_names()
+      `,
+  );
+  return rows.map((row) => ({
+    userProfileId: row.user_profile_id,
+    fullName: row.full_name,
+  }));
+}
+
+export type ReassignResult =
+  | {
+      readonly ok: true;
+      /** Whether the actor can still see the Lead now that it has moved. */
+      readonly retainsAccess: boolean;
+      readonly previousOwnerUserProfileId: string;
+    }
+  /** Already theirs. Nothing was written and nothing was recorded. */
+  | { readonly ok: false; readonly reason: "unchanged" }
+  | { readonly ok: false; readonly reason: "not_permitted" }
+  | { readonly ok: false; readonly reason: "stale" }
+  | { readonly ok: false; readonly reason: "recipient_inactive" }
+  | { readonly ok: false; readonly reason: "unknown_recipient" }
+  | { readonly ok: false; readonly reason: "unavailable" };
+
+/**
+ * Hand a Lead to another active member.
+ *
+ * Everything that decides whether this may happen is inside
+ * `app.reassign_lead_owner`, under its own locks, re-read after every wait:
+ * §162's Change Record Owner (asked of the matrix, not of the caller's reach
+ * — a Staff/Sales user is refused here even through a direct runtime call),
+ * §162.1 access BEFORE the transfer, the recipient's active membership, the
+ * current owner and the revision. The Lead's owner column is not writable by
+ * this connection at all, so there is no second path to the same write.
+ *
+ * `retainsAccess` is not a failure. An actor who could see the Lead only
+ * because they owned it stops seeing it the moment they hand it on, which is
+ * what handing it on means; the caller uses this to say so and send them
+ * somewhere that still exists.
+ */
+export async function reassignLead(
+  context: TenantContext,
+  leadId: string,
+  expectedRevision: number,
+  newOwnerUserProfileId: string,
+): Promise<ReassignResult> {
+  try {
+    return await withTenant(context, async (tx) => {
+      const [row] = await tx<
+        { outcome: string; previous_owner: string | null }[]
+      >`
+        select outcome, previous_owner
+          from app.reassign_lead_owner(
+            ${leadId}::uuid, ${newOwnerUserProfileId}::uuid,
+            ${expectedRevision}::integer)
+      `;
+      const outcome = row?.outcome;
+
+      if (outcome === "ok") {
+        /*
+         * Asked rather than assumed, and asked through the actor's own
+         * policies: the Lead is either still visible to them or it is not,
+         * and only the policy knows which.
+         */
+        const [visible] = await tx<{ id: string }[]>`
+          select id from public.leads where id = ${leadId}::uuid
+        `;
+        return {
+          ok: true as const,
+          retainsAccess: visible !== undefined,
+          previousOwnerUserProfileId: row?.previous_owner ?? "",
+        };
+      }
+
+      switch (outcome) {
+        case "unchanged":
+          return { ok: false as const, reason: "unchanged" as const };
+        case "stale":
+          return { ok: false as const, reason: "stale" as const };
+        case "recipient_inactive":
+          return { ok: false as const, reason: "recipient_inactive" as const };
+        case "unknown_recipient":
+          return { ok: false as const, reason: "unknown_recipient" as const };
+        /*
+         * `not_found` is reported as `not_permitted` on purpose: §162.1
+         * answers "you may not see this" by returning nothing, and saying
+         * "no such Lead" would tell an actor which ids exist here.
+         */
+        default:
+          return { ok: false as const, reason: "not_permitted" as const };
+      }
+    });
+  } catch (error) {
+    /*
+     * A deadlock or serialization failure rolls the whole transaction back —
+     * the transfer and its history entry together — and is reported as
+     * unavailable. Nothing is retried automatically: a mutation that aborted
+     * is the person's to repeat, with the revision they are then shown.
+     */
+    if (isConcurrencyAbort(error)) {
+      return { ok: false, reason: "unavailable" };
+    }
+    const state = sqlState(error);
+    if (state === INSUFFICIENT_PRIVILEGE || state === FOREIGN_KEY_VIOLATION) {
+      return { ok: false, reason: "not_permitted" };
+    }
+    if (
+      state === CHECK_VIOLATION ||
+      state === RAISE_EXCEPTION ||
+      state === UNIQUE_VIOLATION
+    ) {
+      return { ok: false, reason: "not_permitted" };
+    }
+    throw error;
   }
 }

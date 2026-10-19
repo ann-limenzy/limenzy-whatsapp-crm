@@ -2238,6 +2238,112 @@ asserting that the picker and the record agree without a reload.
 migration is untouched and its SHA-256 is unchanged at
 `e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
 
+### 3D — Manual Record Owner reassignment (§26, §49, §160, §162, §162.1, §163.10, §163.13) — local only
+
+A Lead can now be handed from one member to another, by hand. Automatic
+assignment and round robin are **not** in this slice.
+
+**Who may do it.** §162's Change Record Owner, enforced **independently of
+edit permission**. Owner/Admin always; a Manager only where the workspace has
+configured it; Staff/Sales never — refused even through a direct runtime call
+that never passes the action layer. `limenzy_app` holds no grant on
+`record_owner_user_profile_id` at all, so a dedicated SECURITY DEFINER routine,
+`app.reassign_lead_owner`, is the only path there is.
+
+**Who may receive it.** Active members of the workspace, nothing else. The
+picker is fed by `app.assignable_member_names()`, which returns nothing to a
+caller who does not hold the permission — so the list cannot be used to
+enumerate members. Won and Lost Leads may be handed on.
+
+**Access after the transfer is a result, not a failure.** §162.1 is checked
+**before** the transfer, so a narrow-scope Manager who may act does act. If the
+transfer then costs them sight of the record — which it does, for a Manager
+scoped to their own — the server redirects to the Leads list with a plain
+success message rather than rendering a page they can no longer read.
+
+**Ownership history is atomic.** The §163.13 `owner_changed` entry carries
+`from_owner_user_profile_id` and `to_owner_user_profile_id`, both constrained
+to real memberships and both required on a transfer and forbidden elsewhere.
+It is written inside the same transaction from the same variables as the
+update, so the entry cannot name owners other than the ones that moved.
+Choosing the current owner changes nothing and writes no event. 3C's
+`require_history` now covers the owner column and became SECURITY DEFINER,
+owned by `limenzy_lead_support` — as an invoker-rights check it read history
+through the committing actor's policy, and a Manager who has just handed a Lead
+on can no longer see it, so a correct transfer failed at COMMIT.
+
+#### Concurrency: three coordinations, each measured in both orders
+
+- **Recipient deactivation (§160).** A concurrent deactivation must not leave
+  an inactive person newly owning a Lead. The routine takes the active
+  Owner/Admin set ascending — the same set, in the same order, that
+  `app.set_member_status` and `app.accept_workspace_invitation` already take —
+  then the three rows it needs, ascending. Transfer first: the deactivation
+  waits and then refuses. Deactivation first: the transfer refuses. Sorting
+  ids alone was **not** relied on; the whole lock graph was inspected.
+- **Permission revocation (§162).** A Manager's authority lives on the
+  workspace row, so a transfer has to be _serialised_ against a change to it,
+  not merely checked close to it. The routine takes `FOR SHARE` on its
+  workspace row as its first statement, holds it to commit, and **re-reads the
+  permission after acquiring it**. PostgreSQL refuses a row lock to a role
+  without UPDATE, so the lock is bought with a **lock-only privilege**: an
+  UPDATE grant on `time_zone` alone, under a policy whose `WITH CHECK` is
+  `false`. Permissive policies are OR'd, so that restriction was audited
+  rather than assumed — the only other UPDATE policy on `workspaces` is scoped
+  to a different role, and measured as the role itself the lock is takeable
+  while all four write shapes are refused with 42501. The permission predicate
+  is also carried inside the UPDATE, as defence in depth.
+- **The stage/history deadlock, found in review and closed.** `moveStage` and
+  the pipeline path could take two stage rows in opposite orders and deadlock.
+  Every transition that writes from/to-stage history now locks the old and the
+  target stage through one helper, deduplicated and ascending, before the
+  mutation. The conflict is reproduced deterministically in
+  `lead-stage-locking.db.test.ts`.
+
+Deadlock and serialization aborts roll back, surface as `unavailable`, and are
+**never retried automatically**.
+
+#### Verification
+
+- **467 database tests, 17 files, none skipped**, against the matched local
+  pair. Two earlier figures reported for this slice — 412 and 452 — were both
+  wrong.
+- **`scripts/test-db.mjs` carries an explicit suite list, and three suites were
+  missing from it**: both 3D files and 3C's `lead-lifecycle.db.test.ts`. So
+  `npm run test:db` was silently not running 75 tests. All three are now
+  registered, which is what reconciles the count exactly: 462 gated tests
+  skipped in a plain `vitest run`, plus the 5 in `schema.test.ts` that need no
+  database, is 467.
+- Unit suite 1911 passed; lint and typecheck clean. The two contended
+  revocation tests were checked against a lock-free copy of the routine
+  installed in the database and **fail on their own assertions without the
+  lock**; the stage-locking regression was checked the same way.
+- **Applied LOCALLY ONLY.** This slice has not been applied to hosted
+  development. Migration SHA-256:
+  `865124efad056bba4d313845ddfdc98b9fe97c18fc75874e5e7f27a73163c424` and
+  `cc1c59f5df1dfa8187b432dd8f4b275348450071f9cdd526830e4e981329fd5d`. Two
+  files, and the split is load-bearing: a new enum value cannot be used in the
+  transaction that added it.
+
+#### Deferred and separate follow-ups
+
+- **Team-dependent rules are deferred, not implemented.** §163.5, §163.10's
+  team-scoped eligibility and the §163.13 team rules wait on Milestone 4.
+  Nothing here claims to enforce them, and recipients are workspace-wide
+  because Sales Teams do not exist yet.
+- **Separate follow-up — concurrent permission edits can overwrite each other.**
+  `setPermissionGranted` and `setManagerRecordScope` are read-modify-write on
+  the workspace row with no lock of their own, so two administrators editing
+  the §162 matrix at the same time can have one edit silently lost. This is
+  **pre-existing**, is not caused by this slice, and was deliberately **not**
+  fixed here — the reassignment lock coordinates a transfer against a
+  committed permission change, which is a different problem. It needs its own
+  slice.
+- **Other paths that read workspace configuration mid-transaction are
+  unreviewed**, not closed. This coordination is scoped to reassignment.
+- **Still out of scope, unchanged from 3C:** archive, sharing, conversion,
+  automatic assignment, Sales Teams, and national-format duplicate detection.
+
 ## Milestone 4 — Sales Teams and Team membership foundation
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.

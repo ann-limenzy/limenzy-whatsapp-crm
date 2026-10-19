@@ -596,9 +596,16 @@ describe.skipIf(!reachable)("1C-B schema", () => {
          */
         "lead_activities.actor_user_profile_id",
         "lead_activities.changed_fields",
+        /*
+         * Milestone 3D, §163.13: the owners a transfer moved the Lead from
+         * and to. Null for every other kind, and a check constraint makes a
+         * transfer carry both.
+         */
+        "lead_activities.from_owner_user_profile_id",
         "lead_activities.from_stage_id",
         "lead_activities.lost_reason",
         "lead_activities.note",
+        "lead_activities.to_owner_user_profile_id",
         "lead_activities.to_stage_id",
         // §130.1: an override's explanation is explicitly optional.
         "lead_duplicate_overrides.explanation",
@@ -953,6 +960,16 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         // and written only in the acting member's own name.
         "lead_activities_actor_insert -> {limenzy_app}",
         "lead_activities_record_access_select -> {limenzy_app}",
+        // Milestone 3D — manual Record Owner reassignment (§163.10). Seven
+        // policies, all for the NOLOGIN support role, because a transfer needs
+        // four things §162.1 denies the acting user: a workspace-scoped read
+        // and LOCK of membership rows (the §160 race is about the RECIPIENT's
+        // row, not the actor's), the member names a picker has to show, the
+        // workspace columns a §162 decision is read from, the one Lead column
+        // no application role may write, and a history read that does not
+        // depend on who is committing.
+        "lead_activities_support_completeness_select -> {limenzy_lead_support}",
+        "lead_activities_support_insert -> {limenzy_lead_support}",
         // Milestone 3B — Leads, plus the two definer routines a Lead write
         // needs: workspace-wide duplicate matching (§130.1) and the stage row
         // lock, both owned by the NOLOGIN `limenzy_lead_support` role.
@@ -961,6 +978,7 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "leads_add_insert -> {limenzy_app}",
         "leads_edit_update -> {limenzy_app}",
         "leads_record_access_select -> {limenzy_app}",
+        "leads_support_reassign_update -> {limenzy_lead_support}",
         "leads_support_select -> {limenzy_lead_support}",
         "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
         "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
@@ -968,6 +986,7 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "user_profiles_invites_select -> {limenzy_invites}",
         "user_profiles_members_select -> {limenzy_members}",
         "user_profiles_self_select -> {limenzy_app}",
+        "user_profiles_support_member_select -> {limenzy_lead_support}",
         "user_profiles_support_select -> {limenzy_lead_support}",
         "workspace_invitations_invites_select -> {limenzy_invites}",
         "workspace_invitations_invites_update -> {limenzy_invites}",
@@ -995,6 +1014,8 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "workspace_memberships_self_select -> {limenzy_app}",
         "workspace_memberships_support_lock -> {limenzy_lead_support}",
         "workspace_memberships_support_select -> {limenzy_lead_support}",
+        "workspace_memberships_support_workspace_lock -> {limenzy_lead_support}",
+        "workspace_memberships_support_workspace_select -> {limenzy_lead_support}",
         "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
         "workspaces_invites_select -> {limenzy_invites}",
         "workspaces_member_select -> {limenzy_app}",
@@ -1002,6 +1023,12 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         // Manager record scope.
         "workspaces_members_select -> {limenzy_members}",
         "workspaces_owner_admin_update -> {limenzy_app}",
+        // Milestone 3D: UPDATE, but WITH CHECK (false) — it exists so the
+        // reassignment routine can take FOR SHARE on its own workspace row
+        // and serialise against a §162 revocation. Nothing can be written
+        // through it; the grant behind it is `time_zone` alone.
+        "workspaces_support_lock -> {limenzy_lead_support}",
+        "workspaces_support_select -> {limenzy_lead_support}",
       ]);
     });
 

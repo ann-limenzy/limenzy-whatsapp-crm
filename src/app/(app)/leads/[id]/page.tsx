@@ -12,6 +12,7 @@ import { requireModule } from "@/server/auth/require-module";
 import { workspaceTimeZone } from "@/server/auth/workspace-business-settings";
 import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
 import {
+  assignableMembers,
   leadActivity,
   leadDetail,
   leadForEdit,
@@ -70,6 +71,14 @@ export default async function LeadPage({
       workspaceTimeZone(context),
     ]);
 
+  /*
+   * §163.10's recipients. The routine itself returns nothing to an actor who
+   * does not hold Change Record Owner, so an empty list is the answer for
+   * everyone else and the control is simply not drawn — no second §162 check
+   * here that could drift from the one the database makes.
+   */
+  const recipients = canEdit ? await assignableMembers(context) : [];
+
   const ownerName = lead.isOwnedByActor
     ? "You"
     : (owners.get(lead.recordOwnerUserProfileId) ?? "Another team member");
@@ -112,6 +121,7 @@ export default async function LeadPage({
       stages={activeStages}
       sources={activeSources}
       workspaceId={context.workspaceId}
+      assignableMembers={recipients}
       ownerName={ownerName}
       createdOn={formatWorkspaceDate(lead.createdAt, zone)}
       formatWhen={(when) => formatWorkspaceMoment(when, zone)}
