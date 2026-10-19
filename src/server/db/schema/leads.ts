@@ -82,6 +82,8 @@ export const leadActivityKind = pgEnum("lead_activity_kind", [
   "marked_lost",
   "reopened",
   "note_added",
+  // Milestone 3D — a manual Record Owner transfer (§163.10, §163.13).
+  "owner_changed",
 ]);
 
 export const leads = pgTable(
@@ -364,6 +366,17 @@ export const leadActivities = pgTable(
 
     changedFields: text("changed_fields").array(),
 
+    /**
+     * §163.13: the Record Owner a transfer moved the Lead FROM and TO.
+     *
+     * Null for every other kind, and both present for `owner_changed` —
+     * check constraints enforce the pairing. The team, rule, method and
+     * sequence fields §163.13 also lists are deferred with Sales Teams and
+     * are deliberately absent rather than columns nothing writes.
+     */
+    fromOwnerUserProfileId: uuid("from_owner_user_profile_id"),
+    toOwnerUserProfileId: uuid("to_owner_user_profile_id"),
+
     /** §39's note content, and §48's optional explanation. */
     note: text("note"),
 
@@ -388,6 +401,22 @@ export const leadActivities = pgTable(
       name: "lead_activities_lead_fkey",
       columns: [table.workspaceId, table.leadId],
       foreignColumns: [leads.workspaceId, leads.id],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "lead_activities_from_owner_fkey",
+      columns: [table.workspaceId, table.fromOwnerUserProfileId],
+      foreignColumns: [
+        workspaceMemberships.workspaceId,
+        workspaceMemberships.userProfileId,
+      ],
+    }).onDelete("restrict"),
+    foreignKey({
+      name: "lead_activities_to_owner_fkey",
+      columns: [table.workspaceId, table.toOwnerUserProfileId],
+      foreignColumns: [
+        workspaceMemberships.workspaceId,
+        workspaceMemberships.userProfileId,
+      ],
     }).onDelete("restrict"),
     foreignKey({
       name: "lead_activities_actor_fkey",

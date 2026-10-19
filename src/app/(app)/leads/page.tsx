@@ -98,6 +98,22 @@ export default async function LeadsPage({
         ) : null}
       </header>
 
+      {/*
+        §163.10: the actor handed this Lead to somebody else and, because
+        §162.1 showed it to them only as its owner, can no longer see it.
+        That is a success, and saying nothing after a screen vanishes reads
+        as a fault. A flag rather than a name: the value comes from a URL.
+      */}
+      {params["handed-over"] === "1" ? (
+        <p
+          role="status"
+          className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+        >
+          Lead handed over. It is now with its new record owner, and no longer
+          in your list.
+        </p>
+      ) : null}
+
       {canAdd && activeStages.length === 0 ? (
         <p
           role="alert"

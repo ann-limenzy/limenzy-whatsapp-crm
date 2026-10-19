@@ -4,6 +4,7 @@ import Link from "next/link";
 import { StatusBadge } from "@/components/data/status-badge";
 import {
   LeadLifecyclePanel,
+  type MemberOption,
   type StageOption,
 } from "@/components/leads/lead-lifecycle-panel";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ function Row({
 function describe(
   entry: LeadActivityEntry,
   actorName: string,
+  nameOf: (userProfileId: string | null) => string,
 ): { readonly headline: string; readonly detail?: string } {
   switch (entry.kind) {
     case "record_created":
@@ -89,6 +91,15 @@ function describe(
         headline: `${actorName} added a note`,
         detail: entry.note ?? "",
       };
+    case "owner_changed":
+      /* §163.13 asks for both ends, so both are shown rather than just the
+         new one — "who had it before" is the question people ask. */
+      return {
+        headline: `${actorName} changed the record owner`,
+        detail: `${nameOf(entry.fromOwnerUserProfileId)} → ${nameOf(
+          entry.toOwnerUserProfileId,
+        )}`,
+      };
   }
 }
 
@@ -100,6 +111,7 @@ export function LeadDetailView({
   stages,
   sources,
   workspaceId,
+  assignableMembers,
   ownerName,
   createdOn,
   formatWhen,
@@ -119,6 +131,8 @@ export function LeadDetailView({
   stages: readonly StageOption[];
   sources: readonly StageOption[];
   workspaceId: string;
+  /** §163.10's recipients; empty for an actor who may not reassign. */
+  assignableMembers: readonly MemberOption[];
   ownerName: string;
   /** Formatted on the server, so the markup does not depend on the locale. */
   createdOn: string;
@@ -132,6 +146,11 @@ export function LeadDetailView({
   /** How to name that zone on screen, e.g. "Asia/Kolkata (GMT+5:30)". */
   timeZoneLabel: string;
 }) {
+  const nameOf = (userProfileId: string | null): string =>
+    userProfileId === null
+      ? "the system"
+      : (actorNames[userProfileId] ?? "a team member");
+
   return (
     <div className="grid gap-6">
       <header className="grid gap-3">
@@ -230,6 +249,8 @@ export function LeadDetailView({
               stages={stages}
               sources={sources}
               workspaceId={workspaceId}
+              assignableMembers={assignableMembers}
+              currentOwnerUserProfileId={lead.recordOwnerUserProfileId}
             />
           </section>
         </>
@@ -241,6 +262,11 @@ export function LeadDetailView({
         <h2 id="lead-activity" className="text-base font-semibold">
           Activity
         </h2>
+        {/*
+          One place that turns a profile id into something readable. §162.1
+          decides which names this reader is given at all, so an id with no
+          name is a colleague they may not see rather than a gap to fill in.
+        */}
         {activity.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing has been recorded for this lead yet.
@@ -254,10 +280,8 @@ export function LeadDetailView({
            */
           <ol className="relative ml-1.5 grid gap-0 border-l border-border pl-5">
             {activity.map((entry) => {
-              const actor = entry.actorUserProfileId
-                ? (actorNames[entry.actorUserProfileId] ?? "a team member")
-                : "the system";
-              const { headline, detail } = describe(entry, actor);
+              const actor = nameOf(entry.actorUserProfileId);
+              const { headline, detail } = describe(entry, actor, nameOf);
               return (
                 <li key={entry.id} className="relative py-2.5">
                   <span

@@ -10,6 +10,7 @@ import {
   editLeadAction,
   markLeadLostAction,
   markLeadWonAction,
+  reassignLeadAction,
   reopenLeadAction,
   type LifecycleState,
 } from "@/app/actions/lead-lifecycle";
@@ -70,6 +71,12 @@ const INITIAL: LifecycleState = { status: "idle", attempt: 0 };
 
 export type StageOption = { readonly id: string; readonly name: string };
 
+/** §163.10's recipients: active members, for a caller who may reassign. */
+export type MemberOption = {
+  readonly userProfileId: string;
+  readonly fullName: string;
+};
+
 function SubmitButton({
   children,
   busy,
@@ -117,32 +124,36 @@ const MESSAGE: Record<string, string> = {
   note_required: "Write something first.",
   note_too_long: `Keep a note under ${MAX_ACTIVITY_NOTE} characters.`,
   reason_required: "Choose why this lead was lost.",
+  recipient_required: "Choose who should own this lead.",
   explanation_required: "Say briefly what happened.",
   explanation_too_long: "That explanation is too long.",
 };
 
 /** Everything that is not a field-level problem. */
+/** Everything that is not a field-level problem, keyed by what came back. */
+const REFUSAL: Partial<Record<LifecycleState["status"], string>> = {
+  stale:
+    "Somebody else changed this lead while you had it open. Reload to see " +
+    "their changes, then try again.",
+  unchanged: "That is already the record owner.",
+  recipient_unavailable:
+    "That person is no longer an active member of this workspace. Choose " +
+    "somebody else.",
+  stage_unavailable: "That stage has been switched off. Choose another one.",
+  outcome_missing:
+    "This workspace has no Won or Lost stage, so that cannot be recorded.",
+  forbidden: "You do not have permission to change this lead.",
+  module_disabled: "Leads are switched off for this workspace.",
+  workspace_stale: "This page is out of date. Reload it and try again.",
+  refused: "That change could not be saved as entered.",
+  unavailable: "That did not work. Nothing was changed — please try again.",
+};
+
 function Problem({ state }: { state: LifecycleState }) {
   const message =
-    state.status === "stale"
-      ? "Somebody else changed this lead while you had it open. Reload to see their changes, then try again."
-      : state.status === "stage_unavailable"
-        ? "That stage has been switched off. Choose another one."
-        : state.status === "outcome_missing"
-          ? "This workspace has no Won or Lost stage, so that cannot be recorded."
-          : state.status === "forbidden"
-            ? "You do not have permission to change this lead."
-            : state.status === "module_disabled"
-              ? "Leads are switched off for this workspace."
-              : state.status === "workspace_stale"
-                ? "This page is out of date. Reload it and try again."
-                : state.status === "refused"
-                  ? "That change could not be saved as entered."
-                  : state.status === "unavailable"
-                    ? "That did not work. Nothing was changed — please try again."
-                    : state.status === "invalid" && state.issue
-                      ? (MESSAGE[state.issue] ?? "Check what you entered.")
-                      : null;
+    state.status === "invalid"
+      ? (MESSAGE[state.issue ?? ""] ?? "Check what you entered.")
+      : (REFUSAL[state.status] ?? null);
   if (!message) return null;
   return (
     <div
@@ -564,12 +575,21 @@ export function LeadLifecyclePanel({
   stages,
   sources,
   workspaceId,
+  assignableMembers,
+  currentOwnerUserProfileId,
 }: {
   lead: LeadForEdit;
   /** Open, ordinary stages — the only ones a Lead can be moved to by hand. */
   stages: readonly StageOption[];
   sources: readonly StageOption[];
   workspaceId: string;
+  /**
+   * §163.10's eligible recipients. Empty when this actor does not hold
+   * Change Record Owner, and the control is then not drawn at all — §162's
+   * rows are different rows, and holding one is not holding the other.
+   */
+  assignableMembers: readonly MemberOption[];
+  currentOwnerUserProfileId: string;
 }) {
   const [stageState, stageAction] = useActionState(
     changeLeadStageAction,
@@ -578,6 +598,7 @@ export function LeadLifecyclePanel({
   const [wonState, wonAction] = useActionState(markLeadWonAction, INITIAL);
   const [reopenState, reopenAction] = useActionState(reopenLeadAction, INITIAL);
   const [noteState, noteAction] = useActionState(addLeadNoteAction, INITIAL);
+  const [ownerState, ownerAction] = useActionState(reassignLeadAction, INITIAL);
   const [note, setNote] = useState("");
   const [stageId, setStageId] = useStagePicker(
     lead.stageId,
@@ -589,6 +610,15 @@ export function LeadLifecyclePanel({
   );
 
   const isOutcome = lead.stageKind !== "active";
+  /*
+   * The picker holds a choice the same way the stage one does, and for the
+   * same reason: React resets a form once its action has run.
+   */
+  const [newOwner, setNewOwner] = useStagePicker(
+    currentOwnerUserProfileId,
+    ownerState.attempt,
+  );
+  const mayReassign = assignableMembers.length > 0;
   if (noteState.status === "ok" && note.length > 0) setNote("");
 
   return (
@@ -640,6 +670,59 @@ export function LeadLifecyclePanel({
             </form>
           </div>
         )}
+
+        {/*
+          §163.10's transfer. Drawn only for an actor who holds Change
+          Record Owner — §162 lists it as its own row, so an actor with
+          edit permission and not this one sees nothing here rather than a
+          control that would be refused.
+        */}
+        {mayReassign ? (
+          <>
+            <Separator className="bg-border/70" />
+            <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+              <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-56">
+                <Label
+                  htmlFor="lead-owner"
+                  className="text-xs text-muted-foreground"
+                >
+                  Record owner
+                </Label>
+                <Select value={newOwner} onValueChange={setNewOwner}>
+                  <SelectTrigger id="lead-owner" aria-label="Record owner">
+                    <SelectValue placeholder="Choose a person" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {assignableMembers.map((member) => (
+                      <SelectItem
+                        key={member.userProfileId}
+                        value={member.userProfileId}
+                      >
+                        {member.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <form action={ownerAction}>
+                <Identity lead={lead} workspaceId={workspaceId} />
+                <input
+                  type="hidden"
+                  name="newOwnerUserProfileId"
+                  value={newOwner}
+                />
+                <SubmitButton
+                  busy="Handing over…"
+                  size="default"
+                  disabled={newOwner === currentOwnerUserProfileId}
+                >
+                  Hand over
+                </SubmitButton>
+              </form>
+            </div>
+            <Problem state={ownerState} />
+          </>
+        ) : null}
 
         <Separator className="bg-border/70" />
 

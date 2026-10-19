@@ -32,10 +32,19 @@ async function declaredTables(): Promise<Set<string>> {
 }
 
 describe("the lifecycle dependency registry", () => {
-  it("declares the two behaviours 3C could not build", () => {
+  it("declares every behaviour the Lead lifecycle cannot build yet", () => {
+    /*
+     * Two from 3C, three from 3D. The Sales Teams entries are the ones most
+     * at risk of being described as done: §163.10's Manager clause reads as
+     * satisfied when there are no teams to cross, and it is not — it is
+     * vacuous, which is a different thing and a worse one to forget.
+     */
     expect(LIFECYCLE_DEPENDENCIES.map((d) => d.blockedBy).sort()).toEqual([
       "customers",
       "follow_ups",
+      "sales_teams",
+      "sales_teams",
+      "sales_teams",
     ]);
     for (const dependency of LIFECYCLE_DEPENDENCIES) {
       expect(dependency.rule).toMatch(/§\d+/);
@@ -48,6 +57,19 @@ describe("the lifecycle dependency registry", () => {
     const tables = await declaredTables();
     expect(tables.has("leads")).toBe(true);
     expect(tables.has("lead_activities")).toBe(true);
+  });
+
+  it("says plainly that a vacuous rule is not an implemented one", async () => {
+    const teamRules = LIFECYCLE_DEPENDENCIES.filter(
+      (d) => d.blockedBy === "sales_teams",
+    );
+    expect(teamRules).toHaveLength(3);
+    // Each says what happens today in terms that cannot be read as "done".
+    for (const rule of teamRules) {
+      expect(rule.behaviourToday).toMatch(
+        /not implemented|no Team Lead|absent rather than/i,
+      );
+    }
   });
 
   it("still has every blocking table absent", async () => {

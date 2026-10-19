@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 import {
   parseActivityNote,
@@ -16,6 +17,7 @@ import { requireWorkspaceContext } from "@/server/auth/require-workspace";
 import {
   addLeadNote,
   changeLeadStage,
+  reassignLead,
   describeForActor,
   editLead,
   markLeadLost,
@@ -58,6 +60,8 @@ export type LifecycleState = {
     | "stale"
     | "stage_unavailable"
     | "outcome_missing"
+    | "unchanged"
+    | "recipient_unavailable"
     | "refused"
     | "forbidden"
     | "module_disabled"
@@ -68,6 +72,11 @@ export type LifecycleState = {
   readonly duplicates?: DuplicateWarning;
   readonly acknowledgement?: string;
   readonly mayOverride?: boolean;
+  /**
+   * Set only by a successful reassignment: whether the actor can still see
+   * the Lead. False is a success, and the screen says so before leaving.
+   */
+  readonly retainsAccess?: boolean;
   readonly attempt: number;
 };
 
@@ -81,7 +90,16 @@ const text = (data: FormData, key: string): string => {
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function authorise(formData: FormData) {
+async function authorise(
+  formData: FormData,
+  /*
+   * Which §162 row this action needs. The default is the one every editing
+   * action uses; reassignment passes its own, because §162 lists Change
+   * Record Owner separately and grants it to a different set of roles.
+   */
+  permission:
+    "edit_permitted_records" | "change_record_owner" = "edit_permitted_records",
+) {
   const { context, role, workspaceId } = await requireWorkspaceContext();
 
   const { enabled } = await enabledModulesFor(context);
@@ -90,7 +108,7 @@ async function authorise(formData: FormData) {
   }
 
   const settings = await workspacePermissionSettings(context);
-  if (!permissionFor(settings, role, "edit_permitted_records").allowed) {
+  if (!permissionFor(settings, role, permission).allowed) {
     return { ok: false as const, status: "forbidden" as const };
   }
 
@@ -295,6 +313,63 @@ export async function reopenLeadAction(
     await reopenLead(gate.context, gate.leadId, revision, stageId),
     attempt,
   );
+}
+
+/**
+ * Hand a Lead to another active member — §26, §49, §162, §163.10.
+ *
+ * The §162 gate here is `change_record_owner`, NOT the
+ * `edit_permitted_records` the other actions use: §162 lists them as
+ * separate rows and a Staff/Sales user holds the second and not the first.
+ * This is a convenience so the screen can refuse early and say why; the
+ * routine asks the matrix again for itself, so a request that skips this
+ * module entirely is refused all the same.
+ */
+export async function reassignLeadAction(
+  previous: LifecycleState,
+  formData: FormData,
+): Promise<LifecycleState> {
+  const attempt = previous.attempt + 1;
+  const gate = await authorise(formData, "change_record_owner");
+  if (!gate.ok) return { status: gate.status, attempt };
+  const revision = revisionFrom(formData);
+  if (revision === null) return { status: "stale", attempt };
+
+  const newOwner = text(formData, "newOwnerUserProfileId");
+  if (!UUID.test(newOwner)) {
+    return { status: "recipient_unavailable", attempt };
+  }
+
+  const result = await reassignLead(
+    gate.context,
+    gate.leadId,
+    revision,
+    newOwner,
+  );
+  if (result.ok) {
+    revalidatePath("/leads");
+    /*
+     * An actor who could see the Lead only because they owned it cannot see
+     * it now. Leaving them on a screen that has just become `notFound()` for
+     * them would read as an error; this is a success. Redirected from the
+     * SERVER, so the navigation cannot race the revalidation — 3B learned
+     * that the other way round.
+     */
+    if (!result.retainsAccess) redirect("/leads?handed-over=1");
+    return { status: "ok", retainsAccess: true, attempt };
+  }
+  const status =
+    result.reason === "unchanged"
+      ? "unchanged"
+      : result.reason === "stale"
+        ? "stale"
+        : result.reason === "recipient_inactive" ||
+            result.reason === "unknown_recipient"
+          ? "recipient_unavailable"
+          : result.reason === "unavailable"
+            ? "unavailable"
+            : "forbidden";
+  return { status, attempt };
 }
 
 export async function addLeadNoteAction(

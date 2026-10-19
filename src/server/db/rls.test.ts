@@ -624,6 +624,11 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
     expect(rows.map((r) => r.proname)).toEqual([
       "accept_workspace_invitation",
       /*
+       * Milestone 3D. §163.10's picker, and §162's Change Record Owner asked
+       * of the matrix rather than of the caller's reach.
+       */
+      "assignable_member_names",
+      /*
        * §160's precondition. Definer, so the count covers every Lead in the
        * workspace rather than only the ones the asker can see — and it
        * refuses, by answering null, for anyone who is not an active
@@ -635,14 +640,23 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       "current_user_is_owner_admin",
       "current_user_may_access_all_records",
       "current_user_may_add_leads",
+      "current_user_may_change_record_owner",
       "current_user_profile_id",
       "current_workspace_id",
       "lead_duplicate_candidates",
       "lead_source_defaults",
       "lead_stage_defaults",
+      /*
+       * Milestone 3D moved 3C's completeness check here from `public`. It
+       * had to stop running as whoever commits: a Manager who hands a Lead
+       * on loses sight of it, and an INVOKER check then concluded the entry
+       * it had just written was missing.
+       */
+      "leads_require_history",
       "lock_actor_membership",
       "lock_lead_stage",
       "pending_invitations_for",
+      "reassign_lead_owner",
       "set_member_role",
       "set_member_status",
       "workspace_member_names",
@@ -667,12 +681,23 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
        * CHECK is `false`, and counting §160 responsibilities across every
        * Lead rather than only the ones the asker can see.
        */
+      /*
+       * Milestone 3D adds four more to the same role. Each is a privilege
+       * the acting user deliberately does not hold: writing the one Lead
+       * column no application role may write, reading the member list a
+       * picker needs, answering §162 independently of the caller's reach,
+       * and checking history completeness regardless of who is committing.
+       */
+      "assignable_member_names:limenzy_lead_support",
       "count_leads_owned_by:limenzy_lead_support",
       "create_initial_workspace:limenzy_bootstrap",
+      "current_user_may_change_record_owner:limenzy_lead_support",
       "lead_duplicate_candidates:limenzy_lead_support",
+      "leads_require_history:limenzy_lead_support",
       "lock_actor_membership:limenzy_lead_support",
       "lock_lead_stage:limenzy_lead_support",
       "pending_invitations_for:limenzy_invites",
+      "reassign_lead_owner:limenzy_lead_support",
       "set_member_role:limenzy_members",
       "set_member_status:limenzy_members",
       "workspace_member_names:limenzy_members",
@@ -1197,10 +1222,14 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
        */
       "current_user_may_access_all_records",
       "current_user_may_add_leads",
+      "assignable_member_names",
       "count_leads_owned_by",
+      "current_user_may_change_record_owner",
       "lead_duplicate_candidates",
+      "leads_require_history",
       "lock_actor_membership",
       "lock_lead_stage",
+      "reassign_lead_owner",
       "workspace_member_names",
     ]);
     const readers = rows.filter(

@@ -92,6 +92,17 @@ const MILESTONE_3A_MIGRATIONS = ["20261020090000_lead_pipeline.sql"];
 const MILESTONE_3B_MIGRATIONS = ["20261021090000_leads.sql"];
 /** Milestone 3C — editing, stage changes and activity history (§37, §39). */
 const MILESTONE_3C_MIGRATIONS = ["20261022090000_lead_lifecycle.sql"];
+/**
+ * Milestone 3D — manual Record Owner reassignment (§163.10).
+ *
+ * TWO files, and the split is load-bearing: PostgreSQL will not let a new
+ * enum value be used in the transaction that added it, and the migration
+ * runner wraps each file in one transaction.
+ */
+const MILESTONE_3D_MIGRATIONS = [
+  "20261023090000_lead_activity_owner_changed.sql",
+  "20261023091000_lead_reassignment.sql",
+];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
@@ -99,6 +110,7 @@ const APPLIED_MIGRATIONS = [
   ...MILESTONE_3A_MIGRATIONS,
   ...MILESTONE_3B_MIGRATIONS,
   ...MILESTONE_3C_MIGRATIONS,
+  ...MILESTONE_3D_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {

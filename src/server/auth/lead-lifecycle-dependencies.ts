@@ -68,4 +68,42 @@ export const LIFECYCLE_DEPENDENCIES: readonly LifecycleDependency[] =
         "Lost is recorded with its reason. Nothing is cancelled, because " +
         "there is nothing to cancel.",
     },
+    {
+      rule: "§163.10, §163.18 decision 5",
+      required:
+        "A Manager may reassign only within their permitted records AND " +
+        "teams, and cross-team manual assignment is Owner/Admin only " +
+        "unless a later decision grants a narrower capability.",
+      blockedBy: "sales_teams",
+      behaviourToday:
+        "Reassignment is scoped by §162.1 record access alone. With no " +
+        "teams there are no team boundaries to cross, so the clause can " +
+        "only narrow and currently narrows nothing — it is NOT implemented " +
+        "and must not be described as satisfied.",
+    },
+    {
+      rule: "§163.18 decision 4",
+      required:
+        "Whether a Team Lead may manually reassign Leads within their own " +
+        "team. Denied in production until approved and configured.",
+      blockedBy: "sales_teams",
+      behaviourToday:
+        "There is no Team Lead to grant it to. A Team Lead has no " +
+        "reassignment capability beyond their workspace role, which is " +
+        "what §163.10 requires while the decision is open.",
+    },
+    {
+      rule: "§163.13",
+      required:
+        "An assignment history entry carries the Sales Team, the " +
+        "assignment rule, the method (Round Robin or Manual), the trigger " +
+        "source and a sequence identifier.",
+      blockedBy: "sales_teams",
+      behaviourToday:
+        "The §39 entry carries the previous owner, the new owner, the " +
+        "acting user and the time. The team, rule, method and sequence " +
+        "fields are absent rather than nullable placeholders nothing " +
+        "writes, because every one of them describes machinery this " +
+        "milestone does not have.",
+    },
   ]);

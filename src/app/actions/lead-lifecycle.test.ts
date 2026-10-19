@@ -38,6 +38,7 @@ const gateway = vi.hoisted(() => ({
   markLeadLost: vi.fn(),
   reopenLead: vi.fn(),
   addLeadNote: vi.fn(),
+  reassignLead: vi.fn(),
 }));
 vi.mock("@/server/auth/workspace-leads", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/server/auth/workspace-leads")>()),
@@ -46,6 +47,18 @@ vi.mock("@/server/auth/workspace-leads", async (importOriginal) => ({
 
 const revalidatePath = vi.hoisted(() => vi.fn());
 vi.mock("next/cache", () => ({ revalidatePath }));
+
+/*
+ * A transfer that costs the actor their own access redirects from the
+ * SERVER. The real `redirect()` throws to unwind, so the double does too —
+ * that is what callers have to cope with.
+ */
+const redirect = vi.hoisted(() =>
+  vi.fn((to: string) => {
+    throw new Error(`NEXT_REDIRECT:${to}`);
+  }),
+);
+vi.mock("next/navigation", () => ({ redirect }));
 
 process.env.DATABASE_URL ||=
   "postgresql://limenzy_app:test@127.0.0.1:54322/postgres";
@@ -97,7 +110,13 @@ const parsedFrom = (fields: Record<string, string> = {}) => {
   return result.value;
 };
 
-const allow = (overrides: { mayOverride?: boolean; edit?: boolean } = {}) => {
+const allow = (
+  overrides: {
+    mayOverride?: boolean;
+    edit?: boolean;
+    changeOwner?: boolean;
+  } = {},
+) => {
   requireWorkspaceContext.mockResolvedValue({
     context: CONTEXT,
     role: "owner_admin",
@@ -112,7 +131,9 @@ const allow = (overrides: { mayOverride?: boolean; edit?: boolean } = {}) => {
           ? (overrides.mayOverride ?? true)
           : action === "edit_permitted_records"
             ? (overrides.edit ?? true)
-            : true,
+            : action === "change_record_owner"
+              ? (overrides.changeOwner ?? true)
+              : true,
     }),
   );
 };
@@ -514,5 +535,136 @@ describe("what the gateway says, said plainly", () => {
     expect(state.status).toBe("unavailable");
     // One attempt. A mutation that aborted is the person's to repeat.
     expect(gateway.changeLeadStage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("§162: reassignment is gated on its own permission", () => {
+  const form = (fields: Record<string, string> = {}) => {
+    const data = new FormData();
+    for (const [key, value] of Object.entries({
+      renderedWorkspaceId: WORKSPACE,
+      leadId: LEAD,
+      revision: "3",
+      newOwnerUserProfileId: "55555555-5555-4555-8555-555555555555",
+      ...fields,
+    })) {
+      data.set(key, value);
+    }
+    return data;
+  };
+
+  beforeEach(() => {
+    gateway.reassignLead.mockResolvedValue({
+      ok: true,
+      retainsAccess: true,
+      previousOwnerUserProfileId: "p",
+    });
+  });
+
+  it("refuses an actor who may edit but may not change the owner", async () => {
+    /*
+     * The distinction §162 draws: `edit_permitted_records` is ALLOW for all
+     * three roles, Change Record Owner is DENY for Staff/Sales. Holding one
+     * is not holding the other, and the action must not treat it as such.
+     */
+    allow({ edit: true, changeOwner: false });
+    const state = await actions.reassignLeadAction(IDLE, form());
+    expect(state.status).toBe("forbidden");
+    expect(gateway.reassignLead).not.toHaveBeenCalled();
+  });
+
+  it("allows an actor who may change the owner but may not edit", async () => {
+    // The gate is the right one, not merely a gate.
+    allow({ edit: false, changeOwner: true });
+    const state = await actions.reassignLeadAction(IDLE, form());
+    expect(state.status).toBe("ok");
+    expect(gateway.reassignLead).toHaveBeenCalledWith(
+      CONTEXT,
+      LEAD,
+      3,
+      "55555555-5555-4555-8555-555555555555",
+    );
+  });
+
+  it("still refuses when Leads is switched off or the workspace is stale", async () => {
+    allow();
+    enabledModulesFor.mockResolvedValue({ enabled: new Set(["whatsapp"]) });
+    expect((await actions.reassignLeadAction(IDLE, form())).status).toBe(
+      "module_disabled",
+    );
+
+    allow();
+    requireWorkspaceContext.mockResolvedValue({
+      context: CONTEXT,
+      role: "owner_admin",
+      workspaceId: "99999999-9999-4999-8999-999999999999",
+    });
+    expect((await actions.reassignLeadAction(IDLE, form())).status).toBe(
+      "workspace_stale",
+    );
+    expect(gateway.reassignLead).not.toHaveBeenCalled();
+  });
+
+  it("refuses a recipient that is not an id, before asking the database", async () => {
+    allow();
+    expect(
+      (
+        await actions.reassignLeadAction(
+          IDLE,
+          form({ newOwnerUserProfileId: "somebody" }),
+        )
+      ).status,
+    ).toBe("recipient_unavailable");
+    expect(gateway.reassignLead).not.toHaveBeenCalled();
+  });
+
+  it("treats a missing revision as stale", async () => {
+    allow();
+    expect(
+      (await actions.reassignLeadAction(IDLE, form({ revision: "" }))).status,
+    ).toBe("stale");
+    expect(gateway.reassignLead).not.toHaveBeenCalled();
+  });
+
+  it("says each refusal in its own words", async () => {
+    const cases = [
+      ["unchanged", "unchanged"],
+      ["stale", "stale"],
+      ["recipient_inactive", "recipient_unavailable"],
+      ["unknown_recipient", "recipient_unavailable"],
+      ["not_permitted", "forbidden"],
+      ["unavailable", "unavailable"],
+    ] as const;
+    for (const [reason, status] of cases) {
+      vi.clearAllMocks();
+      allow();
+      gateway.reassignLead.mockResolvedValue({ ok: false, reason });
+      const state = await actions.reassignLeadAction(IDLE, form());
+      expect(`${reason}:${state.status}`).toBe(`${reason}:${status}`);
+      // Nothing changed, so nothing is re-rendered and nothing is retried.
+      expect(revalidatePath).not.toHaveBeenCalled();
+      expect(gateway.reassignLead).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("sends the actor back to the list when the Lead leaves their scope", async () => {
+    allow();
+    gateway.reassignLead.mockResolvedValue({
+      ok: true,
+      retainsAccess: false,
+      previousOwnerUserProfileId: "p",
+    });
+    // A server redirect, which throws to unwind — a success, not an error.
+    await expect(actions.reassignLeadAction(IDLE, form())).rejects.toThrow(
+      "NEXT_REDIRECT:/leads?handed-over=1",
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/leads");
+  });
+
+  it("stays on the Lead when the actor can still see it", async () => {
+    allow();
+    const state = await actions.reassignLeadAction(IDLE, form());
+    expect(state).toMatchObject({ status: "ok", retainsAccess: true });
+    expect(redirect).not.toHaveBeenCalled();
   });
 });
