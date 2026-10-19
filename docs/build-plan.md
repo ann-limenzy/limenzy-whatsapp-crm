@@ -2238,7 +2238,7 @@ asserting that the picker and the record agree without a reload.
 migration is untouched and its SHA-256 is unchanged at
 `e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
 
-### 3D — Manual Record Owner reassignment (§26, §49, §160, §162, §162.1, §163.10, §163.13) — local only
+### 3D — Manual Record Owner reassignment (§26, §49, §160, §162, §162.1, §163.10, §163.13) — applied to hosted development
 
 A Lead can now be handed from one member to another, by hand. Automatic
 assignment and round robin are **not** in this slice.
@@ -2318,12 +2318,66 @@ Deadlock and serialization aborts roll back, surface as `unavailable`, and are
   revocation tests were checked against a lock-free copy of the routine
   installed in the database and **fail on their own assertions without the
   lock**; the stage-locking regression was checked the same way.
-- **Applied LOCALLY ONLY.** This slice has not been applied to hosted
-  development. Migration SHA-256:
+- **Applied to hosted development**, see below. Migration SHA-256:
   `865124efad056bba4d313845ddfdc98b9fe97c18fc75874e5e7f27a73163c424` and
-  `cc1c59f5df1dfa8187b432dd8f4b275348450071f9cdd526830e4e981329fd5d`. Two
-  files, and the split is load-bearing: a new enum value cannot be used in the
-  transaction that added it.
+  `cc1c59f5df1dfa8187b432dd8f4b275348450071f9cdd526830e4e981329fd5d`, both
+  unchanged by the application. Two files, and the split is load-bearing: a
+  new enum value cannot be used in the transaction that added it.
+
+#### Applied to hosted development — 2026-10-19
+
+Through the tooling in `~/Limenzy-dev-tools/hosted-3d`, adapted from the
+validated 3C tooling and locally validated first on a disposable database
+built to the same state — the thirteen predecessors applied **and recorded**,
+and representative existing data seeded through the real routines (two
+workspaces, four roles plus a deactivated member, three Leads, and §39 history
+written by 3C's own triggers). Totals below are read from the saved
+summaries, not from scrollback.
+
+- **Preflight: 59 passed, 0 failed.** The local validation of the same
+  tooling reported 54, and the five are accounted for rather than waved at: a
+  non-loopback target adds the TLS offer, the chain against the pinned CA,
+  the certificate naming the host, both TLS negative controls and the
+  host-belongs-to-this-project check, and drops the one loopback note that
+  stands in for them. 54 − 1 + 6 = 59.
+- **Apply: 64 passed, 0 failed.** Both migrations recorded, in the designed
+  order, with fifteen recorded in total — so the run brought nothing else
+  with it.
+- **Existing records unchanged.** Unlike 3C, this slice backfills nothing, so
+  it could make the strongest claim available and did: all **eight** tables
+  byte-identical, `lead_activities` byte-identical over its pre-existing
+  columns, exactly the two intended columns added and none removed, the
+  history counts unmoved by kind, and **no `owner_changed` entry** anywhere —
+  the tooling transfers no hosted Lead, and a migration that invented a
+  transfer would be inventing a fact about who owns a customer relationship.
+- **Runtime probes passed**, through `limenzy_app` on the transaction pooler
+  — the role and endpoint the application itself uses. §163.10's recipient
+  lookup answered an authorized caller, every member it offered was confirmed
+  against the catalogue as an active member of that workspace, and it
+  returned identifiers and names only. The same lookup came back **empty**
+  for a caller §162 denies, and `reassignLead()` refused that caller outright.
+  Nothing was written: the one `reassignLead()` call was made by an
+  unauthorized caller against an id that is not a Lead.
+- **`limenzy_app` still cannot update the Record Owner column** on the
+  target, asserted after the apply as well as before it. The lock-only
+  workspace privilege verified as one column — UPDATE on `time_zone` — under
+  a policy whose `WITH CHECK` is `false`, with the permissive-OR audit
+  measured as the role itself rather than read off the catalogue.
+- **Manual reassignment walkthrough passed — user-reported.** Exercised
+  against hosted development after the apply. This one is recorded as
+  reported rather than as measured here: it was not run by, or observed in,
+  this session, and the saved summaries do not cover it.
+
+#### Hosted limitations, unchanged by the apply
+
+- **Team-dependent rules remain deferred.** Applying the migrations does not
+  implement §163.5 or the team-scoped parts of §163.10 and §163.13, and
+  recipients on hosted development are workspace-wide for the same reason
+  they are everywhere else: Sales Teams do not exist yet.
+- **The partial-application path was exercised locally, not hosted.** The
+  tooling reports a half-applied slice and offers a guarded `--resume-partial`
+  continuation; that was forced and verified on the disposable database. The
+  hosted run applied both files in one pass and never entered that state.
 
 #### Deferred and separate follow-ups
 
