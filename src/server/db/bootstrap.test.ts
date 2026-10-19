@@ -650,6 +650,9 @@ describe.skipIf(!reachable)(
        where table_schema = 'public' and table_type = 'BASE TABLE'
        order by table_name`;
       expect(tables.map((t) => t.table_name)).toEqual([
+        // Milestone 3C — §39's history. A new workspace has no Leads, so
+        // this routine writes nothing here either.
+        "lead_activities",
         // Milestone 3B — the §130.1 audit of every Create Anyway, and the
         // first business record. Both are workspace-scoped records rather
         // than lookup tables, and neither is written by this routine.
@@ -686,6 +689,16 @@ describe.skipIf(!reachable)(
        where t.typnamespace = 'public'::regnamespace
        group by t.typname order by t.typname`;
       expect(enums.map((e) => `${e.typname}=${e.labels}`)).toEqual([
+        /*
+         * Milestone 3C. Both are FIXED vocabularies, unlike the stage names
+         * a workspace chooses: §39's kinds are what this application can
+         * record, and §33's lost reasons are the same list everywhere so
+         * that reporting on them means the same thing in every workspace.
+         */
+        "lead_activity_kind=record_created,details_edited,stage_changed," +
+          "marked_won,marked_lost,reopened,note_added",
+        "lead_lost_reason=not_interested,price,chose_competitor," +
+          "unable_to_contact,other",
         // Milestone 3A. This enum classifies a stage, it does not enumerate
         // the stages: the names are the workspace's to choose. `won` and
         // `lost` mark the two fixed outcomes, `active` every ordinary column.
@@ -925,6 +938,7 @@ describe.skipIf(!reachable)(
        where relnamespace = 'public'::regnamespace and relkind = 'r'
        order by relname`;
       expect(rows).toEqual([
+        { relname: "lead_activities", rls: true, force: true },
         { relname: "lead_duplicate_overrides", rls: true, force: true },
         { relname: "leads", rls: true, force: true },
         { relname: "user_profiles", rls: true, force: true },

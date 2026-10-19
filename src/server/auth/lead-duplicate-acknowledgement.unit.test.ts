@@ -14,6 +14,8 @@ import type { ParsedLead } from "@/lib/validation/leads";
 const WORKSPACE = "11111111-1111-4111-8111-111111111111";
 const OTHER_WORKSPACE = "22222222-2222-4222-8222-222222222222";
 const ACTOR = "33333333-3333-4333-8333-333333333333";
+const LEAD_ID = "88888888-8888-4888-8888-888888888888";
+const OTHER_LEAD_ID = "99999999-9999-4999-8999-999999999999";
 const OTHER_ACTOR = "44444444-4444-4444-8444-444444444444";
 
 const LEAD: ParsedLead = {
@@ -44,27 +46,49 @@ beforeAll(async () => {
 
 describe("an acknowledgement the server issued", () => {
   it("verifies for the same actor, workspace and submission", () => {
-    const token = issue(WORKSPACE, ACTOR, LEAD);
-    expect(valid(WORKSPACE, ACTOR, LEAD, token)).toBe(true);
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
+    expect(valid(WORKSPACE, ACTOR, null, LEAD, token)).toBe(true);
   });
 
   it("carries nothing about the candidates it was shown for", () => {
     // It is a code over the SUBMISSION. Nothing about a record the actor may
     // not access can travel in it, because none of it goes in.
-    const token = issue(WORKSPACE, ACTOR, LEAD);
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
     expect(token).toMatch(/^\d+\.[0-9a-f]{64}$/);
   });
 });
 
 describe("what it refuses", () => {
   it("refuses one issued to a different actor", () => {
-    const token = issue(WORKSPACE, OTHER_ACTOR, LEAD);
-    expect(valid(WORKSPACE, ACTOR, LEAD, token)).toBe(false);
+    const token = issue(WORKSPACE, OTHER_ACTOR, null, LEAD);
+    expect(valid(WORKSPACE, ACTOR, null, LEAD, token)).toBe(false);
+  });
+
+  it("refuses one issued while editing a different Lead", () => {
+    const token = issue(WORKSPACE, ACTOR, OTHER_LEAD_ID, LEAD);
+    expect(valid(WORKSPACE, ACTOR, LEAD_ID, LEAD, token)).toBe(false);
+  });
+
+  it("refuses a creation acknowledgement replayed against a Lead", () => {
+    // The same submission, warned about while CREATING. Replaying it on an
+    // edit would skip the warning the edit is entitled to.
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
+    expect(valid(WORKSPACE, ACTOR, LEAD_ID, LEAD, token)).toBe(false);
+  });
+
+  it("refuses an edit acknowledgement replayed against a creation", () => {
+    const token = issue(WORKSPACE, ACTOR, LEAD_ID, LEAD);
+    expect(valid(WORKSPACE, ACTOR, null, LEAD, token)).toBe(false);
+  });
+
+  it("accepts one issued for the same Lead", () => {
+    const token = issue(WORKSPACE, ACTOR, LEAD_ID, LEAD);
+    expect(valid(WORKSPACE, ACTOR, LEAD_ID, LEAD, token)).toBe(true);
   });
 
   it("refuses one issued in a different workspace", () => {
-    const token = issue(OTHER_WORKSPACE, ACTOR, LEAD);
-    expect(valid(WORKSPACE, ACTOR, LEAD, token)).toBe(false);
+    const token = issue(OTHER_WORKSPACE, ACTOR, null, LEAD);
+    expect(valid(WORKSPACE, ACTOR, null, LEAD, token)).toBe(false);
   });
 
   it.each([
@@ -81,40 +105,42 @@ describe("what it refuses", () => {
   ])("refuses it once %s changes", (_what, change) => {
     // "Changed data requires another warning" — the fingerprint covers every
     // value that would be written, so any edit invalidates the proof.
-    const token = issue(WORKSPACE, ACTOR, LEAD);
-    expect(valid(WORKSPACE, ACTOR, { ...LEAD, ...change }, token)).toBe(false);
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
+    expect(valid(WORKSPACE, ACTOR, null, { ...LEAD, ...change }, token)).toBe(
+      false,
+    );
   });
 
   it("refuses a missing or malformed token", () => {
     for (const token of ["", "nonsense", ".", "123.", "abc.deadbeef", "0"]) {
-      expect(valid(WORKSPACE, ACTOR, LEAD, token)).toBe(false);
+      expect(valid(WORKSPACE, ACTOR, null, LEAD, token)).toBe(false);
     }
   });
 
   it("refuses a forged code against a real timestamp", () => {
-    const token = issue(WORKSPACE, ACTOR, LEAD);
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
     const issuedAt = token.slice(0, token.indexOf("."));
-    expect(valid(WORKSPACE, ACTOR, LEAD, `${issuedAt}.${"0".repeat(64)}`)).toBe(
-      false,
-    );
+    expect(
+      valid(WORKSPACE, ACTOR, null, LEAD, `${issuedAt}.${"0".repeat(64)}`),
+    ).toBe(false);
   });
 
   it("refuses one that has expired", () => {
-    const token = issue(WORKSPACE, ACTOR, LEAD);
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
     const sixteenMinutes = 16 * 60 * 1000;
     expect(
-      valid(WORKSPACE, ACTOR, LEAD, token, Date.now() + sixteenMinutes),
+      valid(WORKSPACE, ACTOR, null, LEAD, token, Date.now() + sixteenMinutes),
     ).toBe(false);
     // Still answerable a minute after it was issued.
-    expect(valid(WORKSPACE, ACTOR, LEAD, token, Date.now() + 60_000)).toBe(
-      true,
-    );
+    expect(
+      valid(WORKSPACE, ACTOR, null, LEAD, token, Date.now() + 60_000),
+    ).toBe(true);
   });
 
   it("refuses one stamped in the future", () => {
-    const token = issue(WORKSPACE, ACTOR, LEAD);
-    expect(valid(WORKSPACE, ACTOR, LEAD, token, Date.now() - 60_000)).toBe(
-      false,
-    );
+    const token = issue(WORKSPACE, ACTOR, null, LEAD);
+    expect(
+      valid(WORKSPACE, ACTOR, null, LEAD, token, Date.now() - 60_000),
+    ).toBe(false);
   });
 });

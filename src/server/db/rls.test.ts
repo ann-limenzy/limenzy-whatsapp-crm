@@ -759,6 +759,8 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // Milestone 3B's business record, and the §130.1 override audit.
     "leads",
     "lead_duplicate_overrides",
+    // Milestone 3C's §39 history.
+    "lead_activities",
   ]);
   const APPROVED_FUNCTIONS = new Set([
     "current_auth_user_id",
@@ -1011,6 +1013,14 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
         "workspaces",
       ]);
     }
+    /*
+     * Milestone 3C. The history's own policies restate none of §162.1: they
+     * ask whether the LEAD is visible, through an EXISTS that re-applies the
+     * Lead's policy. So its only edge is to `leads`, and the chain
+     * lead_activities -> leads -> {workspaces, memberships, profiles} is one
+     * step longer and still a straight line. Nothing reads the history back.
+     */
+    expect(shape("limenzy_app", "lead_activities")).toEqual(["leads"]);
 
     // The bootstrap role: memberships -> profiles, and nothing from workspaces.
     expect(shape("limenzy_bootstrap", "workspaces")).toEqual([]);
@@ -1027,6 +1037,7 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       "workspace_memberships",
     ]);
     expect(shape("limenzy_bootstrap", "workspace_lead_sources")).toEqual([]);
+    expect(shape("limenzy_bootstrap", "lead_activities")).toEqual([]);
 
     // The user-management role: profiles -> memberships, which terminates
     // because its membership policies reference no table at all. This is the
@@ -1047,6 +1058,7 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     ]);
     expect(shape("limenzy_members", "workspace_lead_stages")).toEqual([]);
     expect(shape("limenzy_members", "workspace_lead_sources")).toEqual([]);
+    expect(shape("limenzy_members", "lead_activities")).toEqual([]);
 
     /*
      * The invitation-acceptance role: profiles and memberships both reach
@@ -1062,6 +1074,7 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     expect(shape("limenzy_invites", "workspaces")).toEqual([]);
     expect(shape("limenzy_invites", "workspace_lead_stages")).toEqual([]);
     expect(shape("limenzy_invites", "workspace_lead_sources")).toEqual([]);
+    expect(shape("limenzy_invites", "lead_activities")).toEqual([]);
 
     // Cycle detection by depth-first search with an explicit recursion stack.
     const permanent = new Set<string>();
@@ -1101,13 +1114,19 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
        * `workspaces → memberships → profiles` chain. A Lead adds one more
        * hop in front of it: the §162.1 predicate reads the workspace row for
        * the Manager record scope, and the workspace policy then re-applies
-       * the chain beneath it. Three is therefore the cost of a Lead read, and
-       * raising this number is a decision rather than a side effect — which
-       * is why the exact chain is spelled out immediately below.
+       * the chain beneath it. Three was therefore the cost of a Lead read.
+       *
+       * Milestone 3C adds a fourth, and it is a DECISION rather than a side
+       * effect. §39's history is visible exactly where its Lead is, and the
+       * policy says so by asking the Lead's own policy — an EXISTS over
+       * `leads` — instead of restating §162.1 in a second place. Restating
+       * it would keep the chain at three and introduce two copies of an
+       * access rule that must never disagree. One more hop on a timeline
+       * read is the cheaper mistake to avoid.
        */
       for (const [table, depth] of longest) {
-        expect(`${role} ${table} depth<=3: ${depth <= 3}`).toBe(
-          `${role} ${table} depth<=3: true`,
+        expect(`${role} ${table} depth<=4: ${depth <= 4}`).toBe(
+          `${role} ${table} depth<=4: true`,
         );
       }
     }
@@ -1129,6 +1148,12 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
      */
     expect(longest.get("leads")).toBe(3);
     expect(longest.get("lead_duplicate_overrides")).toBe(3);
+    /*
+     * Milestone 3C, likewise: lead_activities → leads → workspaces →
+     * memberships → profiles. Exactly one hop deeper than a Lead read,
+     * because the history asks the Lead's policy rather than repeating it.
+     */
+    expect(longest.get("lead_activities")).toBe(4);
   });
 
   it("terminates because the context readers touch no table", async () => {

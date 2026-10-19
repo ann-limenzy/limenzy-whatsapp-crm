@@ -20,6 +20,47 @@ export const MAX_LEAD_PHONE = 40;
 export const MAX_LEAD_EMAIL = 254;
 export const MAX_LEAD_NOTES = 4000;
 
+/**
+ * How long one activity note may be — §39.
+ *
+ * A note is a timeline entry, not a document. 2000 characters is roughly
+ * four screens on a phone, which is past the point where the next note is
+ * the better answer. The Lead's own `notes` field stays at 4000 for standing
+ * information about the person, which is a different thing from a dated
+ * remark about one conversation.
+ */
+export const MAX_ACTIVITY_NOTE = 2000;
+
+/** §48's optional explanation, which §33 attaches to "Other". */
+export const MAX_LOST_REASON_NOTE = 500;
+
+/** §48, with §33's list. Fixed, not workspace-configurable. */
+export const LEAD_LOST_REASONS = [
+  "not_interested",
+  "price",
+  "chose_competitor",
+  "unable_to_contact",
+  "other",
+] as const;
+
+export type LeadLostReason = (typeof LEAD_LOST_REASONS)[number];
+
+export function isLeadLostReason(value: unknown): value is LeadLostReason {
+  return (
+    typeof value === "string" &&
+    (LEAD_LOST_REASONS as readonly string[]).includes(value)
+  );
+}
+
+/** What each reason is called on screen. */
+export const LEAD_LOST_REASON_LABELS: Record<LeadLostReason, string> = {
+  not_interested: "Not interested",
+  price: "Price or cost",
+  chose_competitor: "Chose someone else",
+  unable_to_contact: "Could not reach them",
+  other: "Something else",
+};
+
 export type LeadField = "name" | "phone" | "email" | "notes" | "stageId";
 
 export type LeadIssue =
@@ -280,4 +321,90 @@ export function fingerprintLead(lead: ParsedLead): string {
 /** The §31 search term, reduced to what the query will use. */
 export function normaliseSearch(value: string): string {
   return value.replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
+/** One activity note — §39. */
+export type NoteParseResult =
+  | { readonly ok: true; readonly note: string }
+  | { readonly ok: false; readonly issue: "note_required" | "note_too_long" };
+
+export function parseActivityNote(value: unknown): NoteParseResult {
+  const note = typeof value === "string" ? value.trim() : "";
+  if (note.length === 0) return { ok: false, issue: "note_required" };
+  if (note.length > MAX_ACTIVITY_NOTE) {
+    return { ok: false, issue: "note_too_long" };
+  }
+  return { ok: true, note };
+}
+
+/** §48: a reason, and the short note §33 attaches to "Other". */
+export type LostParseResult =
+  | {
+      readonly ok: true;
+      readonly reason: LeadLostReason;
+      readonly note: string | null;
+    }
+  | {
+      readonly ok: false;
+      readonly issue:
+        "reason_required" | "explanation_required" | "explanation_too_long";
+    };
+
+export function parseLostOutcome(input: {
+  reason: unknown;
+  note: unknown;
+}): LostParseResult {
+  if (!isLeadLostReason(input.reason)) {
+    return { ok: false, issue: "reason_required" };
+  }
+  const note = typeof input.note === "string" ? input.note.trim() : "";
+  /* §33: "If Other is selected, allow a short note." Allow, and require —
+     "something else" with no explanation records nothing worth keeping. */
+  if (input.reason === "other" && note.length === 0) {
+    return { ok: false, issue: "explanation_required" };
+  }
+  if (note.length > MAX_LOST_REASON_NOTE) {
+    return { ok: false, issue: "explanation_too_long" };
+  }
+  return {
+    ok: true,
+    reason: input.reason,
+    note: note.length > 0 ? note : null,
+  };
+}
+
+/**
+ * Which of a Lead's fields an edit actually changes.
+ *
+ * Names only — never the old values. The activity feed is visible to
+ * everyone who can see the Lead, and a previous phone number is contact
+ * data rather than history anyone needs on screen.
+ */
+export const EDITABLE_LEAD_FIELDS = [
+  "name",
+  "phone",
+  "email",
+  "notes",
+  "source",
+] as const;
+
+export type EditableLeadField = (typeof EDITABLE_LEAD_FIELDS)[number];
+
+export function changedLeadFields(
+  before: {
+    readonly name: string;
+    readonly phone: string | null;
+    readonly email: string | null;
+    readonly notes: string | null;
+    readonly sourceId: string | null;
+  },
+  after: ParsedLead,
+): readonly EditableLeadField[] {
+  const changed: EditableLeadField[] = [];
+  if (before.name !== after.name) changed.push("name");
+  if (before.phone !== after.phone) changed.push("phone");
+  if (before.email !== after.email) changed.push("email");
+  if (before.notes !== after.notes) changed.push("notes");
+  if (before.sourceId !== after.sourceId) changed.push("source");
+  return Object.freeze(changed);
 }

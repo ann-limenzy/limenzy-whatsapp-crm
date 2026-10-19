@@ -207,6 +207,7 @@ export async function addLeadAction(
     acknowledgementIsValid(
       gate.workspaceId,
       gate.context.userProfileId,
+      null,
       parsed.value,
       text(formData, "acknowledgement"),
     );
@@ -225,6 +226,7 @@ export async function addLeadAction(
     issueDuplicateAcknowledgement(
       gate.workspaceId,
       gate.context.userProfileId,
+      null,
       parsed.value,
     ),
   );

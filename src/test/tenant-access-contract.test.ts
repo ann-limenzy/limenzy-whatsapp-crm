@@ -121,6 +121,35 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
     evidence: "src/server/db/leads-isolation.db.test.ts",
   },
   /*
+   * Milestone 3C — editing a record, moving it, and its history. Each one
+   * mutates a business record or reads its timeline under §162.1, so each is
+   * evidenced against a real database rather than argued about here.
+   */
+  "src/server/auth/workspace-leads.ts#leadForEdit": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#leadActivity": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#editLead": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#changeLeadStage": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#markLeadWon": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#markLeadLost": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#reopenLead": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  "src/server/auth/workspace-leads.ts#addLeadNote": {
+    evidence: "src/server/db/lead-lifecycle.db.test.ts",
+  },
+  /*
    * Pure: it reduces candidates the server already has to what §162.1 lets
    * the actor learn, and reaches no database at all. It appears here because
    * discovery is a text search over files that NAME a gateway, and listing it
@@ -334,13 +363,21 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-lead-pipeline.ts#renameLeadStage",
       "src/server/auth/workspace-lead-pipeline.ts#setLeadSourceActive",
       "src/server/auth/workspace-lead-pipeline.ts#setLeadStageActive",
+      "src/server/auth/workspace-leads.ts#addLeadNote",
+      "src/server/auth/workspace-leads.ts#changeLeadStage",
       "src/server/auth/workspace-leads.ts#countLeadsOwnedBy",
       "src/server/auth/workspace-leads.ts#createLead",
       "src/server/auth/workspace-leads.ts#describeForActor",
+      "src/server/auth/workspace-leads.ts#editLead",
       "src/server/auth/workspace-leads.ts#findDuplicateCandidates",
+      "src/server/auth/workspace-leads.ts#leadActivity",
       "src/server/auth/workspace-leads.ts#leadDetail",
+      "src/server/auth/workspace-leads.ts#leadForEdit",
       "src/server/auth/workspace-leads.ts#listLeads",
+      "src/server/auth/workspace-leads.ts#markLeadLost",
+      "src/server/auth/workspace-leads.ts#markLeadWon",
       "src/server/auth/workspace-leads.ts#recordOwnerNames",
+      "src/server/auth/workspace-leads.ts#reopenLead",
     ]);
   });
 

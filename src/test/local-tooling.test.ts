@@ -90,12 +90,15 @@ const MILESTONE_2_MIGRATIONS = [
 const MILESTONE_3A_MIGRATIONS = ["20261020090000_lead_pipeline.sql"];
 /** Milestone 3B — Leads: creation, list and detail (§30–§32, §35–§37). */
 const MILESTONE_3B_MIGRATIONS = ["20261021090000_leads.sql"];
+/** Milestone 3C — editing, stage changes and activity history (§37, §39). */
+const MILESTONE_3C_MIGRATIONS = ["20261022090000_lead_lifecycle.sql"];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
   ...MILESTONE_2_MIGRATIONS,
   ...MILESTONE_3A_MIGRATIONS,
   ...MILESTONE_3B_MIGRATIONS,
+  ...MILESTONE_3C_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
@@ -832,6 +835,9 @@ describe("the workspace setup screen", () => {
       "src/app/actions/business-settings.ts",
       // Milestone 2C — copyable workspace invitations (spec §159).
       "src/app/actions/invitations.ts",
+      // Milestone 3C — editing, stage changes, outcomes and notes
+      // (spec §37, §39, §45, §48).
+      "src/app/actions/lead-lifecycle.ts",
       // Milestone 3A — Lead pipeline and Lead sources (spec §34, §164, §165).
       "src/app/actions/lead-pipeline.ts",
       // Milestone 3B — adding a Lead (spec §32, §130.1).

@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  changedLeadFields,
   matchedFields,
   normaliseEmail,
   normalisePhone,
   normaliseSearch,
+  parseActivityNote,
   parseLead,
+  parseLostOutcome,
+  EDITABLE_LEAD_FIELDS,
+  LEAD_LOST_REASON_LABELS,
+  LEAD_LOST_REASONS,
+  MAX_ACTIVITY_NOTE,
   MAX_LEAD_NAME,
+  MAX_LOST_REASON_NOTE,
 } from "@/lib/validation/leads";
 
 const valid = {
@@ -196,5 +204,136 @@ describe("optional fields", () => {
     if (!result.ok) return;
     expect(result.value.notes).toBeNull();
     expect(result.value.sourceId).toBeNull();
+  });
+});
+
+describe("§39 notes", () => {
+  it("requires something to say, and trims it", () => {
+    expect(parseActivityNote("   ")).toEqual({
+      ok: false,
+      issue: "note_required",
+    });
+    expect(parseActivityNote("  Called back  ")).toEqual({
+      ok: true,
+      note: "Called back",
+    });
+  });
+
+  it("stops at the documented limit, which the CHECK mirrors", () => {
+    // 2000 characters. The database carries the same number, so neither
+    // layer can drift into accepting what the other refuses.
+    expect(parseActivityNote("x".repeat(MAX_ACTIVITY_NOTE)).ok).toBe(true);
+    expect(parseActivityNote("x".repeat(MAX_ACTIVITY_NOTE + 1))).toEqual({
+      ok: false,
+      issue: "note_too_long",
+    });
+    expect(MAX_ACTIVITY_NOTE).toBe(2000);
+  });
+
+  it("refuses anything that is not a string", () => {
+    expect(parseActivityNote(undefined).ok).toBe(false);
+    expect(parseActivityNote(42).ok).toBe(false);
+  });
+});
+
+describe("§48 lost outcomes", () => {
+  it("accepts one of §33's fixed reasons and nothing else", () => {
+    expect(parseLostOutcome({ reason: "price", note: "" })).toEqual({
+      ok: true,
+      reason: "price",
+      note: null,
+    });
+    // Workspaces cannot invent reasons: the list is fixed, so reporting on
+    // it means the same thing in every workspace.
+    expect(parseLostOutcome({ reason: "budget", note: "" })).toEqual({
+      ok: false,
+      issue: "reason_required",
+    });
+    expect(parseLostOutcome({ reason: null, note: "" }).ok).toBe(false);
+  });
+
+  it("requires an explanation for Something else", () => {
+    expect(parseLostOutcome({ reason: "other", note: "  " })).toEqual({
+      ok: false,
+      issue: "explanation_required",
+    });
+    expect(parseLostOutcome({ reason: "other", note: " Timing " })).toEqual({
+      ok: true,
+      reason: "other",
+      note: "Timing",
+    });
+  });
+
+  it("caps the explanation", () => {
+    expect(
+      parseLostOutcome({
+        reason: "price",
+        note: "x".repeat(MAX_LOST_REASON_NOTE + 1),
+      }),
+    ).toEqual({ ok: false, issue: "explanation_too_long" });
+  });
+
+  it("gives every reason a label, so none can reach a screen raw", () => {
+    for (const reason of LEAD_LOST_REASONS) {
+      expect(LEAD_LOST_REASON_LABELS[reason]).toBeTruthy();
+    }
+    expect(Object.keys(LEAD_LOST_REASON_LABELS).sort()).toEqual(
+      [...LEAD_LOST_REASONS].sort(),
+    );
+  });
+});
+
+describe("§39: which fields an edit touched", () => {
+  const before = {
+    name: "Rajesh Menon",
+    phone: "+91 98765 43210",
+    email: null,
+    notes: null,
+    sourceId: null,
+  };
+  const after = (input: Partial<typeof valid> = {}) => {
+    const result = parseLead({ ...valid, ...input });
+    if (!result.ok) throw new Error("fixture did not parse");
+    return result.value;
+  };
+
+  it("names nothing when nothing changed", () => {
+    expect(changedLeadFields(before, after())).toEqual([]);
+  });
+
+  it("names each field that changed, and only those", () => {
+    expect(changedLeadFields(before, after({ name: "Rajesh M" }))).toEqual([
+      "name",
+    ]);
+    expect(
+      changedLeadFields(before, after({ email: "r@example.com" })),
+    ).toEqual(["email"]);
+    expect(
+      changedLeadFields(
+        before,
+        after({ name: "Rajesh M", notes: "Follow up Monday" }),
+      ),
+    ).toEqual(["name", "notes"]);
+  });
+
+  it("carries no old values, only names", () => {
+    // What changed is public to everyone who can see the Lead; a previous
+    // phone number is contact data, not something the feed should show.
+    const changed = changedLeadFields(
+      before,
+      after({ phone: "+919000000000" }),
+    );
+    expect(changed).toEqual(["phone"]);
+    expect(JSON.stringify(changed)).not.toContain("98765");
+  });
+
+  it("stays within the declared field list", () => {
+    const changed = changedLeadFields(
+      before,
+      after({ name: "N", phone: "+919000000001", email: "a@b.co", notes: "x" }),
+    );
+    for (const field of changed) {
+      expect(EDITABLE_LEAD_FIELDS).toContain(field);
+    }
   });
 });

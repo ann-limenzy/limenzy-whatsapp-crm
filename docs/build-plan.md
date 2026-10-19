@@ -1999,6 +1999,147 @@ recorded here, because nothing further was witnessed.
 - **Applied to hosted development**, see below. The limitations above are
   unchanged by that: none of them is a deployment question.
 
+### 3C — Lead editing, stage changes and activity history (§37, §39, §45, §48) — local only
+
+3B could create a Lead and read it back. This is the slice where a Lead
+CHANGES, which brings three problems the create path did not have: two people
+editing the same record, an outcome that is more than a stage, and a history
+that has to be true.
+
+**What it does.** Editing the §37 fields — name, phone, email, notes and
+source — gated by §162's `edit_permitted_records`, with which Lead decided by
+the existing §162.1 policies rather than restated. Ordinary stage changes.
+Mark as won (§45) and Mark as lost (§48) with one of §33's five fixed reasons
+and a required explanation for "Something else". Reopen, which clears the
+reason from the record and leaves it permanently in the history. Notes, capped
+at 2000 characters in the validation layer and in a CHECK constraint. §28 is
+followed: no confirmation for a standard edit or a note.
+
+**Won and Lost are the workspace's own stage rows, found by immutable `kind`.**
+§34 lets a workspace rename them, so a lookup by label would break the day
+someone did. The ordinary stage picker refuses outcome stages, so neither can
+be reached without its reason and its history entry. §34's occupancy rule
+therefore already counts only ordinary-stage Leads — a won Lead has left the
+column it was in — and the predicate now says so out loud.
+
+**Stale edits are caught by an integer `revision` the database owns.**
+`updated_at` was rejected: the driver hands a `timestamptz` back as a
+JavaScript `Date` in one runtime and a string in another, and a `Date` loses
+microseconds, so two saves inside one millisecond stop being distinguishable.
+The trigger increments `revision`; `limenzy_app` holds no grant on the column
+and so cannot hold it still. Every control carries it, the UPDATE carries it
+in its WHERE clause, and whoever saves second is told rather than silently
+overwriting work they never saw.
+
+#### History is enforced by the database, not by the gateway
+
+An earlier draft had the application write every §39 entry beside the change
+it describes. **Measured against the runtime role, that left two open paths:**
+`limenzy_app` — not privileged tooling — could insert a Lead with no creation
+entry, and update any column it holds a grant on with no entry at all. Nothing
+was privileged about either; they needed only a code path that forgot. A
+history that has to be true cannot rest on remembering.
+
+Three triggers close it, in the smallest form that still leaves authorship
+with the actor:
+
+- `record_creation` — AFTER INSERT on `leads`, writes the creation entry
+  itself, attributed to `created_by_user_profile_id`. Invoker rights, so it
+  can never write history the inserting role could not have written. No Lead
+  can exist without one, whatever inserted it.
+- `stamp_revision` — BEFORE INSERT on `lead_activities`, stamps each entry
+  with the Lead revision it describes, read from the Lead row. No role holds a
+  grant on `lead_revision`, so it cannot be set, held still or back-dated.
+- `require_history` — a DEFERRABLE INITIALLY DEFERRED constraint trigger. At
+  COMMIT, a material change must have an entry stamped with the revision it
+  produced, or the whole transaction goes. That is the atomicity guarantee
+  stated as a constraint rather than as a convention. It fires only when a
+  material column actually changed, and `note_added` is excluded: a note is
+  something somebody wrote, not a description of a change, and must not stand
+  in for the entry a change owes.
+
+The history itself is append-only by GRANT — no UPDATE, no DELETE, and
+`occurred_at` is not insertable — visible exactly where its Lead is, through
+an EXISTS that re-applies the Lead's own policy instead of restating §162.1 in
+a second place. That costs one more hop in the policy graph (four rather than
+three), which is recorded as a decision in `rls.test.ts` rather than left to
+be discovered.
+
+**Duplicate detection on an edit.** Re-run only when a normalised contact
+value CHANGES, through a three-argument matcher that excludes the Lead being
+edited. The §130.1 acknowledgement now binds the Lead id as well as actor,
+workspace and normalised submission, so a warning answered on one Lead cannot
+be replayed against another.
+
+**Lock order is unchanged:** stage row, then the acting member's row.
+Deactivation takes the membership only and stage deactivation the stage only,
+so no cycle exists. Authority is rechecked after every lock that may have
+waited, and 40001/40P01 map to a safe failure with rollback and no automatic
+retry.
+
+#### Verification
+
+- **Database suites: 244 passed**, seven files, against the local stack —
+  including eleven new tests that drive the tables directly, bypassing the
+  gateway, to prove the completeness guarantee lives in the database.
+- **Unit and component suites: 219 passed**, eight files.
+- **Migration replay: 13/13 applied** from their files on a disposable local
+  database, twelve state checks passed, database dropped afterwards. The
+  replay is what caught the missing `alter table ... owner to limenzy_owner`
+  on `lead_activities`, which left the table owned by the migration role.
+- **Final migration SHA-256:**
+  `e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208`.
+
+#### Local browser walkthrough — 22 of 22 steps, witnessed
+
+Real Chrome driven over the DevTools Protocol, against an isolated production
+build on its own port with local Auth and database supplied through the
+process environment. Not user-reported: each step asserts against the rendered
+page and the database together, and the run was repeated three times from a
+clean seed with the same result.
+
+Sign-in · list · timeline · edit saving with no confirmation and surviving a
+reload · a stale save refused with nothing overwritten · stage change · Won
+pointing at the workspace's `won` row · Lost refused with no reason, refused
+again for "Something else" with no explanation, then recorded · Reopen
+clearing the reason from the record while the history keeps it · note · the
+whole nine-entry timeline after a reload · the duplicate warning retaining
+both typed fields and then writing the override row · 320px with no horizontal
+overflow, every control present, and the edit sheet open and usable.
+
+Four accommodations were needed, all properties of the harness rather than of
+the product, and all recorded with it: dev-mode hydration never completes in
+this headless Chrome, so the walkthrough runs against a production build;
+Radix opens its triggers on pointerdown, so clicks are real input events;
+React reverts a controlled input it never saw as a genuine edit, so text is
+typed through `Input.insertText`; and this renderer does not advance CSS
+animations, which would leave a sheet at its off-screen start. The harness and
+its screenshots are kept outside the repository, at
+`~/Limenzy-dev-tools/hosted-3c/local-verification`.
+
+#### Dependencies and limitations — all still open
+
+- **No conversion (§45, §46).** There is no `customers` table. No Convert
+  control is drawn, no choice is offered, and the screen says nothing about
+  conversion — a control that cannot run is worse than its absence, and a
+  sentence about when it will arrive is worse than both.
+- **No follow-up cancellation (§48).** There are no follow-ups to cancel.
+- Both are declared in `src/server/auth/lead-lifecycle-dependencies.ts` and
+  written up in `docs/dependencies.md`, and
+  `src/test/lead-lifecycle-dependencies.test.ts` fails the build the day
+  either table appears. A `TODO` would have kept passing.
+- **The timeline shows only the kinds this application can emit** — creation,
+  edits, stage moves, outcomes and notes. Calls, WhatsApp, email and follow-up
+  activity arrive with the features that produce them, and the screen does not
+  list what it cannot do.
+- **`outcome_missing` is unreachable** while §34's shape check holds a Won and
+  a Lost row in every workspace, so that branch exists for a database
+  corrupted by hand and is not exercised by any test.
+- **Still out of scope, unchanged from 3B:** owner reassignment, archive,
+  sharing, assignment and Sales Teams, and national-format phone duplicate
+  detection.
+- **Local only.** This slice has not been applied to hosted development.
+
 ## Milestone 4 — Sales Teams and Team membership foundation
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.

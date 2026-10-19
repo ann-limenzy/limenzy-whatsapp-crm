@@ -443,6 +443,8 @@ const TABLES = [
   // every Create Anyway.
   "leads",
   "lead_duplicate_overrides",
+  // Milestone 3C — the §39 activity history, append-only (§27, §39).
+  "lead_activities",
 ];
 
 // A workspace row that satisfies every constraint, with synthetic values.
@@ -537,19 +539,38 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         );
       }
       /*
-       * Three columns per table, less the one that is deliberately absent:
-       * `lead_duplicate_overrides` has no `updated_at`, because §130.1's
-       * override record describes something that happened at a moment and is
-       * never revised. A row that could be edited would be a worse audit
-       * trail than no row.
+       * Three columns per table, less the ones deliberately absent:
+       *
+       *   · `lead_duplicate_overrides` has no `updated_at`, because §130.1's
+       *     override record describes something that happened at a moment
+       *     and is never revised. A row that could be edited would be a
+       *     worse audit trail than no row.
+       *   · `lead_activities` has neither `created_at` nor `updated_at`.
+       *     §39's history is append-only, and the moment an entry describes
+       *     is `occurred_at` — which the backfill sets to the Lead's own
+       *     creation time rather than to when the migration happened to run.
        */
-      const withoutUpdatedAt = rows.filter(
-        (r) =>
-          r.table_name === "lead_duplicate_overrides" &&
-          r.column_name === "updated_at",
+      const ABSENT_TIMESTAMPS = [
+        "lead_duplicate_overrides.updated_at",
+        "lead_activities.created_at",
+        "lead_activities.updated_at",
+      ];
+      const present = new Set(
+        rows.map((r) => `${r.table_name}.${r.column_name}`),
       );
-      expect(withoutUpdatedAt).toEqual([]);
-      expect(rows).toHaveLength(TABLES.length * 3 - 1);
+      for (const column of ABSENT_TIMESTAMPS) {
+        expect(`${column} present:${present.has(column)}`).toBe(
+          `${column} present:false`,
+        );
+      }
+      expect(rows).toHaveLength(TABLES.length * 3 - ABSENT_TIMESTAMPS.length);
+
+      // The history's own moment, in the same type as every other timestamp.
+      const [occurred] = await db()<{ data_type: string }[]>`
+        select data_type from information_schema.columns
+         where table_schema = 'public' and table_name = 'lead_activities'
+           and column_name = 'occurred_at'`;
+      expect(occurred?.data_type).toBe("timestamp with time zone");
     });
 
     it("matches the intended nullability", async () => {
@@ -565,6 +586,20 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         .sort();
       // Every optional column, and why each one is allowed to be absent.
       expect(nullable).toEqual([
+        /*
+         * §39: each kind of entry carries what it means and nothing else, so
+         * every payload column is optional and CHECK constraints decide
+         * which kind may use which. The author is nullable only for a
+         * backfilled creation entry whose creator is no longer resolvable;
+         * the insert policy makes it mandatory on anything this application
+         * writes.
+         */
+        "lead_activities.actor_user_profile_id",
+        "lead_activities.changed_fields",
+        "lead_activities.from_stage_id",
+        "lead_activities.lost_reason",
+        "lead_activities.note",
+        "lead_activities.to_stage_id",
         // §130.1: an override's explanation is explicitly optional.
         "lead_duplicate_overrides.explanation",
         /*
@@ -576,6 +611,14 @@ describe.skipIf(!reachable)("1C-B schema", () => {
          */
         "leads.email",
         "leads.email_normalised",
+        /*
+         * §48: a Lost reason exists only while a Lead is lost. The trigger
+         * requires one when the stage's kind is `lost` and forbids one
+         * otherwise, which is a rule about another table and so cannot be a
+         * NOT NULL here. The note is optional except for "Something else".
+         */
+        "leads.lost_reason",
+        "leads.lost_reason_note",
         "leads.notes",
         "leads.phone",
         "leads.phone_normalised",
@@ -906,6 +949,10 @@ describe.skipIf(!reachable)("1C-B schema", () => {
           from pg_policies where schemaname = 'public'
          order by policyname`;
       expect(rows.map((r) => `${r.policyname} -> ${r.roles}`)).toEqual([
+        // Milestone 3C — §39's history. Visible exactly where its Lead is,
+        // and written only in the acting member's own name.
+        "lead_activities_actor_insert -> {limenzy_app}",
+        "lead_activities_record_access_select -> {limenzy_app}",
         // Milestone 3B — Leads, plus the two definer routines a Lead write
         // needs: workspace-wide duplicate matching (§130.1) and the stage row
         // lock, both owned by the NOLOGIN `limenzy_lead_support` role.
