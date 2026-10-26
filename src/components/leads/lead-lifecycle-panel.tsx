@@ -77,6 +77,13 @@ export type MemberOption = {
   readonly fullName: string;
 };
 
+/**
+ * Every submit in this file, with one comfortable phone target.
+ *
+ * `min-h-11` below `sm` and the control's own height above it: measured on
+ * the real screen, these were 32–36px tall on a 390px viewport, where the
+ * approved design asks for about 44.
+ */
 function SubmitButton({
   children,
   busy,
@@ -100,6 +107,7 @@ function SubmitButton({
       type="submit"
       size={size}
       variant={variant}
+      className="min-h-11 sm:min-h-0"
       name={name}
       value={value}
       disabled={pending || disabled}
@@ -215,7 +223,7 @@ function EditLeadSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="min-h-11 sm:min-h-0">
           Edit
         </Button>
       </SheetTrigger>
@@ -426,7 +434,7 @@ function MarkLostSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="sm" variant="outline">
+        <Button size="sm" variant="outline" className="min-h-11 sm:min-h-0">
           Mark as lost
         </Button>
       </SheetTrigger>
@@ -514,7 +522,11 @@ function StagePicker({
         {label}
       </Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} aria-label={label}>
+        <SelectTrigger
+          id={id}
+          aria-label={label}
+          className="min-h-11 sm:min-h-0"
+        >
           <SelectValue placeholder="Choose a stage" />
         </SelectTrigger>
         <SelectContent>
@@ -570,6 +582,37 @@ function useStagePicker(confirmedStageId: string, attempt: number) {
   return [choice ?? confirmedStageId, setChoice] as const;
 }
 
+/**
+ * The controls, as separately placeable pieces.
+ *
+ * The approved Lead Detail layout puts the stage control beside the stage,
+ * reassignment beside the Record Owner, the outcome actions in the header
+ * and the composer above the timeline — four different places. They cannot
+ * all live in one card any more, but they must still share one set of
+ * action states, because two components each holding their own
+ * `useActionState` for the same mutation is two implementations of it.
+ *
+ * So the panel still owns every hook and every form; it just hands the
+ * rendered pieces out. Called without `children` it draws the card it always
+ * drew, which is what the existing tests exercise.
+ */
+export type LifecycleSlots = {
+  /** Stage picker plus Move — or Reopen into plus Reopen, once finished. */
+  readonly stageControl: React.ReactNode;
+  /** §163.10's transfer. `null` when this actor may not reassign. */
+  readonly ownerControl: React.ReactNode;
+  /** Mark as won / Mark as lost. `null` on a Lead that is already finished. */
+  readonly outcomeActions: React.ReactNode;
+  /** Edit, as a sheet with its own trigger. */
+  readonly editControl: React.ReactNode;
+  /** The §39 note composer. */
+  readonly noteComposer: React.ReactNode;
+  /** Whether this Lead is in a Won or Lost stage. */
+  readonly isOutcome: boolean;
+  /** Whether §162 gives this actor Change Record Owner. */
+  readonly mayReassign: boolean;
+};
+
 export function LeadLifecyclePanel({
   lead,
   stages,
@@ -577,6 +620,7 @@ export function LeadLifecyclePanel({
   workspaceId,
   assignableMembers,
   currentOwnerUserProfileId,
+  children,
 }: {
   lead: LeadForEdit;
   /** Open, ordinary stages — the only ones a Lead can be moved to by hand. */
@@ -590,6 +634,8 @@ export function LeadLifecyclePanel({
    */
   assignableMembers: readonly MemberOption[];
   currentOwnerUserProfileId: string;
+  /** Place the controls yourself. Omitted, the original card is drawn. */
+  children?: (slots: LifecycleSlots) => React.ReactNode;
 }) {
   const [stageState, stageAction] = useActionState(
     changeLeadStageAction,
@@ -621,165 +667,200 @@ export function LeadLifecyclePanel({
   const mayReassign = assignableMembers.length > 0;
   if (noteState.status === "ok" && note.length > 0) setNote("");
 
+  /*
+   * Each control, built once. Where they are PLACED is the caller's
+   * business; what they do, and the single action state behind each one,
+   * stays here.
+   */
+  const stageControl = isOutcome ? (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+        <StagePicker
+          id="reopen-stage"
+          label="Reopen into"
+          value={reopenStageId}
+          stages={stages}
+          onChange={setReopenStageId}
+        />
+        <form action={reopenAction}>
+          <Identity lead={lead} workspaceId={workspaceId} />
+          <input type="hidden" name="stageId" value={reopenStageId} />
+          <SubmitButton
+            busy="Reopening…"
+            variant="default"
+            size="default"
+            disabled={stages.length === 0}
+          >
+            Reopen
+          </SubmitButton>
+        </form>
+      </div>
+      <Problem state={reopenState} />
+    </div>
+  ) : (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+        <StagePicker
+          id="move-stage"
+          label="Stage"
+          value={stageId}
+          stages={stages}
+          onChange={setStageId}
+        />
+        <form action={stageAction}>
+          <Identity lead={lead} workspaceId={workspaceId} />
+          <input type="hidden" name="stageId" value={stageId} />
+          <SubmitButton busy="Moving…" variant="default" size="default">
+            Move
+          </SubmitButton>
+        </form>
+      </div>
+      <Problem state={stageState} />
+    </div>
+  );
+
+  /*
+   * §163.10's transfer. Drawn only for an actor who holds Change Record
+   * Owner — §162 lists it as its own row, so an actor with edit permission
+   * and not this one gets nothing here rather than a control that would be
+   * refused on submission.
+   */
+  const ownerControl = mayReassign ? (
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-end gap-2 sm:gap-3">
+        <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-56">
+          <Label htmlFor="lead-owner" className="text-xs text-muted-foreground">
+            Record owner
+          </Label>
+          <Select value={newOwner} onValueChange={setNewOwner}>
+            <SelectTrigger
+              id="lead-owner"
+              aria-label="Record owner"
+              className="min-h-11 sm:min-h-0"
+            >
+              <SelectValue placeholder="Choose a person" />
+            </SelectTrigger>
+            <SelectContent>
+              {assignableMembers.map((member) => (
+                <SelectItem
+                  key={member.userProfileId}
+                  value={member.userProfileId}
+                >
+                  {member.fullName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <form action={ownerAction}>
+          <Identity lead={lead} workspaceId={workspaceId} />
+          <input type="hidden" name="newOwnerUserProfileId" value={newOwner} />
+          <SubmitButton
+            busy="Handing over…"
+            size="default"
+            disabled={newOwner === currentOwnerUserProfileId}
+          >
+            Hand over
+          </SubmitButton>
+        </form>
+      </div>
+      <Problem state={ownerState} />
+    </div>
+  ) : null;
+
+  const editControl = (
+    <EditLeadSheet lead={lead} sources={sources} workspaceId={workspaceId} />
+  );
+
+  const outcomeActions = isOutcome ? null : (
+    <>
+      <form action={wonAction}>
+        <Identity lead={lead} workspaceId={workspaceId} />
+        <SubmitButton busy="Saving…" variant="default">
+          Mark as won
+        </SubmitButton>
+      </form>
+      <MarkLostSheet lead={lead} workspaceId={workspaceId} />
+    </>
+  );
+
+  /*
+   * A note is one or two lines in practice, so the box is two lines and the
+   * button sits beside it on anything wider than a phone. Three rows with
+   * the control stranded underneath made the commonest action on this
+   * screen look like the largest.
+   */
+  const noteComposer = (
+    <form action={noteAction} className="grid gap-2">
+      <Identity lead={lead} workspaceId={workspaceId} />
+      <Label htmlFor="lead-note" className="text-xs text-muted-foreground">
+        Log a note
+      </Label>
+      <p className="-mt-1 text-xs text-muted-foreground/80">
+        Added to the timeline. To change the lead&rsquo;s own description,
+        edit it from <span className="font-medium">Edit</span>.
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <textarea
+          id="lead-note"
+          name="note"
+          rows={2}
+          maxLength={MAX_ACTIVITY_NOTE}
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="What happened?"
+          className="min-h-16 w-full resize-y rounded-md border border-border bg-surface px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:min-h-11"
+        />
+        <SubmitButton
+          busy="Adding…"
+          size="default"
+          disabled={note.length === 0}
+        >
+          Add note
+        </SubmitButton>
+      </div>
+      <Problem state={noteState} />
+    </form>
+  );
+
+  if (children) {
+    return (
+      <>
+        {children({
+          stageControl,
+          ownerControl,
+          outcomeActions,
+          editControl,
+          noteComposer,
+          isOutcome,
+          mayReassign,
+        })}
+      </>
+    );
+  }
+
+  /*
+   * The original card, for callers that do not place the controls
+   * themselves: one card, two rows, in order of how often each is used.
+   */
   return (
     <div className="grid gap-4">
-      {/*
-        One card, two rows, in order of how often each is used: where the
-        Lead goes next, then the things that finish or amend it. Loose
-        buttons on one line gave a stage move, an outcome and an edit the
-        same weight, which is not how any of them are used.
-      */}
       <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-3 sm:p-4">
-        {isOutcome ? (
-          <div className="flex flex-wrap items-end gap-2 sm:gap-3">
-            <StagePicker
-              id="reopen-stage"
-              label="Reopen into"
-              value={reopenStageId}
-              stages={stages}
-              onChange={setReopenStageId}
-            />
-            <form action={reopenAction}>
-              <Identity lead={lead} workspaceId={workspaceId} />
-              <input type="hidden" name="stageId" value={reopenStageId} />
-              <SubmitButton
-                busy="Reopening…"
-                variant="default"
-                size="default"
-                disabled={stages.length === 0}
-              >
-                Reopen
-              </SubmitButton>
-            </form>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-end gap-2 sm:gap-3">
-            <StagePicker
-              id="move-stage"
-              label="Stage"
-              value={stageId}
-              stages={stages}
-              onChange={setStageId}
-            />
-            <form action={stageAction}>
-              <Identity lead={lead} workspaceId={workspaceId} />
-              <input type="hidden" name="stageId" value={stageId} />
-              <SubmitButton busy="Moving…" variant="default" size="default">
-                Move
-              </SubmitButton>
-            </form>
-          </div>
-        )}
-
-        {/*
-          §163.10's transfer. Drawn only for an actor who holds Change
-          Record Owner — §162 lists it as its own row, so an actor with
-          edit permission and not this one sees nothing here rather than a
-          control that would be refused.
-        */}
-        {mayReassign ? (
+        {stageControl}
+        {ownerControl ? (
           <>
             <Separator className="bg-border/70" />
-            <div className="flex flex-wrap items-end gap-2 sm:gap-3">
-              <div className="grid min-w-0 flex-1 gap-1.5 sm:max-w-56">
-                <Label
-                  htmlFor="lead-owner"
-                  className="text-xs text-muted-foreground"
-                >
-                  Record owner
-                </Label>
-                <Select value={newOwner} onValueChange={setNewOwner}>
-                  <SelectTrigger id="lead-owner" aria-label="Record owner">
-                    <SelectValue placeholder="Choose a person" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {assignableMembers.map((member) => (
-                      <SelectItem
-                        key={member.userProfileId}
-                        value={member.userProfileId}
-                      >
-                        {member.fullName}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <form action={ownerAction}>
-                <Identity lead={lead} workspaceId={workspaceId} />
-                <input
-                  type="hidden"
-                  name="newOwnerUserProfileId"
-                  value={newOwner}
-                />
-                <SubmitButton
-                  busy="Handing over…"
-                  size="default"
-                  disabled={newOwner === currentOwnerUserProfileId}
-                >
-                  Hand over
-                </SubmitButton>
-              </form>
-            </div>
-            <Problem state={ownerState} />
+            {ownerControl}
           </>
         ) : null}
-
         <Separator className="bg-border/70" />
-
         <div className="flex flex-wrap items-center gap-2">
-          <EditLeadSheet
-            lead={lead}
-            sources={sources}
-            workspaceId={workspaceId}
-          />
-          {isOutcome ? null : (
-            <>
-              <form action={wonAction}>
-                <Identity lead={lead} workspaceId={workspaceId} />
-                <SubmitButton busy="Saving…">Mark as won</SubmitButton>
-              </form>
-              <MarkLostSheet lead={lead} workspaceId={workspaceId} />
-            </>
-          )}
+          {editControl}
+          {outcomeActions}
         </div>
-
-        <Problem state={stageState} />
         <Problem state={wonState} />
-        <Problem state={reopenState} />
       </div>
-
-      {/*
-        A note is one or two lines in practice, so the box is two lines and
-        the button sits beside it on anything wider than a phone. Three rows
-        with the control stranded underneath made the commonest action on
-        this screen look like the largest.
-      */}
-      <form action={noteAction} className="grid gap-2">
-        <Identity lead={lead} workspaceId={workspaceId} />
-        <Label htmlFor="lead-note" className="text-xs text-muted-foreground">
-          Add a note
-        </Label>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <textarea
-            id="lead-note"
-            name="note"
-            rows={2}
-            maxLength={MAX_ACTIVITY_NOTE}
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="What happened?"
-            className="min-h-16 w-full resize-y rounded-md border border-border bg-surface px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          />
-          <SubmitButton
-            busy="Adding…"
-            size="default"
-            disabled={note.length === 0}
-          >
-            Add note
-          </SubmitButton>
-        </div>
-        <Problem state={noteState} />
-      </form>
+      {noteComposer}
     </div>
   );
 }

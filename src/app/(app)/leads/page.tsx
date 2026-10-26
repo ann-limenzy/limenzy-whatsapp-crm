@@ -2,10 +2,20 @@ import { Plus } from "lucide-react";
 import type { Metadata } from "next";
 
 import { AddLeadPanel } from "@/components/leads/add-lead-panel";
-import { LeadList, type LeadScope } from "@/components/leads/lead-list";
+import {
+  LeadList,
+  type LeadScope,
+  type LeadView,
+} from "@/components/leads/lead-list";
+import { resolveTimeZone } from "@/lib/workspace-time";
 import { requireModule } from "@/server/auth/require-module";
+import { workspaceTimeZone } from "@/server/auth/workspace-business-settings";
 import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
-import { listLeads, recordOwnerNames } from "@/server/auth/workspace-leads";
+import {
+  leadStageCounts,
+  listLeads,
+  recordOwnerNames,
+} from "@/server/auth/workspace-leads";
 import {
   permissionFor,
   workspacePermissionSettings,
@@ -57,13 +67,37 @@ export default async function LeadsPage({
         ? "mine"
         : "all";
   const search = typeof params.q === "string" ? params.q : "";
+  /*
+   * §31's two arrangements of the same leads. In the URL, so a board can be
+   * linked to, reloaded and gone back from — the same place the scope and
+   * the search live.
+   */
+  const view: LeadView = params.view === "board" ? "board" : "list";
 
-  const [leads, owners, stages, sources] = await Promise.all([
-    listLeads(context, { scope, search }),
-    recordOwnerNames(context),
-    leadStages(context),
-    leadSources(context),
-  ]);
+  const [leads, owners, stages, sources, storedZone, stageTotals] =
+    await Promise.all([
+      listLeads(context, { scope, search }),
+      recordOwnerNames(context),
+      leadStages(context),
+      leadSources(context),
+      workspaceTimeZone(context),
+      /*
+       * Only for the board, and only one grouped read. `listLeads` is capped
+       * at 200 rows, so counting what it returned would describe the newest
+       * 200 rather than the pipeline.
+       */
+      view === "board"
+        ? leadStageCounts(context, { scope, search })
+        : Promise.resolve(new Map<string, number>()),
+    ]);
+
+  /*
+   * §158's zone, resolved once here. Every date on this screen is formatted
+   * against it rather than the reader's laptop, and pinning it on the server
+   * is what keeps the server pass and the client pass producing the same
+   * string.
+   */
+  const zone = resolveTimeZone(storedZone);
 
   const activeStages = stages
     .filter((stage) => stage.kind === "active" && stage.isActive)
@@ -131,6 +165,10 @@ export default async function LeadsPage({
         search={search}
         canAdd={canAdd}
         defaultsToMine={defaultsToMine}
+        workspaceTimeZone={zone}
+        view={view}
+        stages={stages}
+        stageTotals={stageTotals}
       />
     </div>
   );

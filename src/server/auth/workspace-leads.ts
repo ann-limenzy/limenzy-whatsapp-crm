@@ -57,8 +57,25 @@ export type LeadListItem = {
   readonly name: string;
   readonly phone: string | null;
   readonly email: string | null;
+  /** The stage this Lead is in. Stable across a rename — §34 allows those. */
+  readonly stageId: string;
   readonly stageName: string;
+  /**
+   * Whether the STAGE is switched on — §34's own flag, not whether this Lead
+   * is still open. Won and Lost stages are switched on like any other, so
+   * this is the wrong question to ask about a Lead's state.
+   */
   readonly stageIsActive: boolean;
+  /**
+   * The stage's immutable kind: `active`, `won` or `lost`.
+   *
+   * This is what says whether a Lead is still in play. §34 lets a workspace
+   * rename any stage, so the label cannot carry it, and `stageIsActive`
+   * answers a different question entirely — a screen that coloured Won and
+   * Lost from that flag showed them as open, which is what this exists to
+   * prevent.
+   */
+  readonly stageKind: LeadStageKind;
   readonly sourceName: string | null;
   readonly recordOwnerUserProfileId: string;
   readonly isOwnedByActor: boolean;
@@ -192,7 +209,9 @@ type ListRow = {
   phone: string | null;
   email: string | null;
   stage_name: string;
+  stage_id: string;
   stage_is_active: boolean;
+  stage_kind: LeadStageKind;
   source_name: string | null;
   record_owner_user_profile_id: string;
   /*
@@ -212,7 +231,9 @@ const toItem = (row: ListRow, actorProfileId: string): LeadListItem => ({
   phone: row.phone,
   email: row.email,
   stageName: row.stage_name,
+  stageId: row.stage_id,
   stageIsActive: row.stage_is_active,
+  stageKind: row.stage_kind,
   sourceName: row.source_name,
   recordOwnerUserProfileId: row.record_owner_user_profile_id,
   isOwnedByActor: row.record_owner_user_profile_id === actorProfileId,
@@ -246,7 +267,9 @@ export async function listLeads(
     async (tx) =>
       tx<ListRow[]>`
         select l.id, l.name, l.phone, l.email,
+               l.stage_id,
                s.name as stage_name, s.is_active as stage_is_active,
+               s.kind as stage_kind,
                src.name as source_name,
                l.record_owner_user_profile_id,
                l.created_at, l.updated_at
@@ -270,6 +293,53 @@ export async function listLeads(
   return rows.map((row) => toItem(row, context.userProfileId));
 }
 
+/**
+ * How many Leads sit in each stage, for the Board.
+ *
+ * **The list is CAPPED, not paginated.** `listLeads` returns the 200 most
+ * recent rows and there is no offset, no page control and no total anywhere
+ * in this gateway. Grouping those rows by stage would therefore produce
+ * column counts that silently mean "of the 200 newest", which on a busy
+ * workspace is not the pipeline at all.
+ *
+ * So the counts come from the database, over the WHOLE set this actor may
+ * see. The WHERE clause is deliberately identical to `listLeads`'s — same
+ * scope, same search, same escaping — because a count that does not match
+ * the rows beside it is worse than no count. §162.1's policies narrow both
+ * the same way, through the same `withTenant` path.
+ *
+ * One grouped read. It adds no pagination and loads no Lead into the
+ * browser; the Board still renders only the rows `listLeads` returned, and
+ * says so wherever a column holds more than it was given.
+ */
+export async function leadStageCounts(
+  context: TenantContext,
+  options: { readonly scope: LeadListScope; readonly search?: string },
+): Promise<ReadonlyMap<string, number>> {
+  const term = normaliseSearch(options.search ?? "");
+  const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+  const mineOnly = options.scope === "mine";
+
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<{ stage_id: string; total: number }[]>`
+        select l.stage_id, count(*)::int as total
+          from public.leads l
+         where (${mineOnly} = false
+                or l.record_owner_user_profile_id = ${context.userProfileId}::uuid)
+           and (${term} = ''
+                or l.name ilike ${like}
+                or l.phone ilike ${like}
+                or l.email ilike ${like}
+                or l.phone_normalised ilike ${like}
+                or l.email_normalised ilike ${like})
+         group by l.stage_id
+      `,
+  );
+  return new Map(rows.map((row) => [row.stage_id, row.total]));
+}
+
 /** One Lead, or null when §162.1 does not let this actor see it. */
 export async function leadDetail(
   context: TenantContext,
@@ -288,7 +358,9 @@ export async function leadDetail(
       >`
         select l.id, l.name, l.phone, l.email, l.notes,
                l.phone_normalised, l.phone_needs_review,
+               l.stage_id,
                s.name as stage_name, s.is_active as stage_is_active,
+               s.kind as stage_kind,
                src.name as source_name,
                l.record_owner_user_profile_id, l.created_by_user_profile_id,
                l.created_at, l.updated_at

@@ -250,8 +250,7 @@ describe("the §39 timeline", () => {
         workspaceId={WORKSPACE}
         assignableMembers={MEMBERS}
         ownerName="You"
-        createdOn="19 Oct 2026"
-        formatWhen={() => "19 Oct 2026, 10:04"}
+        timeZone="Asia/Kolkata"
         timeZoneLabel="Asia/Kolkata (GMT+5:30)"
       />,
     );
@@ -268,13 +267,20 @@ describe("the §39 timeline", () => {
       entry({ kind: "record_created" }),
     ]);
 
-    const timeline = screen.getByRole("list");
-    expect(within(timeline).getByText(/added a note/)).toBeInTheDocument();
+    /*
+     * The layout renders the timeline once for the phone block and once for
+     * the wider one, and a container query hides whichever does not apply.
+     * jsdom evaluates no container queries, so both are in the document —
+     * the first is asserted, and the duplication is the layout's, not a
+     * second timeline.
+     */
+    const timeline = screen.getAllByRole("list")[0]!;
+    expect(within(timeline).getByText(/logged a note/)).toBeInTheDocument();
     expect(within(timeline).getByText("Rang, no answer")).toBeInTheDocument();
     expect(within(timeline).getByText("New → Contacted")).toBeInTheDocument();
     expect(within(timeline).getByText("name, phone")).toBeInTheDocument();
     expect(
-      within(timeline).getByText("Lead created by Ann Sebastian"),
+      within(timeline).getByText("Ann Sebastian created this lead"),
     ).toBeInTheDocument();
   });
 
@@ -287,8 +293,9 @@ describe("the §39 timeline", () => {
       }),
     ]);
     expect(
-      screen.getByText("Chose someone else — Went with the incumbent"),
-    ).toBeInTheDocument();
+      screen.getAllByText("Chose someone else — Went with the incumbent")
+        .length,
+    ).toBeGreaterThan(0);
   });
 
   it("falls back to a neutral name for an actor it cannot name", () => {
@@ -296,8 +303,8 @@ describe("the §39 timeline", () => {
     // so a colleague's entry must still read as a sentence.
     view([entry({ kind: "record_created", actorUserProfileId: "someone" })]);
     expect(
-      screen.getByText("Lead created by a team member"),
-    ).toBeInTheDocument();
+      screen.getAllByText("a team member created this lead").length,
+    ).toBeGreaterThan(0);
   });
 
   it("keeps the build order out of the timeline", () => {
@@ -316,23 +323,26 @@ describe("the §39 timeline", () => {
     // screen says whose clock it is instead of leaving the reader to guess.
     view([entry({ kind: "record_created" })]);
     expect(
-      screen.getByText("Times shown in Asia/Kolkata (GMT+5:30)."),
-    ).toBeInTheDocument();
-    expect(screen.getByText("19 Oct 2026, 10:04")).toBeInTheDocument();
-    expect(screen.queryByText(/04:34/)).toBeNull();
+      screen.getAllByText("Times in Asia/Kolkata (GMT+5:30)").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("17 Oct 2026, 15:30").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/10:00/)).toBeNull();
     expect(screen.queryByText(/UTC/)).toBeNull();
   });
 
   it("says plainly when there is nothing to show", () => {
     view([]);
     expect(
-      screen.getByText("Nothing has been recorded for this lead yet."),
-    ).toBeInTheDocument();
+      screen.getAllByText("Nothing has been recorded for this lead yet.")
+        .length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows the history but no controls to a reader who may not edit", () => {
     view([entry({ kind: "record_created" })], null);
-    expect(screen.getByText(/Lead created by/)).toBeInTheDocument();
+    expect(screen.getAllByText(/created this lead/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add note" })).toBeNull();
     expect(screen.queryByText("Update this lead")).toBeNull();
@@ -347,8 +357,10 @@ describe("the §39 timeline", () => {
         lostReasonNote: "Budget",
       }),
     );
-    expect(screen.getByText("Lost reason")).toBeInTheDocument();
-    expect(screen.getByText(/Price or cost — Budget/)).toBeInTheDocument();
+    expect(screen.getAllByText("Outcome").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reason").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Price or cost").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Budget").length).toBeGreaterThan(0);
   });
 });
 
@@ -564,7 +576,7 @@ describe("the stage picker follows the server, not the last thing clicked", () =
 
     // Somebody adds a note before pressing Move. That must not discard the
     // stage they had already picked.
-    await user.type(screen.getByLabelText("Add a note"), "Rang them");
+    await user.type(screen.getByLabelText("Log a note"), "Rang them");
     await user.click(screen.getByRole("button", { name: "Add note" }));
     await waitFor(() =>
       expect(actions.addLeadNoteAction).toHaveBeenCalledTimes(1),

@@ -2,12 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { LeadDetailView } from "@/components/leads/lead-detail-view";
-import {
-  formatWorkspaceDate,
-  formatWorkspaceMoment,
-  resolveTimeZone,
-  timeZoneLabel,
-} from "@/lib/workspace-time";
+import { resolveTimeZone, timeZoneLabel } from "@/lib/workspace-time";
 import { requireModule } from "@/server/auth/require-module";
 import { workspaceTimeZone } from "@/server/auth/workspace-business-settings";
 import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
@@ -123,8 +118,7 @@ export default async function LeadPage({
       workspaceId={context.workspaceId}
       assignableMembers={recipients}
       ownerName={ownerName}
-      createdOn={formatWorkspaceDate(lead.createdAt, zone)}
-      formatWhen={(when) => formatWorkspaceMoment(when, zone)}
+      timeZone={zone}
       timeZoneLabel={timeZoneLabel(lead.createdAt, zone)}
     />
   );

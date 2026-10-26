@@ -114,6 +114,10 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/workspace-leads.ts#listLeads": {
     evidence: "src/server/db/leads-isolation.db.test.ts",
   },
+  /* The Board's per-stage totals: the same records, narrowed the same way. */
+  "src/server/auth/workspace-leads.ts#leadStageCounts": {
+    evidence: "src/server/db/leads-isolation.db.test.ts",
+  },
   "src/server/auth/workspace-leads.ts#leadDetail": {
     evidence: "src/server/db/leads-isolation.db.test.ts",
   },
@@ -394,6 +398,7 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-leads.ts#leadActivity",
       "src/server/auth/workspace-leads.ts#leadDetail",
       "src/server/auth/workspace-leads.ts#leadForEdit",
+      "src/server/auth/workspace-leads.ts#leadStageCounts",
       "src/server/auth/workspace-leads.ts#listLeads",
       "src/server/auth/workspace-leads.ts#markLeadLost",
       "src/server/auth/workspace-leads.ts#markLeadWon",

@@ -852,6 +852,7 @@ describe("the workspace setup screen", () => {
       "src/app/actions/lead-lifecycle.ts",
       // Milestone 3A — Lead pipeline and Lead sources (spec §34, §164, §165).
       "src/app/actions/lead-pipeline.ts",
+    "src/app/actions/lead-quick-view.ts",
       // Milestone 3B — adding a Lead (spec §32, §130.1).
       "src/app/actions/leads.ts",
       // Milestone 1D — module enable/disable (spec §171).

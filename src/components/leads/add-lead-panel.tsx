@@ -44,7 +44,11 @@ export function AddLeadPanel({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button size="sm" disabled={stages.length === 0}>
+        <Button
+          size="sm"
+          className="min-h-11 sm:min-h-8"
+          disabled={stages.length === 0}
+        >
           {trigger}
         </Button>
       </SheetTrigger>

@@ -81,6 +81,7 @@ let recorded: Awaited<ReturnType<typeof createTenantFixture>>["recorded"];
 type Gateways = {
   createTenantContext: typeof import("./tenant-context").createTenantContext;
   listLeads: typeof import("@/server/auth/workspace-leads").listLeads;
+  leadStageCounts: typeof import("@/server/auth/workspace-leads").leadStageCounts;
   leadDetail: typeof import("@/server/auth/workspace-leads").leadDetail;
   createLead: typeof import("@/server/auth/workspace-leads").createLead;
   findDuplicateCandidates: typeof import("@/server/auth/workspace-leads").findDuplicateCandidates;
@@ -323,6 +324,56 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
     const mineOnly = await g.listLeads(ownerA(), { scope: "mine" });
     expect(mineOnly.map((l) => l.id)).toContain(mine);
     expect(mineOnly.map((l) => l.id)).not.toContain(theirs);
+  });
+});
+
+describe.skipIf(!reachable)("the Board's per-stage counts", () => {
+  /*
+   * The Board shows a count per column. `listLeads` is capped at 200 rows,
+   * so counting what it returned would describe the newest 200 rather than
+   * the pipeline — `leadStageCounts` asks the database instead. It is a
+   * second query over the same records, so it has to narrow exactly the way
+   * the list does: the same §162.1 policies, the same scope, the same
+   * search. A count that disagrees with the rows beside it is worse than no
+   * count at all.
+   */
+  it("counts the same leads the list returns, per stage", async () => {
+    const rows = await g.listLeads(ownerA(), { scope: "all" });
+    const counts = await g.leadStageCounts(ownerA(), { scope: "all" });
+
+    const fromRows = new Map<string, number>();
+    for (const row of rows) {
+      fromRows.set(row.stageId, (fromRows.get(row.stageId) ?? 0) + 1);
+    }
+    for (const [stageId, total] of fromRows) {
+      expect(counts.get(stageId)).toBe(total);
+    }
+    expect([...counts.values()].reduce((a, b) => a + b, 0)).toBe(rows.length);
+  });
+
+  it("narrows to My leads exactly as the list does", async () => {
+    const mine = await g.listLeads(ownerA(), { scope: "mine" });
+    const counts = await g.leadStageCounts(ownerA(), { scope: "mine" });
+    expect([...counts.values()].reduce((a, b) => a + b, 0)).toBe(mine.length);
+  });
+
+  it("counts nothing from another workspace", async () => {
+    const inB = await seedLead(
+      fixture.workspaceB,
+      fixture.shared.userProfileId,
+    );
+    const [stageOfB] = (await admin()`
+      select stage_id from public.leads where id = ${inB}`) as unknown as {
+      stage_id: string;
+    }[];
+
+    const counts = await g.leadStageCounts(ownerA(), { scope: "all" });
+    const rowsA = await g.listLeads(ownerA(), { scope: "all" });
+    expect(rowsA.map((l) => l.id)).not.toContain(inB);
+    expect([...counts.values()].reduce((a, b) => a + b, 0)).toBe(rowsA.length);
+    expect(counts.get(stageOfB!.stage_id) ?? 0).toBe(
+      rowsA.filter((l) => l.stageId === stageOfB!.stage_id).length,
+    );
   });
 });
 
