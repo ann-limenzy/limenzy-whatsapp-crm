@@ -3,6 +3,11 @@ import Link from "next/link";
 
 import { StatusBadge } from "@/components/data/status-badge";
 import {
+  ActivityLine,
+  describeActivity,
+} from "@/components/leads/activity-line";
+import { LeadActivityMore } from "@/components/leads/lead-activity-more";
+import {
   LeadLifecyclePanel,
   type MemberOption,
   type StageOption,
@@ -50,63 +55,11 @@ function Row({
   );
 }
 
-/** One line of §39's timeline, in plain words. */
-function describe(
-  entry: LeadActivityEntry,
-  actorName: string,
-  nameOf: (userProfileId: string | null) => string,
-): { readonly headline: string; readonly detail?: string } {
-  switch (entry.kind) {
-    case "record_created":
-      return { headline: `Lead created by ${actorName}` };
-    case "details_edited":
-      return {
-        headline: `${actorName} edited the details`,
-        detail: (entry.changedFields ?? []).join(", "),
-      };
-    case "stage_changed":
-      return {
-        headline: `${actorName} changed the stage`,
-        detail: `${entry.fromStageName} → ${entry.toStageName}`,
-      };
-    case "marked_won":
-      return { headline: `${actorName} marked it won` };
-    case "marked_lost":
-      return {
-        headline: `${actorName} marked it lost`,
-        detail: [
-          entry.lostReason ? LEAD_LOST_REASON_LABELS[entry.lostReason] : null,
-          entry.note,
-        ]
-          .filter(Boolean)
-          .join(" — "),
-      };
-    case "reopened":
-      return {
-        headline: `${actorName} reopened it`,
-        detail: `moved to ${entry.toStageName}`,
-      };
-    case "note_added":
-      return {
-        headline: `${actorName} added a note`,
-        detail: entry.note ?? "",
-      };
-    case "owner_changed":
-      /* §163.13 asks for both ends, so both are shown rather than just the
-         new one — "who had it before" is the question people ask. */
-      return {
-        headline: `${actorName} changed the record owner`,
-        detail: `${nameOf(entry.fromOwnerUserProfileId)} → ${nameOf(
-          entry.toOwnerUserProfileId,
-        )}`,
-      };
-  }
-}
-
 export function LeadDetailView({
   lead,
   editable,
   activity,
+  activityCursor,
   actorNames,
   stages,
   sources,
@@ -124,7 +77,14 @@ export function LeadDetailView({
    * is drawn at all rather than one that would be refused on submission.
    */
   editable: LeadForEdit | null;
+  /** The newest page of §39's timeline; older pages load on request. */
   activity: readonly LeadActivityEntry[];
+  /**
+   * Position of the oldest entry above, or `null` when that page is the
+   * whole history. §27 keeps the history permanent, so the screen has to
+   * offer a way to reach past the first page rather than stop at it.
+   */
+  activityCursor: { readonly occurredAt: string; readonly id: string } | null;
   /** Profile id to display name, for §39's authorship. */
   actorNames: Readonly<Record<string, string>>;
   /** Open, ordinary stages — the only ones a Lead can be moved to by hand. */
@@ -281,32 +241,22 @@ export function LeadDetailView({
           <ol className="relative ml-1.5 grid gap-0 border-l border-border pl-5">
             {activity.map((entry) => {
               const actor = nameOf(entry.actorUserProfileId);
-              const { headline, detail } = describe(entry, actor, nameOf);
+              const { headline, detail } = describeActivity(
+                entry,
+                actor,
+                nameOf,
+              );
               return (
-                <li key={entry.id} className="relative py-2.5">
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-[1.1rem] -left-[1.4rem] size-2 rounded-full border-2 border-surface bg-border"
-                  />
-                  {/*
-                    Stacked on a phone, ranged right on anything wider. Left
-                    to wrap, the time sat beside a short headline and under a
-                    long one, which made the column look accidental.
-                  */}
-                  <div className="flex flex-col gap-y-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-x-3">
-                    <p className="text-sm font-medium">{headline}</p>
-                    <time className="order-first text-xs whitespace-nowrap text-muted-foreground sm:order-none">
-                      {formatWhen(entry.occurredAt)}
-                    </time>
-                  </div>
-                  {detail ? (
-                    <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted-foreground">
-                      {detail}
-                    </p>
-                  ) : null}
-                </li>
+                <ActivityLine
+                  key={entry.id}
+                  headline={headline}
+                  detail={detail}
+                  when={formatWhen(entry.occurredAt)}
+                />
               );
             })}
+            {/* Inside the same list, so the history stays one sequence. */}
+            <LeadActivityMore leadId={lead.id} cursor={activityCursor} />
           </ol>
         )}
         {/* Said once, rather than on all nine lines. */}

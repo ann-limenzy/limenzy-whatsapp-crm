@@ -57,9 +57,19 @@ export default async function LeadsPage({
         ? "mine"
         : "all";
   const search = typeof params.q === "string" ? params.q : "";
+  /*
+   * The page is a URL parameter so a page can be linked to, reloaded and gone
+   * back to, exactly as the scope and search term already are. An unparseable
+   * value is page 1 rather than an error: a bad `?page=` in a pasted link
+   * should show the list, not a failure.
+   */
+  const requestedPage = Number.parseInt(
+    typeof params.page === "string" ? params.page : "",
+    10,
+  );
 
   const [leads, owners, stages, sources] = await Promise.all([
-    listLeads(context, { scope, search }),
+    listLeads(context, { scope, search, page: requestedPage }),
     recordOwnerNames(context),
     leadStages(context),
     leadSources(context),
@@ -125,7 +135,11 @@ export default async function LeadsPage({
       ) : null}
 
       <LeadList
-        leads={leads}
+        leads={leads.items}
+        total={leads.total}
+        page={leads.page}
+        pageCount={leads.pageCount}
+        pageSize={leads.pageSize}
         ownerNames={Object.fromEntries(owners)}
         scope={scope}
         search={search}

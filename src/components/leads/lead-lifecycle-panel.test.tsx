@@ -244,6 +244,7 @@ describe("the §39 timeline", () => {
         lead={detail}
         editable={editable}
         activity={activity}
+        activityCursor={null}
         actorNames={{ [ACTOR]: "Ann Sebastian" }}
         stages={STAGES}
         sources={SOURCES}

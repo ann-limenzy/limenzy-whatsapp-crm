@@ -2392,11 +2392,108 @@ summaries, not from scrollback.
   **pre-existing**, is not caused by this slice, and was deliberately **not**
   fixed here — the reassignment lock coordinates a transfer against a
   committed permission change, which is a different problem. It needs its own
-  slice.
+  slice. **Closed for `setPermissionGranted` in the correctness slice below;
+  `setManagerRecordScope` never needed it, being a single statement.**
 - **Other paths that read workspace configuration mid-transaction are
   unreviewed**, not closed. This coordination is scoped to reassignment.
 - **Still out of scope, unchanged from 3C:** archive, sharing, conversion,
   automatic assignment, Sales Teams, and national-format duplicate detection.
+
+### Correctness slice — Lead paging, history continuation and serialized permission edits
+
+Three faults found by the status audit, fixed together because each one is a
+record that the product holds but cannot show. **No migration is required**:
+`limenzy_app` already holds column-level `UPDATE` on `public.workspaces`, and a
+column-level grant is sufficient to take a row lock — the same fact §163's
+`lock_lead_stage` already relies on.
+
+- **Lead list pagination with an accurate total (§30, §31).** `listLeads` was
+  `limit 200` with no offset, no total and no page control, so a workspace with
+  more than 200 Leads could not reach the oldest of them by any route and the
+  screen reported 200 as if it were the count. It now returns
+  `{ items, total, page, pageSize, pageCount }` at 50 a page. The total comes
+  from `count(*) over ()` on the same statement as the rows, so the page and
+  the number printed beside it come from one snapshot. Tenant and record
+  access, scope and search are all applied **before** the page is cut, so a
+  page is a window onto what §162.1 already allows and never a way to widen it.
+  Ordering carries a unique tie-breaker, `created_at desc, id desc`; without
+  the second key two Leads created in the same instant can swap places between
+  requests, and on an offset page that means one is served twice and another
+  never at all. The page lives in the URL beside the scope and the search term,
+  and changing either resets it.
+- **Out-of-range pages land somewhere that exists.** A page past the end used
+  to come back empty, which reads as "no matches" when the list says 55 match.
+  It now fetches the real total and serves the **last** page, reporting the
+  clamped number so the pager and the "showing x to y" line describe what is on
+  the screen. Found in the browser, not by a test; the test was added
+  afterwards.
+- **Older activity entries are reachable (§27, §39).** `leadActivity` had the
+  same flat `limit 200`, which truncated the permanent history §27 promises at
+  the screen's edge. A new `leadActivityPage` pages it with a **keyset**, not
+  an offset: the cursor is the row `(occurred_at, id)`, compared as a row.
+  `occurred_at` alone is not unique — a stage change and the note explaining it
+  are written together and share a timestamp to the microsecond — and the
+  cursor key travels as text at full precision, because a `Date` round trip
+  rounds to milliseconds and silently skips everything written inside that
+  window. An entry added while a reader is paging is newer than the cursor, so
+  it disturbs nothing. `leadActivity` remains as a thin wrapper over the newest
+  page. A read-only Server Action serves the older pages behind a "Show older
+  activity" control, gated on the Leads module; §162.1 is left to the policies,
+  and a cursor is a position rather than a capability.
+- **Concurrent §162 permission edits no longer erase each other.** The read in
+  `setPermissionGranted` takes the workspace row `for update`, inside the
+  transaction it already opened. Two administrators toggling two different
+  cells used to read the same array and the second write erased the first,
+  which on a revocation can **resurrect a permission that was just taken away**.
+  NULL and empty-array semantics are unchanged: NULL still means "no choice has
+  been made", and revoking the last grant still stores an explicit empty array.
+  Compatible with 3D: `app.reassign_lead_owner` takes the same row `for share`
+  before reading permissions, `for update` conflicts with that share by design,
+  and no cycle is possible because this routine takes the workspace row and
+  then waits on nothing else.
+
+**Verification (already completed; not to be repeated).**
+
+- Two new database suites, both registered in `scripts/test-db.mjs` so they
+  cannot be silently omitted: `lead-pagination.db.test.ts` (16) covering page
+  boundaries, cross-workspace and cross-record visibility, totals per scope and
+  history continuation; `permission-concurrency.db.test.ts` (8) covering grant,
+  revoke and mixed pairs under a deterministic race.
+- A focused unit suite for the new Server Action's gates (7), including that
+  the cursor is passed through unrounded.
+- Affected existing suites re-run and passing: 167 database tests across seven
+  files, 144 unit tests across seven files. Lint, typecheck and formatting
+  clean.
+- **Negative controls.** Removing the lock fails 4 concurrency tests; removing
+  the history tie-breaker fails 2. Removing the list tie-breaker first failed
+  nothing — the test was too weak — so an explicit total-order assertion over
+  the concatenated pages was added, and removing it now fails 3.
+- **Browser walkthrough on matched local configuration**, against the loopback
+  stack with a real account, workspace, 55 Leads and 55 activity entries all
+  created through the product's own forms. List: 50 + 5 rows, zero overlap,
+  union 55, correct order; `?page=2` works from a pasted URL; `?page=99` lands
+  on page 2. History: one press loads exactly the remaining 5, 55 distinct
+  entries and no duplicates. Measured at 1440 and 390 with `mobile: false`;
+  `documentElement.scrollWidth` equals `innerWidth` at both, so no horizontal
+  overflow. Fixtures removed afterwards.
+
+#### Deferred and separate follow-ups
+
+- **An index for deep pages is a performance follow-up, not a correctness one.**
+  `leads (workspace_id, created_at desc, id desc)` would match the list's sort
+  key. Paging is correct without it; a deep `OFFSET` is simply slower than it
+  needs to be. Not measured and not added here.
+- **Suspected: the dev server's HMR WebSocket is proxied.** `src/proxy.ts`'s
+  matcher excludes `_next/static` and `_next/image` but not `_next/hmr`, so the
+  upgrade request appears to be answered with an ordinary HTTP response and the
+  handshake fails. Observed while preparing the walkthrough, where a dev server
+  started from a copy of the tree never hydrated; a production build in the
+  same copy was fully interactive, which is what the walkthrough used.
+  **Not investigated and not fixed** — it is a development-environment concern,
+  touches no product behaviour, and needs its own slice to confirm the cause.
+- **Still out of scope, unchanged:** archive, sharing, conversion, automatic
+  assignment, Sales Teams, the Kanban board and the Lead UI refresh, which
+  stay on their own branch.
 
 ## Milestone 4 — Sales Teams and Team membership foundation
 

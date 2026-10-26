@@ -215,6 +215,34 @@ export type PermissionUpdateResult =
  * CRM. This is not where the role is checked; row-level security and the
  * column-scoped grant are the backstop that make the write impossible for
  * anyone but an active owner_admin of this workspace.
+ *
+ * **One cell at a time, even when two people click at once.** This reads the
+ * whole `permissions_granted` array, changes one entry and writes the array
+ * back. Without a lock, two administrators toggling two different cells in
+ * the same moment both read the same array, and whichever writes second
+ * writes an array computed before the first one's change existed — silently
+ * undoing it. The screen then shows a cell the administrator just switched
+ * on as off again, with nothing to say why.
+ *
+ * The read therefore takes the workspace row `for update`, inside the
+ * transaction `withTenant` already opens, so the second toggle waits for the
+ * first to commit and then re-reads what it actually wrote. Both survive.
+ *
+ * `for update` needs the UPDATE privilege on the table, and `limenzy_app`
+ * holds it on exactly these columns — a column-level grant is sufficient to
+ * lock, as §163's `lock_lead_stage` already relies on. Row-level security
+ * also applies the UPDATE policy's USING clause to a locking read, so an
+ * actor who may not configure this workspace now gets no row here instead of
+ * a row followed by a refused UPDATE. The outcome they are given is
+ * unchanged: `not_configurable` either way.
+ *
+ * Milestone 3D's reassignment routine takes the same workspace row `for
+ * share` before it reads permissions, precisely so that a revocation cannot
+ * slip between a reassignment's permission check and its write. `for update`
+ * conflicts with that `for share`, which is the intended coordination: the
+ * two serialize. They cannot deadlock, because this routine takes the
+ * workspace row and then waits on nothing else, while reassignment takes the
+ * workspace row first in its own order.
  */
 export async function setPermissionGranted(
   context: TenantContext,
@@ -231,6 +259,7 @@ export async function setPermissionGranted(
 
     const rows = await tx<{ permissions_granted: string[] | null }[]>`
       select permissions_granted from public.workspaces
+      for update
     `;
     if (rows.length === 0)
       return { ok: false, reason: "not_configurable" } as const;

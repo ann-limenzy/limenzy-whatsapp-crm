@@ -56,6 +56,12 @@ const SUITES = [
   // Milestone 3D — the stage/history lock order, including the deadlock it
   // was introduced to close.
   "src/server/db/lead-stage-locking.db.test.ts",
+  // Lead list paging and §39 history continuation: every authorised Lead
+  // reachable, an accurate total, and no entry served twice or lost.
+  "src/server/db/lead-pagination.db.test.ts",
+  // Concurrent §162 permission edits, where one administrator's change used
+  // to erase another's.
+  "src/server/db/permission-concurrency.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";

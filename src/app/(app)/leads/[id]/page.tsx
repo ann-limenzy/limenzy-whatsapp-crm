@@ -13,7 +13,7 @@ import { workspaceTimeZone } from "@/server/auth/workspace-business-settings";
 import { leadSources, leadStages } from "@/server/auth/workspace-lead-pipeline";
 import {
   assignableMembers,
-  leadActivity,
+  leadActivityPage,
   leadDetail,
   leadForEdit,
   recordOwnerNames,
@@ -64,7 +64,7 @@ export default async function LeadPage({
   const [owners, activity, editable, stages, sources, storedZone] =
     await Promise.all([
       recordOwnerNames(context),
-      leadActivity(context, id),
+      leadActivityPage(context, id),
       canEdit ? leadForEdit(context, id) : Promise.resolve(null),
       canEdit ? leadStages(context) : Promise.resolve([]),
       canEdit ? leadSources(context) : Promise.resolve([]),
@@ -116,7 +116,8 @@ export default async function LeadPage({
     <LeadDetailView
       lead={lead}
       editable={editable}
-      activity={activity}
+      activity={activity.entries}
+      activityCursor={activity.nextCursor}
       actorNames={Object.fromEntries(owners)}
       stages={activeStages}
       sources={activeSources}
