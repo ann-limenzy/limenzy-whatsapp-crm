@@ -222,6 +222,19 @@ const toItem = (row: ListRow, actorProfileId: string): LeadListItem => ({
 
 export type LeadListScope = "all" | "mine";
 
+/** How many Leads one page of the list holds. Not caller-controlled. */
+export const LEAD_PAGE_SIZE = 50;
+
+export type LeadPage = {
+  readonly items: readonly LeadListItem[];
+  /** Every Lead matching the scope and search §162.1 allows — not the page. */
+  readonly total: number;
+  /** 1-based, and clamped to a page that exists. */
+  readonly page: number;
+  readonly pageSize: number;
+  readonly pageCount: number;
+};
+
 /**
  * The §31 list.
  *
@@ -232,24 +245,107 @@ export type LeadListScope = "all" | "mine";
  * Search covers Lead name, phone and email, as §31 lists. Phone and email are
  * searched on the value as entered AND on the normalised comparison value, so
  * typing `+919876543210` finds a Lead saved as `+91 98765 43210`.
+ *
+ * **Paged, with a real total.** This used to be `limit 200` with no offset,
+ * no total and no page control: a workspace with 250 Leads could not reach
+ * the oldest 50 by any route, and the screen reported 200 as if it were the
+ * count. Access, scope and search are all applied BEFORE the page is taken,
+ * so a page is a window onto what §162.1 already allows and never a way to
+ * widen it.
+ *
+ * The order carries a unique tie-breaker — `created_at desc, id desc`.
+ * `created_at` alone is not unique, and without the second key two Leads
+ * created in the same instant can swap places between requests, which on an
+ * offset page means one is shown twice and another never at all.
  */
 export async function listLeads(
   context: TenantContext,
+  options: {
+    readonly scope: LeadListScope;
+    readonly search?: string;
+    /** 1-based. Anything below 1, or not a number, is page 1. */
+    readonly page?: number;
+  },
+): Promise<LeadPage> {
+  const requested =
+    Number.isSafeInteger(options.page) && (options.page as number) > 0
+      ? (options.page as number)
+      : 1;
+
+  const rows = await readLeadPage(
+    context,
+    options,
+    (requested - 1) * LEAD_PAGE_SIZE,
+  );
+
+  /*
+   * A page past the end comes back empty, and an empty list reads as "no
+   * matches" — which is a lie when 55 Leads match and the URL merely asked
+   * for page 99. So the real total is fetched and the LAST page is served
+   * instead, with the clamped number reported back so the pager and the
+   * "showing x to y" line describe what is actually on the screen. A stale
+   * bookmark then lands somewhere that exists.
+   *
+   * This costs two extra statements, on a page nobody reaches by clicking.
+   */
+  if (rows.length === 0 && requested > 1) {
+    const total = await countMatchingLeads(context, options);
+    const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
+    const last =
+      total === 0
+        ? []
+        : await readLeadPage(
+            context,
+            options,
+            (pageCount - 1) * LEAD_PAGE_SIZE,
+          );
+    return {
+      items: last.map((row) => toItem(row, context.userProfileId)),
+      total,
+      page: pageCount,
+      pageSize: LEAD_PAGE_SIZE,
+      pageCount,
+    };
+  }
+
+  const total = rows.length > 0 ? rows[0]!.total_matching : 0;
+  const pageCount = Math.max(1, Math.ceil(total / LEAD_PAGE_SIZE));
+  return {
+    items: rows.map((row) => toItem(row, context.userProfileId)),
+    total,
+    page: Math.min(requested, pageCount),
+    pageSize: LEAD_PAGE_SIZE,
+    pageCount,
+  };
+}
+
+/**
+ * One page of matching Leads, with the matching total carried on every row.
+ *
+ * The total travels WITH the rows — `count(*) over ()` — so the page and the
+ * number printed beside it come from one statement and therefore from one
+ * snapshot. Two separate queries can disagree with each other, and a list
+ * headed "51–100 of 49" is worse than either answer on its own.
+ */
+async function readLeadPage(
+  context: TenantContext,
   options: { readonly scope: LeadListScope; readonly search?: string },
-): Promise<readonly LeadListItem[]> {
+  offset: number,
+): Promise<readonly (ListRow & { total_matching: number })[]> {
   const term = normaliseSearch(options.search ?? "");
   const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
   const mineOnly = options.scope === "mine";
 
-  const rows = await withTenant(
+  return withTenant(
     context,
     async (tx) =>
-      tx<ListRow[]>`
+      tx<(ListRow & { total_matching: number })[]>`
         select l.id, l.name, l.phone, l.email,
                s.name as stage_name, s.is_active as stage_is_active,
                src.name as source_name,
                l.record_owner_user_profile_id,
-               l.created_at, l.updated_at
+               l.created_at, l.updated_at,
+               count(*) over ()::int as total_matching
           from public.leads l
           join public.workspace_lead_stages s
             on s.workspace_id = l.workspace_id and s.id = l.stage_id
@@ -263,11 +359,45 @@ export async function listLeads(
                 or l.email ilike ${like}
                 or l.phone_normalised ilike ${like}
                 or l.email_normalised ilike ${like})
-         order by l.created_at desc
-         limit 200
+         order by l.created_at desc, l.id desc
+         limit ${LEAD_PAGE_SIZE}
+        offset ${offset}
       `,
   );
-  return rows.map((row) => toItem(row, context.userProfileId));
+}
+
+/**
+ * How many Leads match, with no page applied.
+ *
+ * Only used when a page lands past the end. The WHERE clause is deliberately
+ * identical to the one above: a total that counts something different from
+ * the rows beside it is worse than no total.
+ */
+async function countMatchingLeads(
+  context: TenantContext,
+  options: { readonly scope: LeadListScope; readonly search?: string },
+): Promise<number> {
+  const term = normaliseSearch(options.search ?? "");
+  const like = `%${term.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+  const mineOnly = options.scope === "mine";
+
+  const rows = await withTenant(
+    context,
+    async (tx) =>
+      tx<{ total: number }[]>`
+        select count(*)::int as total
+          from public.leads l
+         where (${mineOnly} = false
+                or l.record_owner_user_profile_id = ${context.userProfileId}::uuid)
+           and (${term} = ''
+                or l.name ilike ${like}
+                or l.phone ilike ${like}
+                or l.email ilike ${like}
+                or l.phone_normalised ilike ${like}
+                or l.email_normalised ilike ${like})
+      `,
+  );
+  return rows[0]?.total ?? 0;
 }
 
 /** One Lead, or null when §162.1 does not let this actor see it. */
@@ -664,11 +794,89 @@ export type LeadActivityEntry = {
   readonly occurredAt: Date;
 };
 
-/** The §39 timeline for one Lead, newest first. */
-export async function leadActivity(
+/** How many timeline entries one page holds. Not caller-controlled. */
+export const LEAD_ACTIVITY_PAGE_SIZE = 50;
+
+/**
+ * A position in the timeline, as a cursor for the next page.
+ *
+ * `occurredAt` is an OPAQUE KEY, not a moment to do arithmetic on: it is the
+ * stored `timestamptz` rendered by PostgreSQL itself. It is deliberately not
+ * a `Date`, because a `Date` holds milliseconds and the column holds
+ * microseconds — and a cursor rounded down by a few microseconds silently
+ * skips every entry written in between, which on a history whose entries
+ * share one instant is most of them.
+ */
+export type LeadActivityCursor = {
+  /** PostgreSQL's own rendering of the entry's `occurred_at`. */
+  readonly occurredAt: string;
+  readonly id: string;
+};
+
+export type LeadActivityPage = {
+  readonly entries: readonly LeadActivityEntry[];
+  /** True when at least one older entry exists behind this page. */
+  readonly hasMore: boolean;
+  /** Pass back as `before` to continue. Null when the history ends here. */
+  readonly nextCursor: LeadActivityCursor | null;
+};
+
+/**
+ * One page of the §39 timeline for a Lead, newest first.
+ *
+ * §27 makes the history permanent, so "older entries are beyond the limit"
+ * must never mean "older entries are gone". This used to be a flat
+ * `limit 200` with no way to ask for entry 201, which on a long-running Lead
+ * silently truncated its permanent history at the screen's edge.
+ *
+ * Continuation is a **keyset**, not an offset. An offset re-counts from the
+ * top on every page, so an entry written between two requests shifts every
+ * later row down by one — the reader sees one entry twice and never sees
+ * another. A keyset asks for "strictly older than this exact entry", which
+ * stays correct however much is added while the reader is paging.
+ *
+ * The key is the pair `(occurred_at, id)`, compared as a row. `occurred_at`
+ * alone is not unique — a stage change and the note explaining it are
+ * routinely written in the same statement and share a timestamp to the
+ * microsecond — and a cursor on the timestamp alone either skips the rest of
+ * that instant or repeats all of it. The row comparison breaks the tie on
+ * `id`, which is unique, so every entry is returned exactly once.
+ *
+ * Record access is untouched: this reads through `withTenant`, so §162.1
+ * decides which Leads' entries are visible. A cursor is a position, not a
+ * capability — handing one in for a Lead the actor cannot see still returns
+ * nothing.
+ */
+export async function leadActivityPage(
   context: TenantContext,
   leadId: string,
-): Promise<readonly LeadActivityEntry[]> {
+  options: {
+    /** Return only entries strictly older than this one. */
+    readonly before?: LeadActivityCursor;
+    readonly limit?: number;
+  } = {},
+): Promise<LeadActivityPage> {
+  const limit =
+    Number.isSafeInteger(options.limit) && (options.limit as number) > 0
+      ? Math.min(options.limit as number, LEAD_ACTIVITY_PAGE_SIZE)
+      : LEAD_ACTIVITY_PAGE_SIZE;
+  /*
+   * One row more than the page is asked for purely to learn whether anything
+   * older exists. It is dropped before returning. The alternative — a second
+   * COUNT query per page — costs a round trip to answer a yes/no question.
+   */
+  const probe = limit + 1;
+  /*
+   * The key travels as text and is cast in the statement. Handing postgres.js
+   * a `Date` for the `timestamptz` side of a row comparison fails at bind
+   * time — it types the parameter from what the server reports and has no
+   * serializer for that OID — and converting through a `Date` would lose the
+   * microseconds the comparison depends on anyway. Text, cast explicitly,
+   * leaves nothing to infer and nothing to round.
+   */
+  const cursorAt = options.before ? options.before.occurredAt : null;
+  const cursorId = options.before ? options.before.id : null;
+
   const rows = await withTenant(
     context,
     async (tx) =>
@@ -685,6 +893,8 @@ export async function leadActivity(
           note: string | null;
           lost_reason: LeadLostReason | null;
           occurred_at: Date | string;
+          /* Full microsecond precision, as text — see LeadActivityCursor. */
+          occurred_at_key: string;
         }[]
       >`
         select a.id, a.kind::text as kind, a.actor_user_profile_id,
@@ -692,18 +902,25 @@ export async function leadActivity(
                a.changed_fields, a.from_owner_user_profile_id,
                a.to_owner_user_profile_id,
                a.note, a.lost_reason::text as lost_reason,
-               a.occurred_at
+               a.occurred_at, a.occurred_at::text as occurred_at_key
           from public.lead_activities a
           left join public.workspace_lead_stages f
             on f.workspace_id = a.workspace_id and f.id = a.from_stage_id
           left join public.workspace_lead_stages t
             on t.workspace_id = a.workspace_id and t.id = a.to_stage_id
          where a.lead_id = ${leadId}::uuid
+           and (${cursorAt}::timestamptz is null
+                or (a.occurred_at, a.id)
+                     < (${cursorAt}::timestamptz, ${cursorId}::uuid))
          order by a.occurred_at desc, a.id desc
-         limit 200
+         limit ${probe}
       `,
   );
-  return rows.map((row) => ({
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const oldest = page.at(-1);
+  const entries = page.map((row) => ({
     id: row.id,
     kind: row.kind,
     actorUserProfileId: row.actor_user_profile_id,
@@ -716,6 +933,27 @@ export async function leadActivity(
     lostReason: row.lost_reason,
     occurredAt: new Date(row.occurred_at),
   }));
+  return {
+    entries,
+    hasMore,
+    nextCursor:
+      hasMore && oldest
+        ? { occurredAt: oldest.occurred_at_key, id: oldest.id }
+        : null,
+  };
+}
+
+/**
+ * The newest page of the §39 timeline for one Lead.
+ *
+ * Kept as the plain shape most callers want. Anything that needs to walk
+ * further back calls {@link leadActivityPage} with a cursor.
+ */
+export async function leadActivity(
+  context: TenantContext,
+  leadId: string,
+): Promise<readonly LeadActivityEntry[]> {
+  return (await leadActivityPage(context, leadId)).entries;
 }
 
 /** The Lead as the edit form needs it, including its revision. */

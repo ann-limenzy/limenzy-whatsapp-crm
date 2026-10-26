@@ -140,6 +140,15 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/workspace-leads.ts#leadActivity": {
     evidence: "src/server/db/lead-lifecycle.db.test.ts",
   },
+  /*
+   * The paged form of the same read. Its own suite is named because what
+   * needs proving about it is different: not only that §162.1 decides whose
+   * history is visible, but that a cursor cannot widen that — and that
+   * walking the pages returns every entry exactly once.
+   */
+  "src/server/auth/workspace-leads.ts#leadActivityPage": {
+    evidence: "src/server/db/lead-pagination.db.test.ts",
+  },
   "src/server/auth/workspace-leads.ts#editLead": {
     evidence: "src/server/db/lead-lifecycle.db.test.ts",
   },
@@ -392,6 +401,7 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-leads.ts#editLead",
       "src/server/auth/workspace-leads.ts#findDuplicateCandidates",
       "src/server/auth/workspace-leads.ts#leadActivity",
+      "src/server/auth/workspace-leads.ts#leadActivityPage",
       "src/server/auth/workspace-leads.ts#leadDetail",
       "src/server/auth/workspace-leads.ts#leadForEdit",
       "src/server/auth/workspace-leads.ts#listLeads",

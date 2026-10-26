@@ -255,7 +255,7 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
     );
 
     const visible = await g.listLeads(ownerA(), { scope: "all" });
-    const ids = visible.map((lead) => lead.id);
+    const ids = visible.items.map((lead) => lead.id);
     expect(ids).toContain(mine);
     expect(ids).toContain(theirs);
   });
@@ -271,7 +271,7 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
     );
 
     const visible = await g.listLeads(staffA(), { scope: "all" });
-    const ids = visible.map((lead) => lead.id);
+    const ids = visible.items.map((lead) => lead.id);
     expect(ids).toContain(theirs);
     expect(ids).not.toContain(someoneElses);
 
@@ -288,7 +288,7 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
       fixture.owner.userProfileId,
     );
     const visible = await g.listLeads(managerA(), { scope: "all" });
-    expect(visible.map((lead) => lead.id)).not.toContain(someoneElses);
+    expect(visible.items.map((lead) => lead.id)).not.toContain(someoneElses);
   });
 
   it("follows the Manager scope the workspace did choose", async () => {
@@ -299,12 +299,12 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
 
     await configure(fixture.workspaceA, { scope: "own_assigned_shared" });
     expect(
-      (await g.listLeads(managerA(), { scope: "all" })).map((l) => l.id),
+      (await g.listLeads(managerA(), { scope: "all" })).items.map((l) => l.id),
     ).not.toContain(someoneElses);
 
     await configure(fixture.workspaceA, { scope: "all_records" });
     expect(
-      (await g.listLeads(managerA(), { scope: "all" })).map((l) => l.id),
+      (await g.listLeads(managerA(), { scope: "all" })).items.map((l) => l.id),
     ).toContain(someoneElses);
 
     await configure(fixture.workspaceA, { scope: null });
@@ -321,8 +321,8 @@ describe.skipIf(!reachable)("§162.1 record access", () => {
     );
 
     const mineOnly = await g.listLeads(ownerA(), { scope: "mine" });
-    expect(mineOnly.map((l) => l.id)).toContain(mine);
-    expect(mineOnly.map((l) => l.id)).not.toContain(theirs);
+    expect(mineOnly.items.map((l) => l.id)).toContain(mine);
+    expect(mineOnly.items.map((l) => l.id)).not.toContain(theirs);
   });
 });
 
@@ -334,7 +334,7 @@ describe.skipIf(!reachable)("cross-workspace isolation", () => {
     );
 
     expect(
-      (await g.listLeads(ownerA(), { scope: "all" })).map((l) => l.id),
+      (await g.listLeads(ownerA(), { scope: "all" })).items.map((l) => l.id),
     ).not.toContain(inB);
     expect(await g.leadDetail(ownerA(), inB)).toBeNull();
 
