@@ -62,6 +62,12 @@ const SUITES = [
   // Concurrent §162 permission edits, where one administrator's change used
   // to erase another's.
   "src/server/db/permission-concurrency.db.test.ts",
+  // Milestone 4 — Sales Teams: isolation, Owner/Admin-only authority, the
+  // membership and leadership invariants, and §160's extended deactivation.
+  "src/server/db/sales-teams.db.test.ts",
+  // Milestone 4 — the same invariants under contention, plus the lock order
+  // measured against user deactivation rather than argued about.
+  "src/server/db/sales-teams-concurrency.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";

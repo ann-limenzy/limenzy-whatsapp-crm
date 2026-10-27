@@ -445,6 +445,13 @@ const TABLES = [
   "lead_duplicate_overrides",
   // Milestone 3C — the §39 activity history, append-only (§27, §39).
   "lead_activities",
+  // Milestone 4 — Sales Teams (§163.1–§163.4, §163.12, §163.15). A team, one
+  // row per membership PERIOD, one row per Team Lead period, and append-only
+  // administrative history.
+  "sales_teams",
+  "sales_team_memberships",
+  "sales_team_lead_periods",
+  "sales_team_activities",
 ];
 
 // A workspace row that satisfies every constraint, with synthetic values.
@@ -487,9 +494,15 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         select tablename from pg_tables where schemaname = 'public'`;
       const names = rows.map((r) => r.tablename);
       for (const forbidden of [
-        "sales_teams",
-        "sales_team_memberships",
+        /*
+         * `sales_teams` and `sales_team_memberships` are no longer forbidden:
+         * Milestone 4 created them, and they are named in TABLES above —
+         * along with the two this guard never anticipated, the Team Lead
+         * PERIODS and the administrative history. `lead_assignment_rules`
+         * stays here: §163.7 is Milestone 5 and nothing may create it early.
+         */
         "lead_assignment_rules",
+        "team_round_robin_state",
         // `leads` is no longer forbidden: Milestone 3B created it, and it is
         // named in TABLES above. Everything still listed here belongs to a
         // milestone that has not run.
@@ -554,6 +567,17 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "lead_duplicate_overrides.updated_at",
         "lead_activities.created_at",
         "lead_activities.updated_at",
+        /*
+         * Milestone 4. A Team Lead PERIOD is bounded by `started_at` and
+         * `ended_at`, which are the moments it means; a row-creation stamp
+         * beside them would be a second, slightly different answer to the
+         * same question. The administrative history is append-only and
+         * carries `occurred_at` for the same reason `lead_activities` does.
+         */
+        "sales_team_lead_periods.created_at",
+        "sales_team_lead_periods.updated_at",
+        "sales_team_activities.created_at",
+        "sales_team_activities.updated_at",
       ];
       const present = new Set(
         rows.map((r) => `${r.table_name}.${r.column_name}`),
@@ -631,6 +655,33 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "leads.phone_normalised",
         // §32 lists Lead Source among the optional fields.
         "leads.source_id",
+        /*
+         * Milestone 4. Every optional column here records WHO or WHAT, not
+         * whether: an entry's subject and the two teams a transfer names are
+         * null for the kinds that have no subject and no transfer, and the
+         * `*_by` columns are null for a row no person authored.
+         */
+        "sales_team_activities.actor_user_profile_id",
+        "sales_team_activities.detail",
+        "sales_team_activities.from_sales_team_id",
+        "sales_team_activities.subject_user_profile_id",
+        "sales_team_activities.to_sales_team_id",
+        /*
+         * `ended_at` null IS the state: an open period, an active membership.
+         * A status column beside it would be a second way to say the same
+         * thing, and the CHECK constraints keep the two in step where both
+         * exist.
+         */
+        "sales_team_lead_periods.ended_at",
+        "sales_team_lead_periods.ended_by_user_profile_id",
+        "sales_team_lead_periods.started_by_user_profile_id",
+        "sales_team_memberships.ended_at",
+        "sales_team_memberships.ended_by_user_profile_id",
+        "sales_team_memberships.joined_by_user_profile_id",
+        // §163.1 lists Description as optional.
+        "sales_teams.created_by_user_profile_id",
+        "sales_teams.description",
+        "sales_teams.updated_by_user_profile_id",
         // A profile may exist before its auth user does.
         "user_profiles.auth_user_id",
         // §11 collects a name with an invitation; it is optional, and is used
@@ -980,6 +1031,35 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "leads_record_access_select -> {limenzy_app}",
         "leads_support_reassign_update -> {limenzy_lead_support}",
         "leads_support_select -> {limenzy_lead_support}",
+        /*
+         * Milestone 4 — Sales Teams. The runtime role reads and never writes:
+         * every change goes through a routine owned by limenzy_teams, which
+         * is why that role holds the insert and update policies and
+         * limenzy_app holds none. limenzy_members appears because §160's
+         * deactivation ends a departing user's team membership inside
+         * app.set_member_status.
+         */
+        "sales_team_activities_members_insert -> {limenzy_members}",
+        "sales_team_activities_owner_admin_select -> {limenzy_app}",
+        "sales_team_activities_teams_insert -> {limenzy_teams}",
+        "sales_team_activities_teams_select -> {limenzy_teams}",
+        "sales_team_lead_periods_member_select -> {limenzy_app}",
+        "sales_team_lead_periods_members_select -> {limenzy_members}",
+        "sales_team_lead_periods_members_update -> {limenzy_members}",
+        "sales_team_lead_periods_teams_insert -> {limenzy_teams}",
+        "sales_team_lead_periods_teams_select -> {limenzy_teams}",
+        "sales_team_lead_periods_teams_update -> {limenzy_teams}",
+        "sales_team_memberships_member_select -> {limenzy_app}",
+        "sales_team_memberships_members_select -> {limenzy_members}",
+        "sales_team_memberships_members_update -> {limenzy_members}",
+        "sales_team_memberships_teams_insert -> {limenzy_teams}",
+        "sales_team_memberships_teams_select -> {limenzy_teams}",
+        "sales_team_memberships_teams_update -> {limenzy_teams}",
+        "sales_teams_member_select -> {limenzy_app}",
+        "sales_teams_members_select -> {limenzy_members}",
+        "sales_teams_teams_insert -> {limenzy_teams}",
+        "sales_teams_teams_select -> {limenzy_teams}",
+        "sales_teams_teams_update -> {limenzy_teams}",
         "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
         "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
         "user_profiles_invites_insert -> {limenzy_invites}",
@@ -988,6 +1068,7 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "user_profiles_self_select -> {limenzy_app}",
         "user_profiles_support_member_select -> {limenzy_lead_support}",
         "user_profiles_support_select -> {limenzy_lead_support}",
+        "user_profiles_teams_select -> {limenzy_teams}",
         "workspace_invitations_invites_select -> {limenzy_invites}",
         "workspace_invitations_invites_update -> {limenzy_invites}",
         "workspace_invitations_owner_admin_insert -> {limenzy_app}",
@@ -1016,6 +1097,8 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "workspace_memberships_support_select -> {limenzy_lead_support}",
         "workspace_memberships_support_workspace_lock -> {limenzy_lead_support}",
         "workspace_memberships_support_workspace_select -> {limenzy_lead_support}",
+        "workspace_memberships_teams_lock -> {limenzy_teams}",
+        "workspace_memberships_teams_select -> {limenzy_teams}",
         "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
         "workspaces_invites_select -> {limenzy_invites}",
         "workspaces_member_select -> {limenzy_app}",
@@ -1029,6 +1112,7 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         // through it; the grant behind it is `time_zone` alone.
         "workspaces_support_lock -> {limenzy_lead_support}",
         "workspaces_support_select -> {limenzy_lead_support}",
+        "workspaces_teams_select -> {limenzy_teams}",
       ]);
     });
 

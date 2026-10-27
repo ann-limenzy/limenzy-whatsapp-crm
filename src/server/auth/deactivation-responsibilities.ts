@@ -118,6 +118,39 @@ export const NO_RESPONSIBILITY_TABLES: readonly string[] = Object.freeze([
    * §29 says must be kept.
    */
   "lead_activities",
+  /*
+   * A Sales Team is a GROUP, not work. Nobody is responsible for a team in
+   * the §160 sense: a team carries no record ownership and no assignment, and
+   * §163.2 is explicit that "team membership does not grant access to records
+   * owned by other team members". Deactivating a person leaves every team
+   * standing.
+   */
+  "sales_teams",
+  /*
+   * A membership period is neither work nor a reason to keep someone active.
+   * It is the thing §160 ENDS when a user is deactivated — `app.set_member_status`
+   * closes the active period and keeps it as history — so counting it as
+   * blocking work would make deactivation impossible for anyone in a team.
+   *
+   * The genuine precondition that lives nearby is a different one, and is not
+   * a count: §163.3 refuses to deactivate the active Team Lead of an ACTIVE
+   * team until a replacement is designated or the team is deactivated. That
+   * is enforced inside the routine, where it holds for any caller, rather
+   * than here, where it would be a quantity rather than a condition.
+   */
+  "sales_team_memberships",
+  /*
+   * A leadership period is the record of a responsibility, not the
+   * responsibility itself, and an ended one is history. The live case is
+   * covered by the routine's refusal described above.
+   */
+  "sales_team_lead_periods",
+  /*
+   * Append-only administrative history, for the same reason `lead_activities`
+   * is here: nobody is responsible for a past event, and the entries survive
+   * their author's deactivation on purpose.
+   */
+  "sales_team_activities",
 ]);
 
 /**

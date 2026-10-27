@@ -103,6 +103,8 @@ const MILESTONE_3D_MIGRATIONS = [
   "20261023090000_lead_activity_owner_changed.sql",
   "20261023091000_lead_reassignment.sql",
 ];
+/** Milestone 4 — Sales Teams and membership (§163.1–§163.4, §163.12). */
+const MILESTONE_4_MIGRATIONS = ["20261026090000_sales_teams.sql"];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
@@ -111,6 +113,7 @@ const APPLIED_MIGRATIONS = [
   ...MILESTONE_3B_MIGRATIONS,
   ...MILESTONE_3C_MIGRATIONS,
   ...MILESTONE_3D_MIGRATIONS,
+  ...MILESTONE_4_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
@@ -585,6 +588,10 @@ describe("the tenant gateway import boundary", () => {
     "src/server/auth/workspace-members.ts": ["the context constructor"],
     // Lead pipeline and Lead sources (spec §34, §164, §165). Same shape again.
     "src/server/auth/workspace-lead-pipeline.ts": ["the context constructor"],
+    // Sales Teams (spec §163.1–§163.4, §163.12). Same shape: it names the
+    // context TYPE, reads through withTenant() and calls the routines that
+    // write, minting no context and never touching the pool.
+    "src/server/auth/workspace-sales-teams.ts": ["the context constructor"],
     // Leads (spec §30–§32, §35–§37, §130.1, §162.1) — the first BUSINESS
     // RECORD gateway, and the same shape: it names the context TYPE and reads
     // and writes through withTenant(), minting no context and never touching
@@ -660,6 +667,7 @@ describe("the tenant gateway import boundary", () => {
       "src/server/auth/workspace-members.ts",
       "src/server/auth/workspace-modules.ts",
       "src/server/auth/workspace-permissions.ts",
+      "src/server/auth/workspace-sales-teams.ts",
       "src/server/db/client.ts",
       "src/server/db/identity.ts",
       "src/server/db/tenant-db.ts",
@@ -847,6 +855,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/business-settings.ts",
       // Milestone 2C — copyable workspace invitations (spec §159).
       "src/app/actions/invitations.ts",
+      // Older §39 timeline pages, read-only (spec §27, §39).
+      "src/app/actions/lead-activity.ts",
       // Milestone 3C — editing, stage changes, outcomes and notes
       // (spec §37, §39, §45, §48).
       "src/app/actions/lead-lifecycle.ts",
@@ -858,6 +868,8 @@ describe("the workspace setup screen", () => {
       "src/app/actions/modules.ts",
       // Milestone 1D — permission configuration (spec §162, §162.1).
       "src/app/actions/permissions.ts",
+      // Milestone 4 — Settings → Sales Teams (spec §163.1–§163.4, §163.12).
+      "src/app/actions/sales-teams.ts",
       // Milestone 2B — Settings → Users (spec §159, §160).
       "src/app/actions/users.ts",
     ]);

@@ -48,6 +48,13 @@ export type UserActionState = {
     | "unknown_member"
     | "last_owner_admin"
     | "blocked_by_responsibilities"
+    /**
+     * §160, §163.3: the person is the active Team Lead of an ACTIVE Sales
+     * Team. A distinct status, not `unavailable`: the two refusals have
+     * different resolutions, and "that could not be saved" tells an
+     * administrator nothing about which one they are looking at.
+     */
+    | "leads_sales_team"
     | "unavailable";
   /**
    * True when the change applied to the signed-in person's own membership, so
@@ -117,6 +124,8 @@ const refusal = (reason: string): UserActionState["status"] => {
       return "unknown_member";
     case "last_owner_admin":
       return "last_owner_admin";
+    case "leads_sales_team":
+      return "leads_sales_team";
     case "invalid":
       return "invalid";
     default:

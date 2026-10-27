@@ -86,6 +86,10 @@ const RESERVED_ROLES = [
   "limenzy_lead_support",
   "limenzy_members",
   "limenzy_owner",
+  // Milestone 4: owns the Settings → Sales Teams routines (§163.1–§163.4,
+  // §163.12). Each one spans several tables and must re-check authority after
+  // its locks are held, which is the 2B/3D shape rather than 3A's policies.
+  "limenzy_teams",
 ] as const;
 const TABLES = [
   "workspaces",
@@ -101,6 +105,13 @@ const TABLES = [
   "lead_duplicate_overrides",
   // Milestone 3C — the §39 activity history, append-only.
   "lead_activities",
+  // Milestone 4 — Sales Teams: the team, one row per membership PERIOD, one
+  // row per Team Lead period, and the append-only administrative history
+  // (§163.1–§163.4, §163.15).
+  "sales_teams",
+  "sales_team_memberships",
+  "sales_team_lead_periods",
+  "sales_team_activities",
 ] as const;
 
 /** The fixed role literal the provisioning script uses. */
@@ -212,8 +223,9 @@ describe.skipIf(!reachable)("Phase 1 ownership", () => {
         join pg_catalog.pg_namespace n on n.oid = t.typnamespace
        where n.nspname = 'public' and t.typtype = 'e'`;
     // Milestone 3A adds lead_stage_kind; 3C adds lead_lost_reason and
-    // lead_activity_kind.
-    expect(types).toHaveLength(5);
+    // lead_activity_kind; Milestone 4 adds sales_team_status,
+    // sales_team_membership_status and sales_team_activity_kind.
+    expect(types).toHaveLength(8);
     for (const row of types) {
       expect(`${row.typname}:${row.owner}`).toBe(
         `${row.typname}:limenzy_owner`,
@@ -371,6 +383,34 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "leads_record_access_select -> {limenzy_app}",
       "leads_support_reassign_update -> {limenzy_lead_support}",
       "leads_support_select -> {limenzy_lead_support}",
+      /*
+       * Milestone 4 — Sales Teams. limenzy_app reads and never writes: every
+       * change goes through a routine owned by limenzy_teams, which is why
+       * that role holds the insert and update policies and the runtime role
+       * holds none. limenzy_members appears because §160's deactivation ends
+       * a departing user's team membership inside app.set_member_status.
+       */
+      "sales_team_activities_members_insert -> {limenzy_members}",
+      "sales_team_activities_owner_admin_select -> {limenzy_app}",
+      "sales_team_activities_teams_insert -> {limenzy_teams}",
+      "sales_team_activities_teams_select -> {limenzy_teams}",
+      "sales_team_lead_periods_member_select -> {limenzy_app}",
+      "sales_team_lead_periods_members_select -> {limenzy_members}",
+      "sales_team_lead_periods_members_update -> {limenzy_members}",
+      "sales_team_lead_periods_teams_insert -> {limenzy_teams}",
+      "sales_team_lead_periods_teams_select -> {limenzy_teams}",
+      "sales_team_lead_periods_teams_update -> {limenzy_teams}",
+      "sales_team_memberships_member_select -> {limenzy_app}",
+      "sales_team_memberships_members_select -> {limenzy_members}",
+      "sales_team_memberships_members_update -> {limenzy_members}",
+      "sales_team_memberships_teams_insert -> {limenzy_teams}",
+      "sales_team_memberships_teams_select -> {limenzy_teams}",
+      "sales_team_memberships_teams_update -> {limenzy_teams}",
+      "sales_teams_member_select -> {limenzy_app}",
+      "sales_teams_members_select -> {limenzy_members}",
+      "sales_teams_teams_insert -> {limenzy_teams}",
+      "sales_teams_teams_select -> {limenzy_teams}",
+      "sales_teams_teams_update -> {limenzy_teams}",
       "user_profiles_bootstrap_insert -> {limenzy_bootstrap}",
       "user_profiles_bootstrap_select -> {limenzy_bootstrap}",
       "user_profiles_invites_insert -> {limenzy_invites}",
@@ -379,6 +419,7 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "user_profiles_self_select -> {limenzy_app}",
       "user_profiles_support_member_select -> {limenzy_lead_support}",
       "user_profiles_support_select -> {limenzy_lead_support}",
+      "user_profiles_teams_select -> {limenzy_teams}",
       "workspace_invitations_invites_select -> {limenzy_invites}",
       "workspace_invitations_invites_update -> {limenzy_invites}",
       "workspace_invitations_owner_admin_insert -> {limenzy_app}",
@@ -407,6 +448,8 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "workspace_memberships_support_select -> {limenzy_lead_support}",
       "workspace_memberships_support_workspace_lock -> {limenzy_lead_support}",
       "workspace_memberships_support_workspace_select -> {limenzy_lead_support}",
+      "workspace_memberships_teams_lock -> {limenzy_teams}",
+      "workspace_memberships_teams_select -> {limenzy_teams}",
       "workspaces_bootstrap_insert -> {limenzy_bootstrap}",
       "workspaces_invites_select -> {limenzy_invites}",
       "workspaces_member_select -> {limenzy_app}",
@@ -421,6 +464,7 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       // without gaining any ability to write one.
       "workspaces_support_lock -> {limenzy_lead_support}",
       "workspaces_support_select -> {limenzy_lead_support}",
+      "workspaces_teams_select -> {limenzy_teams}",
     ]);
 
     // No policy reaches a browser-facing role, the owner, or PUBLIC.
@@ -494,6 +538,17 @@ describe.skipIf(!reachable)("deny-by-default survives Phase 1", () => {
       "lead_activities:SELECT",
       "lead_duplicate_overrides:SELECT",
       "leads:SELECT",
+      /*
+       * Milestone 4. SELECT and nothing else, on all four — the runtime role
+       * has no INSERT, UPDATE or DELETE on any Sales Team table at all. Every
+       * change goes through a routine that enforces the §163.2 and §163.3
+       * invariants, so there is no write path that could skip one. The
+       * absence of a privilege is the mechanism.
+       */
+      "sales_team_activities:SELECT",
+      "sales_team_lead_periods:SELECT",
+      "sales_team_memberships:SELECT",
+      "sales_teams:SELECT",
       "user_profiles:SELECT",
       // Milestone 2C. The runtime role's INSERT and UPDATE here are COLUMN
       // privileges, so they do not appear in this table-wide listing; the

@@ -627,6 +627,15 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
        * Milestone 3D. §163.10's picker, and §162's Change Record Owner asked
        * of the matrix rather than of the caller's reach.
        */
+      /*
+       * Milestone 4 — Sales Teams (§163.1–§163.4, §163.12). Each spans two
+       * or three tables, re-checks authority after its locks are held, and
+       * commits or rolls back as a unit, so each is a routine rather than a
+       * policy. `lock_sales_team_prelude` and `sales_team_place_member` are
+       * INTERNAL — they assume locks and authority their callers
+       * established — and neither is granted to limenzy_app.
+       */
+      "add_or_transfer_team_member",
       "assignable_member_names",
       /*
        * §160's precondition. Definer, so the count covers every Lead in the
@@ -636,6 +645,7 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
        */
       "count_leads_owned_by",
       "create_initial_workspace",
+      "create_sales_team",
       "current_auth_user_id",
       "current_user_is_owner_admin",
       "current_user_may_access_all_records",
@@ -643,6 +653,8 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       "current_user_may_change_record_owner",
       "current_user_profile_id",
       "current_workspace_id",
+      "deactivate_sales_team",
+      "designate_team_lead",
       "lead_duplicate_candidates",
       "lead_source_defaults",
       "lead_stage_defaults",
@@ -655,8 +667,13 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
       "leads_require_history",
       "lock_actor_membership",
       "lock_lead_stage",
+      "lock_sales_team_prelude",
       "pending_invitations_for",
+      "reactivate_sales_team",
       "reassign_lead_owner",
+      "remove_team_member",
+      "rename_sales_team",
+      "sales_team_place_member",
       "set_member_role",
       "set_member_status",
       "workspace_member_names",
@@ -688,16 +705,30 @@ describe.skipIf(!reachable)("Phase 2 — function contract", () => {
        * picker needs, answering §162 independently of the caller's reach,
        * and checking history completeness regardless of who is committing.
        */
+      /*
+       * Milestone 4's seven, all owned by `limenzy_teams`. The runtime role
+       * holds SELECT on the Sales Team tables and no write privilege at
+       * all, so every change must pass through one of these — which is what
+       * makes the §163.2 and §163.3 invariants unavoidable rather than
+       * conventional.
+       */
+      "add_or_transfer_team_member:limenzy_teams",
       "assignable_member_names:limenzy_lead_support",
       "count_leads_owned_by:limenzy_lead_support",
       "create_initial_workspace:limenzy_bootstrap",
+      "create_sales_team:limenzy_teams",
       "current_user_may_change_record_owner:limenzy_lead_support",
+      "deactivate_sales_team:limenzy_teams",
+      "designate_team_lead:limenzy_teams",
       "lead_duplicate_candidates:limenzy_lead_support",
       "leads_require_history:limenzy_lead_support",
       "lock_actor_membership:limenzy_lead_support",
       "lock_lead_stage:limenzy_lead_support",
       "pending_invitations_for:limenzy_invites",
+      "reactivate_sales_team:limenzy_teams",
       "reassign_lead_owner:limenzy_lead_support",
+      "remove_team_member:limenzy_teams",
+      "rename_sales_team:limenzy_teams",
       "set_member_role:limenzy_members",
       "set_member_status:limenzy_members",
       "workspace_member_names:limenzy_members",
@@ -786,6 +817,14 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     "lead_duplicate_overrides",
     // Milestone 3C's §39 history.
     "lead_activities",
+    // Milestone 4's Sales Teams. Their policies name only themselves and the
+    // membership table the routines lock; none of them reads `leads`, which
+    // is how §163.2's "team membership is never a record-access path" is
+    // true by construction rather than by review.
+    "sales_teams",
+    "sales_team_memberships",
+    "sales_team_lead_periods",
+    "sales_team_activities",
   ]);
   const APPROVED_FUNCTIONS = new Set([
     "current_auth_user_id",
@@ -992,6 +1031,8 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
       // definer routines it owns.
       "limenzy_lead_support",
       "limenzy_members",
+      // Milestone 4 — the Sales Team routines' owner.
+      "limenzy_teams",
     ]);
 
     const shape = (role: string, table: string) =>
@@ -1200,6 +1241,21 @@ describe.skipIf(!reachable)("Phase 2 — policy dependency graph", () => {
     // asserted immediately below.
     const TOUCHES_TABLES = new Set([
       "accept_workspace_invitation",
+      /*
+       * Milestone 4's routines all read and write tables, deliberately. None
+       * is reachable from a policy expression — the assertion immediately
+       * below is what proves that — so none of them is a context reader and
+       * none weakens the termination argument.
+       */
+      "add_or_transfer_team_member",
+      "create_sales_team",
+      "deactivate_sales_team",
+      "designate_team_lead",
+      "lock_sales_team_prelude",
+      "reactivate_sales_team",
+      "remove_team_member",
+      "rename_sales_team",
+      "sales_team_place_member",
       "create_initial_workspace",
       "current_user_is_owner_admin",
       "pending_invitations_for",

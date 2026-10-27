@@ -151,6 +151,13 @@ const GATEWAY_FILES = {
    * reaches the pool.
    */
   workspaceLeads: "src/server/auth/workspace-leads.ts",
+  /**
+   * Sales Teams and membership (§163.1–§163.4, §163.12). The same shape
+   * again: it names the `TenantContext` TYPE, reads through `withTenant()`
+   * and calls the routines that write, mints no context and never reaches
+   * the pool.
+   */
+  workspaceSalesTeams: "src/server/auth/workspace-sales-teams.ts",
   /** Consumes the pool for identity-scoped resolution; nothing else. */
   identity: "src/server/db/identity.ts",
   /**
@@ -208,6 +215,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceInvitations,
       GATEWAY_FILES.workspaceLeadPipeline,
       GATEWAY_FILES.workspaceLeads,
+      GATEWAY_FILES.workspaceSalesTeams,
       GATEWAY_FILES.identity,
       GATEWAY_FILES.workspaceContext,
       GATEWAY_FILES.createInitialWorkspace,
@@ -291,6 +299,7 @@ const eslintConfig = defineConfig([
       GATEWAY_FILES.workspaceInvitations,
       GATEWAY_FILES.workspaceLeadPipeline,
       GATEWAY_FILES.workspaceLeads,
+      GATEWAY_FILES.workspaceSalesTeams,
     ],
     rules: {
       "no-restricted-imports": [

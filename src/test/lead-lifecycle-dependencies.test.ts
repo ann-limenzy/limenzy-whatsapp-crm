@@ -34,17 +34,23 @@ async function declaredTables(): Promise<Set<string>> {
 describe("the lifecycle dependency registry", () => {
   it("declares every behaviour the Lead lifecycle cannot build yet", () => {
     /*
-     * Two from 3C, three from 3D. The Sales Teams entries are the ones most
-     * at risk of being described as done: §163.10's Manager clause reads as
-     * satisfied when there are no teams to cross, and it is not — it is
-     * vacuous, which is a different thing and a worse one to forget.
+     * Two from 3C, three from 3D. The three §163 entries are the ones most
+     * at risk of being described as done, and Milestone 4 is exactly when
+     * that risk arrives: teams now EXIST, so "no table" stops being the
+     * reason and each one has to say what is really missing. Two wait on a
+     * §163.18 client decision and hold `null` here; the third waits on
+     * §163.7's rule table, which is Milestone 5.
      */
-    expect(LIFECYCLE_DEPENDENCIES.map((d) => d.blockedBy).sort()).toEqual([
+    expect(
+      LIFECYCLE_DEPENDENCIES.map(
+        (d) => d.blockedBy ?? d.blockedByDecision,
+      ).sort(),
+    ).toEqual([
       "customers",
       "follow_ups",
-      "sales_teams",
-      "sales_teams",
-      "sales_teams",
+      "lead_assignment_rules",
+      "§163.18 decision 4",
+      "§163.18 decision 5",
     ]);
     for (const dependency of LIFECYCLE_DEPENDENCIES) {
       expect(dependency.rule).toMatch(/§\d+/);
@@ -60,22 +66,45 @@ describe("the lifecycle dependency registry", () => {
   });
 
   it("says plainly that a vacuous rule is not an implemented one", async () => {
+    /*
+     * Milestone 4 built the Sales Team tables, which retired "no table" as
+     * the excuse for three rules at once. Two were never really waiting on a
+     * table — they wait on a §163.18 client decision — and the third now
+     * waits on §163.7's rule table, which is Milestone 5. The grouping below
+     * is by what is ACTUALLY missing, so the guard keeps its teeth.
+     */
     const teamRules = LIFECYCLE_DEPENDENCIES.filter(
-      (d) => d.blockedBy === "sales_teams",
+      (d) =>
+        d.blockedByDecision !== undefined ||
+        d.blockedBy === "lead_assignment_rules",
     );
     expect(teamRules).toHaveLength(3);
     // Each says what happens today in terms that cannot be read as "done".
     for (const rule of teamRules) {
       expect(rule.behaviourToday).toMatch(
-        /not implemented|no Team Lead|absent rather than/i,
+        /NOT implemented|no reassignment capability|absent rather than/i,
       );
+    }
+  });
+
+  it("denies every decision-blocked capability, as §163.18 requires", async () => {
+    const pending = LIFECYCLE_DEPENDENCIES.filter(
+      (d) => d.blockedByDecision !== undefined,
+    );
+    expect(pending.length).toBeGreaterThan(0);
+    for (const rule of pending) {
+      // A decision-blocked rule has no table to wait for, and says which
+      // decision denies it — §163.18 numbers all five.
+      expect(rule.blockedBy).toBeNull();
+      expect(rule.blockedByDecision).toMatch(/§163\.18 decision [1-5]/);
     }
   });
 
   it("still has every blocking table absent", async () => {
     const tables = await declaredTables();
-    const arrived = LIFECYCLE_DEPENDENCIES.filter((dependency) =>
-      tables.has(dependency.blockedBy),
+    const arrived = LIFECYCLE_DEPENDENCIES.filter(
+      (dependency) =>
+        dependency.blockedBy !== null && tables.has(dependency.blockedBy),
     ).map((dependency) => `${dependency.rule} → ${dependency.blockedBy}`);
 
     // THIS IS THE GUARD. When `customers` or `follow_ups` is added, this

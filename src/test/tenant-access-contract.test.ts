@@ -149,6 +149,45 @@ const REGISTRY: Record<string, { evidence: string; note?: string }> = {
   "src/server/auth/workspace-leads.ts#leadActivityPage": {
     evidence: "src/server/db/lead-pagination.db.test.ts",
   },
+  /*
+   * Milestone 4 — Sales Teams. Two suites between them: the isolation and
+   * authority surface, and the invariants that only show themselves when two
+   * transactions race. Both are named, because they prove different things
+   * and a single entry would hide which.
+   */
+  "src/server/auth/workspace-sales-teams.ts#addOrTransferTeamMember": {
+    evidence: "src/server/db/sales-teams-concurrency.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#assignableTeamMembers": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#createSalesTeam": {
+    evidence: "src/server/db/sales-teams-concurrency.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#deactivateSalesTeam": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#designateTeamLead": {
+    evidence: "src/server/db/sales-teams-concurrency.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#reactivateSalesTeam": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#removeTeamMember": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#renameSalesTeam": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#salesTeamActivity": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#salesTeamMembers": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
+  "src/server/auth/workspace-sales-teams.ts#salesTeams": {
+    evidence: "src/server/db/sales-teams.db.test.ts",
+  },
   "src/server/auth/workspace-leads.ts#editLead": {
     evidence: "src/server/db/lead-lifecycle.db.test.ts",
   },
@@ -410,6 +449,24 @@ describe("the business-record inventory, named rather than filtered", () => {
       "src/server/auth/workspace-leads.ts#reassignLead",
       "src/server/auth/workspace-leads.ts#recordOwnerNames",
       "src/server/auth/workspace-leads.ts#reopenLead",
+      /*
+       * Milestone 4 — Sales Teams. A team is not a record, and §163.2 is
+       * explicit that membership grants no access to one. They are listed
+       * here because `sales-teams` is a business entity and the filter is the
+       * guard: a new team-shaped function must be registered above with real
+       * database evidence, and narrowing the keyword list would hide that.
+       */
+      "src/server/auth/workspace-sales-teams.ts#addOrTransferTeamMember",
+      "src/server/auth/workspace-sales-teams.ts#assignableTeamMembers",
+      "src/server/auth/workspace-sales-teams.ts#createSalesTeam",
+      "src/server/auth/workspace-sales-teams.ts#deactivateSalesTeam",
+      "src/server/auth/workspace-sales-teams.ts#designateTeamLead",
+      "src/server/auth/workspace-sales-teams.ts#reactivateSalesTeam",
+      "src/server/auth/workspace-sales-teams.ts#removeTeamMember",
+      "src/server/auth/workspace-sales-teams.ts#renameSalesTeam",
+      "src/server/auth/workspace-sales-teams.ts#salesTeamActivity",
+      "src/server/auth/workspace-sales-teams.ts#salesTeamMembers",
+      "src/server/auth/workspace-sales-teams.ts#salesTeams",
     ]);
   });
 

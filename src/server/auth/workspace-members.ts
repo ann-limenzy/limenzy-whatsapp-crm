@@ -147,6 +147,13 @@ export type MemberChangeResult =
   | { readonly ok: false; readonly reason: "unknown_member" }
   /** The change would leave the workspace with no active Owner/Admin (§159). */
   | { readonly ok: false; readonly reason: "last_owner_admin" }
+  /**
+   * §160, §163.3: the person is the active Team Lead of an ACTIVE Sales Team.
+   * A replacement must be designated, or that team deactivated, first. The
+   * routine refuses rather than choosing a successor: who leads a team is an
+   * administrative decision, never a side effect of deactivating someone.
+   */
+  | { readonly ok: false; readonly reason: "leads_sales_team" }
   /** The role or status submitted is not one the product recognises. */
   | { readonly ok: false; readonly reason: "invalid" }
   /** The routine answered with a word this version does not know. */
@@ -170,6 +177,8 @@ const toResult = (outcome: string | undefined): MemberChangeResult => {
       return { ok: false, reason: "unknown_member" };
     case "last_owner_admin":
       return { ok: false, reason: "last_owner_admin" };
+    case "leads_sales_team":
+      return { ok: false, reason: "leads_sales_team" };
     case "invalid_role":
     case "invalid_status":
       return { ok: false, reason: "invalid" };

@@ -10,6 +10,7 @@ import {
   setMemberStatusAction,
   type UserActionState,
 } from "@/app/actions/users";
+import { StatusBadge } from "@/components/data/status-badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { MemberEmailStatus } from "@/lib/member-list";
@@ -54,6 +55,13 @@ export type MemberRow = {
   readonly role: WorkspaceRole;
   readonly status: MembershipStatus;
   readonly isSelf: boolean;
+  /**
+   * §159: the Sales Team shown beside the role. Null when they are in none —
+   * which is a fact about them, not about whether the feature exists.
+   */
+  readonly salesTeamName: string | null;
+  /** §163.3's responsibility, which is not a role and never appears as one. */
+  readonly isTeamLead: boolean;
 };
 
 /**
@@ -137,11 +145,15 @@ function Outcome({ state }: { state: UserActionState }) {
           ? "This workspace must keep at least one active Owner/Admin, and this is the last one. Nothing was changed."
           : state.status === "unknown_member"
             ? "That person is no longer a member of this workspace. Reload the page. Nothing was changed."
-            : state.status === "blocked_by_responsibilities"
-              ? "This person still has active work that must be reassigned first. Nothing was changed."
-              : state.status === "invalid"
-                ? "That request wasn't valid. Nothing was changed."
-                : "That change could not be saved. Nothing was changed.";
+            : state.status === "leads_sales_team"
+              ? /* §163.3 names both ways out, so the message does too — a
+                   refusal that does not say what to do next is a dead end. */
+                "This person leads an active Sales Team. Make someone else its Team Lead, or deactivate that team, in Settings → Sales Teams first. Nothing was changed."
+              : state.status === "blocked_by_responsibilities"
+                ? "This person still has active work that must be reassigned first. Nothing was changed."
+                : state.status === "invalid"
+                  ? "That request wasn't valid. Nothing was changed."
+                  : "That change could not be saved. Nothing was changed.";
 
   return (
     <div
@@ -281,8 +293,23 @@ export function UserSettingsList({
                     )}
                   </td>
 
-                  <td className="px-2 py-3 text-muted-foreground">
-                    Not available
+                  {/*
+                    §159: "A user's Sales Team and any Team Lead
+                    responsibility are shown alongside their role." Read from
+                    the teams the page already loaded — this column renders
+                    what is there, and says nothing about what is not.
+                  */}
+                  <td className="px-2 py-3">
+                    {member.salesTeamName === null ? (
+                      <span className="text-muted-foreground">&mdash;</span>
+                    ) : (
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        {member.salesTeamName}
+                        {member.isTeamLead ? (
+                          <StatusBadge tone="info" label="Team Lead" />
+                        ) : null}
+                      </span>
+                    )}
                   </td>
 
                   <td className="px-2 py-3">
@@ -497,16 +524,6 @@ export function UserSettingsList({
       <Separator />
 
       <div className="grid gap-2 text-xs text-muted-foreground">
-        <p className="flex items-start gap-1.5">
-          <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            <strong className="font-medium">
-              Sales Teams are not available yet.
-            </strong>{" "}
-            The column says so rather than showing a blank, which would read as
-            &ldquo;no team&rdquo;.
-          </span>
-        </p>
         <p className="flex items-start gap-1.5">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span>

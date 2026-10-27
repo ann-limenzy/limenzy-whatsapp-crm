@@ -38,8 +38,21 @@ export type LifecycleDependency = {
   /**
    * The table whose absence blocks it. The guard test asserts this table is
    * still missing: once it exists, the dependency is no longer an excuse.
+   *
+   * `null` when nothing is waiting on a TABLE. Milestone 4 built the Sales
+   * Team tables, which retired that excuse for three rules at once — but two
+   * of them were never really waiting on a table. They wait on a §163.18
+   * client decision, and `blockedByDecision` is where that is now said, so
+   * the guard keeps its teeth instead of being satisfied by a table that
+   * arrived without the capability.
    */
-  readonly blockedBy: string;
+  readonly blockedBy: string | null;
+  /**
+   * The unresolved §163.18 decision that denies it, where there is one.
+   * §163.18: "Until a decision is approved and configured for the workspace,
+   * the capability it describes is denied in production."
+   */
+  readonly blockedByDecision?: string;
   /** What the application does instead, today. */
   readonly behaviourToday: string;
 };
@@ -74,23 +87,28 @@ export const LIFECYCLE_DEPENDENCIES: readonly LifecycleDependency[] =
         "A Manager may reassign only within their permitted records AND " +
         "teams, and cross-team manual assignment is Owner/Admin only " +
         "unless a later decision grants a narrower capability.",
-      blockedBy: "sales_teams",
+      blockedBy: null,
+      blockedByDecision: "§163.18 decision 5",
       behaviourToday:
-        "Reassignment is scoped by §162.1 record access alone. With no " +
-        "teams there are no team boundaries to cross, so the clause can " +
-        "only narrow and currently narrows nothing — it is NOT implemented " +
-        "and must not be described as satisfied.",
+        "Teams exist as of Milestone 4, so the table is no longer the " +
+        "blocker — the decision is. Reassignment is still scoped by §162.1 " +
+        "record access alone, every Manager Sales Team cell in §162 answers " +
+        "`decision_required`, and no team boundary is consulted. NOT " +
+        "implemented, and not to be described as satisfied.",
     },
     {
       rule: "§163.18 decision 4",
       required:
         "Whether a Team Lead may manually reassign Leads within their own " +
         "team. Denied in production until approved and configured.",
-      blockedBy: "sales_teams",
+      blockedBy: null,
+      blockedByDecision: "§163.18 decision 4",
       behaviourToday:
-        "There is no Team Lead to grant it to. A Team Lead has no " +
-        "reassignment capability beyond their workspace role, which is " +
-        "what §163.10 requires while the decision is open.",
+        "A Team Lead now exists as a responsibility (§163.3), which is " +
+        "precisely why the table is no longer the blocker. The " +
+        "responsibility confers NO reassignment capability beyond the " +
+        "holder's workspace role, which is what §163.10 requires while the " +
+        "decision is open.",
     },
     {
       rule: "§163.13",
@@ -98,7 +116,12 @@ export const LIFECYCLE_DEPENDENCIES: readonly LifecycleDependency[] =
         "An assignment history entry carries the Sales Team, the " +
         "assignment rule, the method (Round Robin or Manual), the trigger " +
         "source and a sequence identifier.",
-      blockedBy: "sales_teams",
+      /*
+       * Still a TABLE, and still a different one: the entry needs the rule
+       * and the rotation that chose the recipient, and §163.7's rule table
+       * is Milestone 5. Teams arriving changed nothing here.
+       */
+      blockedBy: "lead_assignment_rules",
       behaviourToday:
         "The §39 entry carries the previous owner, the new owner, the " +
         "acting user and the time. The team, rule, method and sequence " +
