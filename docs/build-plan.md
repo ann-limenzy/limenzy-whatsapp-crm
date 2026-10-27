@@ -2513,7 +2513,7 @@ the last page of a longer list, not an empty one` failed together in one of
   assignment, Sales Teams, the Kanban board and the Lead UI refresh, which
   stay on their own branch.
 
-## Milestone 4 — Sales Teams and Team membership foundation — applied locally
+## Milestone 4 — Sales Teams and Team membership foundation — applied to hosted development
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.
 
@@ -2606,7 +2606,11 @@ decision 5 is ever approved and Manager administration becomes configurable,
 these routines must take that lock first**, and the migration says so where it
 would be needed.
 
-### Verification
+### Verification — local, functional
+
+Everything in this section was run against a LOCAL database. None of it says
+anything about the hosted project; hosted evidence is a separate section
+below, and the two are deliberately not mixed.
 
 - `sales-teams.db.test.ts` (28) — creation, authority re-derived by the
   database for Manager, Staff/Sales and an inactive membership alike, workspace
@@ -2627,6 +2631,56 @@ would be needed.
   it was closing had started. The check constraint caught the second; both
   event timestamps now use `clock_timestamp()` and every close takes
   `greatest(clock_timestamp(), <start>)`.
+
+A later bounded review added four more defects found and fixed, three of them
+only visible in a browser: the §160 Team Lead refusal reached the Users screen
+as a generic "could not be saved" rather than naming the way out; the Team
+Lead picker could only ever offer the signed-in person, because `limenzy_app`'s
+one policy on `workspace_memberships` is self-select and a co-member policy
+would recurse; the creation-confirmation form lost the team name being
+confirmed; and the Users screen still claimed "Sales Teams are not available
+yet", which was both a milestone explanation on a product screen and untrue.
+The §159 column now shows the real team and a Team Lead badge.
+
+### Verification — local, in a browser
+
+A walkthrough against the loopback stack, on data created entirely through the
+product: an owner and two colleagues onboarded by real invitations, at 1440
+and 390 with `mobile: false`. Creation with a teamless lead; the unconfirmed
+transfer prompt and the confirmed transfer; the §163.4 refusal when the person
+leads another active team; Team Lead replacement; deactivation showing
+"Team Lead: Nobody · 0 members"; guarded reactivation refused; the §160
+refusal for a Team Lead and the ordinary-member deactivation that succeeds and
+ends the team membership. Both widths behaved identically.
+
+**This was LOCAL.** No walkthrough has been run against hosted development,
+and nothing below should be read as one.
+
+### Verification — hosted development migration
+
+Applied on **2026-10-27**, through the hash-pinned tooling in
+`~/Limenzy-dev-tools/hosted-4`, reported by the operator:
+
+- **Preflight: 103 passed, 0 failed.**
+- **Apply verification: 86 passed, 0 failed.**
+- Migration `20261026090000` recorded.
+- Existing records, existing table columns and the §39 Lead history all
+  unchanged.
+- The four new tables arrived **empty** — §163.12 makes a team something an
+  administrator creates deliberately, and a migration that seeded one would be
+  inventing a fact.
+
+That is evidence about the SCHEMA on hosted development and about what the
+migration did and did not touch. It is not evidence that the Sales Teams
+screens behave correctly there: no hosted UI walkthrough has been performed.
+
+Before this run the tooling was validated against a disposable local database
+— `limenzy_4_validation`, built with the real `auth` schema, the fifteen
+predecessors applied and recorded as the runner records them, and data seeded
+through the real routines. That rehearsal passed 86 of 86 apply checks, and
+four negative controls were shown to fire: an apply without `--confirm`, a
+preflight against an already-applied database, a tampered migration file, and
+an unexpected recorded migration.
 
 ### Deferred, and deliberately not started here
 
