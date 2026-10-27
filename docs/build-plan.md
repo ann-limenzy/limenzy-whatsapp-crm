@@ -2479,10 +2479,28 @@ column-level grant is sufficient to take a row lock — the same fact §163's
 
 #### Deferred and separate follow-ups
 
+- **Unresolved: the clamp tests fail intermittently under full-suite load.**
+  `serves the last page when the requested one is past the end` and `lands on
+the last page of a longer list, not an empty one` failed together in one of
+  three consecutive full database runs, and passed in the other two and in
+  every targeted run. Both exercise the two-statement path `listLeads` takes
+  only for an out-of-range page — a count, then a second read — so a window
+  between them is the obvious suspect, but that is a hypothesis and not a
+  diagnosis. Recorded during the Milestone 4 review and deliberately NOT
+  investigated there. It needs its own slice.
 - **An index for deep pages is a performance follow-up, not a correctness one.**
   `leads (workspace_id, created_at desc, id desc)` would match the list's sort
   key. Paging is correct without it; a deep `OFFSET` is simply slower than it
   needs to be. Not measured and not added here.
+- **Settings overflows horizontally at phone width, and has since 2B.**
+  Measured at 390: `document.documentElement.scrollWidth` is 485 while
+  `body.scrollWidth` is 390. The source is the Users table, which carries
+  `min-w-[46rem]` inside an `overflow-x-auto` wrapper; Milestone 4's own
+  Sales Teams section measures 374 and contributes nothing. Milestone 4 does
+  widen that table by about 16px, because the §159 Sales Team column now
+  holds a team name instead of a fixed phrase — a table already far wider
+  than the viewport. Not fixed here: the markup is 2B's and the fix is a
+  layout decision about that table, not about teams.
 - **Suspected: the dev server's HMR WebSocket is proxied.** `src/proxy.ts`'s
   matcher excludes `_next/static` and `_next/image` but not `_next/hmr`, so the
   upgrade request appears to be answered with an ordinary HTTP response and the
@@ -2495,7 +2513,7 @@ column-level grant is sufficient to take a row lock — the same fact §163's
   assignment, Sales Teams, the Kanban board and the Lead UI refresh, which
   stay on their own branch.
 
-## Milestone 4 — Sales Teams and Team membership foundation
+## Milestone 4 — Sales Teams and Team membership foundation — applied locally
 
 Spec §163.1–§163.4, §163.12, §163.14, §163.15.
 
@@ -2505,6 +2523,132 @@ appear in the Roles list — team transfer, team settings, and historical
 integrity.
 
 Structure and administration only. No assignment behaviour.
+
+### What was built
+
+Settings → Sales Teams, **Owner/Admin only**: create, rename, deactivate,
+guarded reactivation, add or transfer a member, remove a member, and designate
+or replace the Team Lead. One migration,
+`20261026090000_sales_teams.sql`, adding four tables, three enums, a definer
+role and nine routines.
+
+**A team is created with its first Team Lead, atomically.** §163.1 wants
+exactly one active Team Lead and §163.3 wants that lead to be a member of the
+team, so the team row, the membership period and the leadership period are
+written in one transaction with the shape constraint deferred to COMMIT. No
+inactive-first draft state is required, and there is no moment at which another
+transaction could observe an active team with no lead.
+
+**A transfer is named, confirmed and revalidated.** §163.2 allows one active
+membership per person, so adding someone who already belongs to a team moves
+them. The screen shows where each person is now; the server refuses until it
+receives both the confirmation and the exact membership period that was shown,
+and compares that id with what it finds **under lock**. A confirmation given
+about one team can therefore never take effect against another. If the person
+leads another active team, §163.4 refuses outright — the creation and
+membership forms carry no controls over the source team, because fixing one
+team's leadership from inside another team's form is how an administrator
+changes something they did not mean to.
+
+### The shapes that are not what they first look like
+
+- **A membership row is a PERIOD.** §163.2 forbids reopening an ended
+  membership, so the key is a fresh `id` each time and a person may hold many
+  ended rows for the same team. Keying on (team, user) would have made the
+  second spell unrepresentable.
+- **Team Lead is a table of periods, not a flag.** Leadership can change hands
+  twice inside one unbroken membership, and §163.15 requires the former
+  responsibility to remain visible. A boolean can say who leads now; it cannot
+  say that anyone ever did. A test hands leadership over and back and asserts
+  three periods against one membership row.
+- **The invariants are split between constraints and a deferred check.**
+  Partial unique indexes carry "at most one active membership per person" and
+  "at most one open lead period per team". The other half — every ACTIVE team
+  has at least one, and an active membership belongs to an active workspace
+  member — is a DEFERRED CONSTRAINT TRIGGER, because creation writes three rows
+  and no ordering of them is valid at every intermediate step.
+
+### Where §160 is enforced, and why it differs
+
+The Lead precondition stays in the **gateway**: `deactivateMember` calls
+`app.set_member_status` and `app.count_leads_owned_by` in one transaction and
+rolls back when the count is non-zero **or NULL** — NULL meaning the count
+refused, which is deliberately not read as zero. That is unchanged.
+
+The Team Lead rule is a **structural** invariant (§163.3) and must hold however
+the status is changed, so it lives in the routine: deactivating the active Team
+Lead of an active team is refused until a replacement is designated or the team
+is deactivated. Otherwise the person's active team membership is ended and kept
+as history. A third line, the deferred constraint on `workspace_memberships`,
+refuses at COMMIT if **any** path leaves an active team membership attached to a
+deactivated workspace member — which is the difference between the gateway
+enforcing a rule and the database doing it.
+
+### The lock order, measured rather than argued
+
+The order in force is unchanged and extended at the end:
+
+    workspaces row → stage row → active owner_admin memberships, asc
+                   → any other membership row, asc → sales_teams, asc
+                   → sales_team_memberships, asc → sales_team_lead_periods
+
+Every routine takes the active owner_admin set first, unconditionally, through
+one shared prelude. That is required because each locks **two or more**
+membership rows once helper calls are counted — `app.lock_actor_membership()`
+takes the actor's row and the target's is taken separately — and 3D's audit
+records the deadlock shape for exactly that case. A routine that locked only
+one row would not need it; none here qualifies.
+
+No routine takes the **workspace** row. 3D takes it `for share` to hold a
+_configurable_ §162 cell still while reading it; every Sales Team cell is a
+fixed Owner/Admin "Yes", so there is nothing to stabilise. **If §163.18
+decision 5 is ever approved and Manager administration becomes configurable,
+these routines must take that lock first**, and the migration says so where it
+would be needed.
+
+### Verification
+
+- `sales-teams.db.test.ts` (28) — creation, authority re-derived by the
+  database for Manager, Staff/Sales and an inactive membership alike, workspace
+  isolation, the cardinality and leadership rules, deactivation and guarded
+  reactivation, §160, and the §162.1 non-grant: a teammate's Lead stays
+  invisible after joining the same team and after taking the lead of it.
+- `sales-teams-concurrency.db.test.ts` (9) — two placements of one person at
+  once, two confirmed transfers naming the same source, two creations of one
+  name, two designations on one team, deactivation racing designation, atomic
+  rollback, and the lock order run against user deactivation in both directions
+  for eight rounds plus a deterministic hold-and-release.
+- Full database suite green: **540 tests across 21 files**. Unit suites green:
+  **1,731 across 67 files**. Lint, typecheck and formatting clean.
+- Two defects were found by the project's own guards and fixed, not worked
+  around: a PL/pgSQL `CASE` that resolved a field the record type lacks, and
+  `now()` used for event timestamps — the transaction clock, which let a
+  transaction that began earlier close a leadership period _before_ the period
+  it was closing had started. The check constraint caught the second; both
+  event timestamps now use `clock_timestamp()` and every close takes
+  `greatest(clock_timestamp(), <start>)`.
+
+### Deferred, and deliberately not started here
+
+- **No eligibility.** §163.5's Eligible/Paused is Milestone 5, and the column
+  is deferred with it rather than added as a placeholder nothing writes. The
+  consequence is visible: Settings → Sales Teams shows **Active members** and
+  not Eligible or Paused counts. The screen says nothing about why — that is
+  recorded here, not in the product.
+- **No My Team (§163.6), no assignment rules (§163.7), no rotation (§163.8),
+  no Assignment Required (§163.9), no assignment audit history (§163.13).**
+- **§163.1's "deactivate every rule targeting the team" and §163.12's "select
+  which rules to reactivate" are explicit no-ops**, written into the routines
+  with a comment rather than silently omitted, because no rule table exists.
+- **Manager administration stays denied.** Every Sales Team row in §162 is
+  Owner/Admin-fixed and a Manager's is Decision required (§163.18 #5). Nothing
+  in this slice asserts that denial — the matrix does — so the day decision 5
+  is approved and configured, the actions do not have to change to honour it.
+- **`src/server/auth/lead-lifecycle-dependencies.ts` was re-blocked honestly.**
+  Teams existing retired "no table" as the excuse for three rules at once. Two
+  of them were never waiting on a table — §163.18 decisions 4 and 5 — and now
+  say so; the third waits on §163.7's rule table. The guard that makes the
+  deferral expire keeps its teeth.
 
 ## Milestone 5 — Team-scoped Lead-assignment engine (gated)
 

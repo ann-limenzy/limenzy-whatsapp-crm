@@ -18,5 +18,6 @@ export * from "./user-profiles";
 export * from "./workspace-invitations";
 export * from "./lead-pipeline";
 export * from "./leads";
+export * from "./sales-teams";
 export * from "./workspace-memberships";
 export * from "./workspaces";

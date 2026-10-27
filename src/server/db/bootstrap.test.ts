@@ -633,12 +633,22 @@ describe.skipIf(!reachable)(
               or column_name like '%default%'
               or column_name like '%primary%')
        order by name`;
-      // The one status column in the schema is the membership status from
-      // 1C-B. Milestone 3A's two configuration tables each carry `is_active`,
-      // which is how a stage or a source is retired: this product archives
-      // and deactivates, it never deletes, so there is still no `deleted_at`
-      // anywhere and no `status` beyond the membership one.
+      /*
+       * Milestone 3A's two configuration tables each carry `is_active`, which
+       * is how a stage or a source is retired, and Milestone 4's team and
+       * membership each carry a `status`: §163.1 deactivates a team rather
+       * than deleting it, and §163.2 ENDS a membership period rather than
+       * removing it. This product archives and deactivates; there is still no
+       * `deleted_at` anywhere in the schema, which is the claim this guard
+       * exists to keep true.
+       *
+       * The Team Lead periods deliberately carry no status column at all:
+       * `ended_at is null` IS the open period, and a second way to say the
+       * same thing is a second thing that can disagree.
+       */
       expect(columns.map((c) => c.name)).toEqual([
+        "sales_team_memberships.status",
+        "sales_teams.status",
         "workspace_lead_sources.is_active",
         "workspace_lead_stages.is_active",
         "workspace_memberships.status",
@@ -658,6 +668,17 @@ describe.skipIf(!reachable)(
         // than lookup tables, and neither is written by this routine.
         "lead_duplicate_overrides",
         "leads",
+        /*
+         * Milestone 4 — Sales Teams (§163.1–§163.4). Workspace-scoped
+         * records, not lookup tables: every row names its workspace and is
+         * reachable only through that workspace's policies. This routine
+         * writes none of them — a new workspace starts with no teams, and
+         * §163.12 says a team is created deliberately rather than seeded.
+         */
+        "sales_team_activities",
+        "sales_team_lead_periods",
+        "sales_team_memberships",
+        "sales_teams",
         "user_profiles",
         // Milestone 2C — invitations (§159 Add User). Workspace
         // administration, not a lookup table and not a business module.
@@ -703,6 +724,19 @@ describe.skipIf(!reachable)(
         // the stages: the names are the workspace's to choose. `won` and
         // `lost` mark the two fixed outcomes, `active` every ordinary column.
         "lead_stage_kind=active,won,lost",
+        /*
+         * Milestone 4. The team and the membership each carry their own
+         * lifecycle word, because §163.1 deactivates a team while §163.2 ENDS
+         * a membership period — different events that would read as the same
+         * one if they shared a vocabulary. The activity kinds are only the
+         * ones this slice can emit; eligibility and assignment kinds arrive
+         * with §163.13 rather than sitting here unwritten.
+         */
+        "sales_team_activity_kind=team_created,team_renamed,team_deactivated," +
+          "team_reactivated,member_added,member_removed,member_transferred," +
+          "team_lead_designated,team_lead_ended",
+        "sales_team_membership_status=active,ended",
+        "sales_team_status=active,inactive",
         "workspace_membership_status=active,inactive",
         "workspace_role=owner_admin,manager,staff_sales",
       ]);
@@ -941,6 +975,10 @@ describe.skipIf(!reachable)(
         { relname: "lead_activities", rls: true, force: true },
         { relname: "lead_duplicate_overrides", rls: true, force: true },
         { relname: "leads", rls: true, force: true },
+        { relname: "sales_team_activities", rls: true, force: true },
+        { relname: "sales_team_lead_periods", rls: true, force: true },
+        { relname: "sales_team_memberships", rls: true, force: true },
+        { relname: "sales_teams", rls: true, force: true },
         { relname: "user_profiles", rls: true, force: true },
         { relname: "workspace_invitations", rls: true, force: true },
         { relname: "workspace_lead_sources", rls: true, force: true },
