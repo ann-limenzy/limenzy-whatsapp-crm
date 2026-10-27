@@ -925,23 +925,51 @@ required — the pinned set is fully stable and mutually compatible on Node 20.
   (`src/server/auth/member-emails.ts`) for exactly one operation
   (`auth.admin.getUserById`). See §6.4.
 
-## 10. Open decisions — client (§163.18) versus CTO (§180.1)
+## 10. Client decisions (§163.18 — approved) versus CTO (§180.1 — open)
 
 Two separate groups. A client decision is never moved into the CTO list, and a
-CTO decision is never presented to a workspace as configuration. None of them is
-resolved here.
+CTO decision is never presented to a workspace as configuration.
 
-**Client product decisions — the five still open in §163.18**
+### 10.1 The five client product decisions — approved
 
-1. How the target Sales Team is selected for a new Lead.
-2. Whether imported Leads without a valid Record Owner enter team-scoped round
-   robin.
-3. What a Team Lead may see beyond the minimum My Team roster (§163.6).
-4. Whether a Team Lead may manually reassign Leads within their own team
-   (§163.10).
-5. What Sales Team management and cross-team permissions Managers receive.
+Approved 27 October 2026 for Limenzy CRM SaaS. These are Limenzy decisions;
+A&S Fincare roles and team rules are a different project and are never
+imported here.
 
-**CTO / deployment decisions — §180.1**
+| # | Decision | Approved outcome | Deferred |
+| --- | --- | --- | --- |
+| 1 | Target team selection | Routing condition is **Lead Source**, resolved by existing rule priorities, with an optional workspace catch-all targeting one team | Product/Service and geography conditions |
+| 1a | Sourceless Leads | A Lead with no Lead Source is routed by an active catch-all. **Missing Routing Data** is recorded only when there is no active catch-all to take it. §163.7's resolution order was made explicit rather than left to implication | — |
+| 2 | Imported Leads without a valid owner | Imported **Unassigned** for manual handling, with two distinct warnings; never auto-distributed; valid mapped owners validated normally | — |
+| 3 | Team Lead visibility | **Restriction.** Only the §163.6 roster, eligibility controls and assignment warnings. No team-record visibility, workload or audit-history access | A wider team view |
+| 4 | Team Lead reassignment | **Restriction.** No manual reassignment power from the responsibility. Owner/Admin and authorised Manager reassignment preserved | Team-scoped reassignment |
+| 5 | Manager Sales Team permissions | **Restriction.** Sales Team administration is Owner/Admin only. Configurable Manager record visibility and manual assignment preserved. A Manager who is Team Lead gets that team's eligibility controls | Manager administration |
+
+### 10.2 What an approved restriction means for engineering
+
+Three of the five withhold a capability. That is a **settled answer**, and it
+is not the same thing as an unresolved decision, even though both end in a
+denial:
+
+- An **unresolved** decision is denied *provisionally*. The code says "not
+  decided", and the eventual answer may be either way.
+- An **approved restriction** is denied *because that is the requirement*. It
+  is enforced like any other rule, and widening it is a specification change
+  followed by an implementation — never a flag, a workspace setting or a
+  default that can drift on.
+
+Concretely, in `src/lib/permissions.ts` and the §162 matrix it encodes:
+
+- A capability settled by decision 3, 4 or 5 is a plain **No** for the role
+  concerned. It must not be modelled as a configurable permission, because
+  making it configurable is precisely what the client did **not** approve.
+- `Team Lead of that team only` stays a **responsibility-derived** grant,
+  evaluated from the active Team Lead period, never from a workspace role.
+- Decision 5 leaves two existing configurable permissions alone: the Manager
+  record scope (§162.1) and the Manager within-team manual assignment row.
+  Neither may be widened to Sales Team administration.
+
+### 10.3 CTO / deployment decisions — §180.1, still open
 
 WhatsApp provider · Email provider · private object-storage provider · backup
 retention · monitoring and alerting platform · on-call and incident process ·
@@ -949,10 +977,10 @@ support SLA · RTO · RPO · legal data-retention and deletion policy · final
 production import limits after load testing · final WhatsApp and Email bulk
 limits · provider-specific webhook and retry configuration.
 
-**The rule while they stay open.** A capability that depends on an unresolved
-decision **defaults to denied** (§162, §163.18): it is never enabled by default,
-inferred from a role, granted by Sales Team membership or Team Lead
+**The rule while a decision stays open.** A capability that depends on an
+unresolved decision **defaults to denied** (§162): it is never enabled by
+default, inferred from a role, granted by Sales Team membership or Team Lead
 responsibility, or assumed because a user can reach the screen that offers it.
 Unresolved decisions must not block unrelated foundation work — the schema,
-tenant isolation, permissions plumbing, and every module that does not depend on
-one of them proceeds normally.
+tenant isolation, permissions plumbing, and every module that does not depend
+on one of them proceeds normally.

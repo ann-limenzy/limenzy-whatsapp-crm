@@ -666,11 +666,21 @@ second dependency chain:
   but Reports itself stays last because it aggregates every module's terminal
   states.
 
-**What must not run ahead.** No behaviour whose outcome depends on one of the
-five unresolved client decisions in §163.18 may be implemented — rule-matched
-team selection, imported-Lead routing, Team Lead visibility beyond the minimum
-My Team roster, Team Lead manual reassignment, or Manager Sales Team authority.
-Those stay denied until approved and configured.
+**What must not run ahead.** The five §163.18 client decisions were approved on
+**27 October 2026**, so this is no longer a blocking list — but three of them
+were approved as **restrictions**, and a restriction is a requirement to build,
+not a gate that lifted:
+
+- Rule-matched team selection is approved for **Lead Source** only.
+  Product/Service and geography conditions are deferred and must not appear in
+  rule configuration, even disabled.
+- Imported-Lead routing is settled as **no routing**: a missing or invalid
+  mapped owner leaves the Lead Unassigned. Its integration belongs to the
+  import milestone, not to Milestone 5.
+- Team Lead visibility stays at the minimum My Team roster, Team Lead manual
+  reassignment stays absent, and Manager Sales Team authority stays absent.
+  These are now enforced because they are the requirement, not deferred
+  pending an answer.
 
 ## Milestone 2 — Workspace administration and access control
 
@@ -2704,18 +2714,165 @@ an unexpected recorded migration.
   say so; the third waits on §163.7's rule table. The guard that makes the
   deferral expire keeps its teeth.
 
-## Milestone 5 — Team-scoped Lead-assignment engine (gated)
+## Milestone 5 — Team-scoped Lead-assignment engine
 
-Spec §163.5–§163.9, §163.13, §163.16, §163.17.
+Spec §163.5–§163.9, §163.13, §163.16, §163.17, §164, §175.
 
 Eligibility, My Team controls, assignment rules and their resolution order, the
 rotation pool and stable rotation order, **Assignment Required**, and the
 assignment audit history.
 
-**Blocked until the five client decisions in §163.18 are confirmed.** Round
-robin is **team-scoped**, never workspace-wide, and applies only to Leads —
-never to Customers, Follow-ups, Renewals, conversations, activities, notes or
-documents (§163.11).
+**No longer gated.** The five §163.18 decisions were approved on 27 October
+2026. Round robin remains **team-scoped**, never workspace-wide, and applies
+only to Leads — never to Customers, Follow-ups, Renewals, conversations,
+activities, notes or documents (§163.11).
+
+### What the approved decisions changed about this milestone
+
+- **Decision 1 gave the routing condition a concrete column.**
+  `workspace_lead_sources` and `leads.source_id` already exist from Milestone
+  3B, so a rule's condition is a foreign key, not a new concept. Product/Service
+  and geography conditions are deferred and are not built.
+- **Decision 2 removed work from this milestone.** Imported Leads with a
+  missing or invalid mapped owner are left Unassigned. Nothing here routes
+  them, and the behaviour is implemented in Milestone 9 when the import module
+  exists.
+- **Decisions 3, 4 and 5 are restrictions to enforce, not features.** They
+  shape the permission rows and the My Team surface. The work is proving a
+  capability is absent on the server, which is cheaper than building it but is
+  not free — see the verification notes in each slice.
+
+### The blocker to clear first
+
+`leads.record_owner_user_profile_id` is **`not null`** (Milestone 3B). §163.9
+requires a Lead "with no Record Owner" in the explicit Assignment Required
+state, and decision 2 requires imported Leads left Unassigned. **Assignment
+Required cannot be represented in the current schema.**
+
+Making the column nullable is not a one-line migration. It touches:
+
+- the leads RLS policies, which currently read the owner column to decide
+  Staff/Sales access — a null owner must not become "visible to everyone" or
+  "visible to no one" by accident
+- `app.reassign_lead_owner` and the §163.13 `owner_changed` activity entry,
+  which assume a previous owner exists
+- the §160 deactivation responsibility count in
+  `src/server/auth/deactivation-responsibilities.ts`, which already handles a
+  `NULL` count fail-closed — that handling needs re-reading against a column
+  that can now legitimately be null
+- every read path in `src/server/auth/workspace-leads.ts` and the Lead list and
+  detail screens, which currently render an owner unconditionally
+
+This is slice **5A** and it ships before anything that produces an unassigned
+Lead.
+
+### Proposed slice sequence
+
+**5A — Unassigned Leads become representable.** Make the Record Owner
+nullable, re-derive the RLS predicates for a null owner, update the
+reassignment routine and activity history, extend the §160 responsibility
+check, and show **Unassigned** in the Lead list and detail. No rules, no
+rotation, no automatic assignment. Verification: a null-owner Lead is visible
+to Owner/Admin and to a Manager by their configured scope, and invisible to an
+unrelated Staff/Sales user; the existing owner-reassignment and deactivation
+suites still pass.
+
+**5B — Lead-assignment eligibility (§163.5).** An eligibility value on the
+active membership period, plus an eligibility-change audit table recording the
+workspace, team, member, previous and new value, acting user, authority used
+and reason. A reason is **required** for the Owner/Admin override and the
+change is rejected without one; a Team Lead change from My Team needs none, so
+the constraint is conditional on the authority, not a blanket `not null`.
+Authority is derived on the server from the active Team Lead period or the
+Owner/Admin role — never from the request. Verification: an ordinary member
+cannot change anyone's eligibility including by crafted request; a Team Lead
+cannot change another team's; a Manager who is not that team's Team Lead cannot
+change it at all (decision 5); an override without a reason is rejected.
+
+**5C — My Team (§163.6, §163.16).** A new team-scoped surface for the active
+Team Lead: minimum roster, current eligible pool, empty-pool warning and the
+eligibility controls. Reached without Settings access. This is where decision 3
+is enforced — the surface must not expose workload, rotation state or
+assignment history, and the server must refuse those reads rather than the
+screen merely omitting them. Verification: a Team Lead of one team sees exactly
+the confirmed set and nothing of another team; a Manager who is a Team Lead
+gets the same surface for that team only.
+
+**5D — Lead assignment rules (§163.7, §164).** A rules table with target team,
+Batch Size 1–100 defaulting to 1, unique integer priority, active/inactive
+status and a catch-all flag, plus a rule-to-Lead-Source join carrying the
+decision 1 condition. At most one active catch-all per workspace, holding the
+lowest priority. Overlap validation blocks **activation** where two active
+rules share a priority and share at least one Lead Source, and explains which
+rules conflict at which priority rather than refusing the rule. Settings → Lead
+Assignment is Owner/Admin only (decision 5). Verification: the six canonical
+failure reasons can each be produced; an inactive specific rule does not defeat
+an active catch-all; two active catch-alls are impossible; a Manager cannot
+reach the screen.
+
+**5E — Rotation, assignment, Assignment Required and its notification
+(§163.8, §163.9, §175).** Stored rotation state per workspace, team and rule;
+the concurrency-safe assignment transaction; the resolution order as the
+single authority; Assignment Required with its canonical reason; the
+assignment history in §163.13. The entry point is Lead creation where no
+Record Owner was chosen — manual selection at creation stays exactly as it is
+and never runs rotation.
+
+A sourceless Lead reaches an active catch-all; **Missing Routing Data** is
+recorded only where no active catch-all exists (§163.7's resolution order).
+
+5E also builds the **minimal in-app assignment-failure notification** §163.9
+requires, and nothing more:
+
+- recipients are the target team's active Team Lead where a target team was
+  resolved, and active Owner/Admin users; where no target team resolved, only
+  active Owner/Admin users
+- it carries the Lead reference, canonical failure reason, target team, time
+  of failure and current Assignment Required status — and grants no access to
+  the Lead's record content, team workload or assignment audit history
+  (§162.1, decision 3)
+- **in-app only.** V1 must not send it by WhatsApp, email, SMS or push
+- an Unassigned Lead for which no assignment was attempted raises none — an
+  imported Lead with a missing or invalid mapped owner never notifies anyone
+
+No general notification centre, no preferences, no digests, no read/unread
+model beyond what this one notification needs. The rest of §175 stays in its
+own milestone.
+
+Verification: concurrent assignments never pick the same rotation position
+twice; a failed assignment does not advance the rotation and a retry does not
+duplicate history; Batch Size behaviour under concurrency; pausing the batch
+holder ends the batch at once; a reactivated team resumes stored rotation
+state and skips a stored next member who is no longer eligible; the
+notification reaches exactly the specified recipients and no one else.
+
+**5F — Resolution, retry and bulk reprocess (§163.9, §163.13).** Manual
+resolution, explicit retry and oldest-first bulk reprocessing, each revalidated
+at execution time and unable to assign a Lead twice; the assignment audit
+history view. This is where decision 4 is enforced: a Team Lead may see their
+own team's Assignment Required detail and may **not** resolve, retry or bulk
+reprocess it. Verification: the Team Lead denial holds against a crafted
+request; a Team Lead who is also Owner/Admin can still resolve, and the server
+attributes the action to the role.
+
+### Lock order
+
+The established order is `workspaces row → stage row → active owner_admin
+memberships (asc) → other membership rows (asc) → sales_teams →
+sales_team_memberships → sales_team_lead_periods`. Milestone 5 appends
+`lead_assignment_rules → lead_assignment_rotation_state → the lead row`, and
+the **actual acquisition order including helper calls** is validated, not the
+count of rows explicitly locked. The assignment transaction and 3D's
+reassignment path both touch the lead row, so their relative order against the
+rotation-state row is the point to verify rather than assume.
+
+### Out of scope
+
+Automatic assignment for imported Leads (Milestone 9, decision 2) ·
+Product/Service and geography routing conditions (deferred, decision 1) ·
+workload, capacity, weighted, performance-based or predictive routing (§163,
+§180) · any widening of decisions 3, 4 or 5 · every part of §175 beyond the
+one assignment-failure notification §163.9 names.
 
 ## Milestone 6 — Customers and conversion
 
@@ -2835,10 +2992,12 @@ What genuinely remains open:
 | Web Push provider                                               | Later milestone; explicitly outside V1 (spec §175, §179.1, §180)                                              |
 | Workspace-level PWA branding                                    | Later milestone; would need per-workspace origins — a CTO hosting decision                                    |
 
-**The five open client decisions in §163.18 are tracked separately** — see
-[architecture-decisions.md §10](./architecture-decisions.md). They are product
-decisions for the client, never CTO decisions, and a capability that depends on
-one stays denied until it is approved and configured.
+**The five client decisions in §163.18 were approved on 27 October 2026** — see
+[architecture-decisions.md §10](./architecture-decisions.md) for the outcomes
+and what they mean for the permission layer. They were product decisions for
+the client, never CTO decisions. Decisions 3, 4 and 5 approved **restrictions**:
+the capabilities stay denied, now as a settled requirement rather than a pending
+answer, and widening any of them would be a specification change.
 
 ## Readiness and acceptance gates
 
@@ -2866,7 +3025,7 @@ report. Documenting a gate never satisfies it.
 | Production credential integration     | A separate verification pass once company Supabase and provider credentials exist — local emulation does not prove it                  | post-credentials |
 | Backup / restore validation           | A restore is actually performed and verified, not assumed                                                                              | 13               |
 | Monitoring and incident readiness     | Alerting, on-call and incident process in place (CTO decisions — §180.1)                                                               | 13               |
-| The five client decisions             | §163.18 confirmed before any dependent behaviour ships; denied until then                                                              | before 5         |
+| The five client decisions             | §163.18 approved 27 Oct 2026. Decisions 3, 4 and 5 are restrictions enforced on the server, not hidden controls (§163.17, §177)        | 5                |
 | CTO approvals                         | Every §180.1 decision resolved before production sign-off                                                                              | 13               |
 
 ## Definition of done (every milestone)
