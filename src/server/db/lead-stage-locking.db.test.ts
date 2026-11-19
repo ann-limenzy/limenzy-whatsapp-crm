@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -33,6 +36,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 5,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -104,7 +108,7 @@ beforeAll(async () => {
     addLeadStage: pipeline.addLeadStage,
     runtimeSql: client.runtimeSql,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -132,7 +136,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ownerA = () =>
   g.createTenantContext({
@@ -165,104 +169,112 @@ const seedLead = async (stageId: string) => {
 };
 
 describe.skipIf(!reachable)("the shape of the old defect", () => {
-  it("deadlocks when the two stages are taken in opposite orders", async () => {
-    /*
-     * Not the gateway — the raw shape, so the regression below is anchored
-     * to something known to fail. One transaction takes the HIGH id then
-     * the LOW; the other takes every stage ascending, as the pipeline does.
-     */
-    const { low, high } = ordinary();
-    let release: (() => void) | undefined;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+  it(
+    "deadlocks when the two stages are taken in opposite orders",
+    async () => {
+      /*
+       * Not the gateway — the raw shape, so the regression below is anchored
+       * to something known to fail. One transaction takes the HIGH id then
+       * the LOW; the other takes every stage ascending, as the pipeline does.
+       */
+      const { low, high } = ordinary();
+      let release: (() => void) | undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
 
-    const descending = admin()
-      .begin(async (tx) => {
-        await tx`select id from public.workspace_lead_stages
+      const descending = admin()
+        .begin(async (tx) => {
+          await tx`select id from public.workspace_lead_stages
                   where id = ${high.id} for update`;
-        await held;
-        await tx`select id from public.workspace_lead_stages
+          await held;
+          await tx`select id from public.workspace_lead_stages
                   where id = ${low.id} for key share`;
-        return "committed";
-      })
-      .then(
-        (v) => v,
-        (e: { code?: string }) => `aborted:${e.code}`,
-      );
+          return "committed";
+        })
+        .then(
+          (v) => v,
+          (e: { code?: string }) => `aborted:${e.code}`,
+        );
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const ascending = admin()
-      .begin(async (tx) => {
-        await tx`select id from public.workspace_lead_stages
+      await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+      const ascending = admin()
+        .begin(async (tx) => {
+          await tx`select id from public.workspace_lead_stages
                   where workspace_id = ${fixture.workspaceA}
                   order by id for update`;
-        return "committed";
-      })
-      .then(
-        (v) => v,
-        (e: { code?: string }) => `aborted:${e.code}`,
-      );
+          return "committed";
+        })
+        .then(
+          (v) => v,
+          (e: { code?: string }) => `aborted:${e.code}`,
+        );
 
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    release?.();
+      await new Promise((resolve) => setTimeout(resolve, scaled(400)));
+      release?.();
 
-    const outcomes = [await descending, await ascending];
-    // One of the two is chosen by PostgreSQL as the deadlock victim.
-    expect(outcomes.filter((o) => o === "aborted:40P01")).toHaveLength(1);
-  }, 25_000);
+      const outcomes = [await descending, await ascending];
+      // One of the two is chosen by PostgreSQL as the deadlock victim.
+      expect(outcomes.filter((o) => o === "aborted:40P01")).toHaveLength(1);
+    },
+    scaled(25_000),
+  );
 });
 
 describe.skipIf(!reachable)(
   "a Lead stage move against pipeline configuration",
   () => {
-    it("does not deadlock, whichever way the stage ids sort", async () => {
-      /*
-       * The regression. The Lead moves from the HIGH-id stage to the LOW-id
-       * one, which is exactly the direction that used to acquire the pair
-       * descending, while a pipeline insert locks every stage ascending.
-       * Both must finish.
-       */
-      const { low, high } = ordinary();
-      const lead = await seedLead(high.id);
+    it(
+      "does not deadlock, whichever way the stage ids sort",
+      async () => {
+        /*
+         * The regression. The Lead moves from the HIGH-id stage to the LOW-id
+         * one, which is exactly the direction that used to acquire the pair
+         * descending, while a pipeline insert locks every stage ascending.
+         * Both must finish.
+         */
+        const { low, high } = ordinary();
+        const lead = await seedLead(high.id);
 
-      const moving = g
-        .changeLeadStage(ownerA(), lead.id, lead.revision, low.id)
-        .then(
-          (r) => (r.ok ? "moved" : `refused:${r.reason}`),
+        const moving = g
+          .changeLeadStage(ownerA(), lead.id, lead.revision, low.id)
+          .then(
+            (r) => (r.ok ? "moved" : `refused:${r.reason}`),
+            (e: { message?: string }) => `threw:${e.message}`,
+          );
+        const configuring = g.addLeadStage(ownerA(), `Qualified ${RUN}`).then(
+          (r) => (r.ok ? "added" : `refused:${r.reason}`),
           (e: { message?: string }) => `threw:${e.message}`,
         );
-      const configuring = g.addLeadStage(ownerA(), `Qualified ${RUN}`).then(
-        (r) => (r.ok ? "added" : `refused:${r.reason}`),
-        (e: { message?: string }) => `threw:${e.message}`,
-      );
 
-      const [moveOutcome, configureOutcome] = await Promise.all([
-        moving,
-        configuring,
-      ]);
+        const [moveOutcome, configureOutcome] = await Promise.all([
+          moving,
+          configuring,
+        ]);
 
-      // Neither may abort, and neither may be reported as unavailable —
-      // that is the word a deadlock would have produced.
-      expect(moveOutcome).toBe("moved");
-      expect(configureOutcome).toBe("added");
+        // Neither may abort, and neither may be reported as unavailable —
+        // that is the word a deadlock would have produced.
+        expect(moveOutcome).toBe("moved");
+        expect(configureOutcome).toBe("added");
 
-      const [row] = (await admin()`
+        const [row] = (await admin()`
         select stage_id from public.leads where id = ${lead.id}`) as unknown as {
-        stage_id: string;
-      }[];
-      expect(row!.stage_id).toBe(low.id);
+          stage_id: string;
+        }[];
+        expect(row!.stage_id).toBe(low.id);
 
-      const entry = (await g.leadActivity(ownerA(), lead.id))[0];
-      expect(entry!.kind).toBe("stage_changed");
-      expect(entry!.fromStageName).toBe(high.name);
-      expect(entry!.toStageName).toBe(low.name);
+        const entry = (await g.leadActivity(ownerA(), lead.id))[0];
+        expect(entry!.kind).toBe("stage_changed");
+        expect(entry!.fromStageName).toBe(high.name);
+        expect(entry!.toStageName).toBe(low.name);
 
-      await admin()`
+        await admin()`
         delete from public.workspace_lead_stages
          where workspace_id = ${fixture.workspaceA}
            and name = ${`Qualified ${RUN}`}`;
-    }, 25_000);
+      },
+      scaled(25_000),
+    );
 
     it("locks both stages, in ascending id order", async () => {
       /*

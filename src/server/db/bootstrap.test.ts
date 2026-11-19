@@ -1,5 +1,7 @@
 // @vitest-environment node
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -29,6 +31,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 
 const open = (url: string, max = 1) =>
   postgres(url, {
+    ...testTls(),
     max,
     idle_timeout: 4,
     connect_timeout: 5,

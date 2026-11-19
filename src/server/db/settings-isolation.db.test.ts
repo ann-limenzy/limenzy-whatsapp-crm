@@ -1,4 +1,6 @@
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -33,7 +35,12 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 
 const probe = async (url: string) => {
   if (!url) return undefined;
-  const sql = postgres(url, { max: 2, connect_timeout: 5, onnotice: () => {} });
+  const sql = postgres(url, {
+    ...testTls(),
+    max: 2,
+    connect_timeout: 5,
+    onnotice: () => {},
+  });
   try {
     await sql`select 1`;
     return sql;

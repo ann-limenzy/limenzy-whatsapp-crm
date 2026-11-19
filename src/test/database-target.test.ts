@@ -9,6 +9,9 @@ import {
   formatTarget,
   isLoopback,
   resolveTestTargets,
+  resolveHostedTestTargets,
+  projectRefOf,
+  roleOf,
   targetsMatch,
 } from "../../scripts/database-target.mjs";
 
@@ -291,5 +294,148 @@ describe("resolveTestTargets", () => {
     expect(
       resolveTestTargets({ runtime: HOSTED_RUNTIME, tooling: "" }).refusal,
     ).toContain("not loopback");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hosted test mode
+// ---------------------------------------------------------------------------
+/*
+ * Hosted is the exception to the loopback rule, so it carries the burden of
+ * proof. Every connection string below is fictional and nothing here opens a
+ * socket.
+ */
+const APPROVED = "qploerjxeyybotjsjenz";
+const DEVELOPMENT = "devdevdevdevdevdevde";
+const ELSEWHERE = "otherotherotherother";
+
+const hostedUrl = (role: string, ref: string) =>
+  `postgresql://${role}.${ref}:Fict1t10us@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres`;
+
+const APP = hostedUrl("limenzy_app", APPROVED);
+const TOOL = hostedUrl("postgres", APPROVED);
+
+describe("projectRefOf / roleOf", () => {
+  it("reads the ref and role from a pooler username", () => {
+    expect(projectRefOf(APP)).toBe(APPROVED);
+    expect(roleOf(APP)).toBe("limenzy_app");
+    expect(roleOf(TOOL)).toBe("postgres");
+  });
+
+  it("refuses contradictory project evidence", () => {
+    const mixed = `postgresql://postgres.${ELSEWHERE}:x@db.${APPROVED}.supabase.co:5432/postgres`;
+    expect(projectRefOf(mixed)).toBeNull();
+  });
+
+  it("finds no ref on loopback", () => {
+    expect(projectRefOf(LOCAL_RUNTIME)).toBeNull();
+  });
+});
+
+describe("resolveTestTargets — hosted requires explicit opt-in", () => {
+  it("REFUSES a hosted pair without hosted mode", () => {
+    /* The default is unchanged: an ordinary run cannot reach a hosted
+       project, however well-formed the pair is. */
+    const decision = resolveTestTargets({ runtime: APP, tooling: TOOL });
+    expect(decision.refusal).not.toBeNull();
+    expect(decision.runtime).toBe(OFFLINE_RUNTIME_URL);
+    expect(decision.tooling).toBe(OFFLINE_TOOLING_URL);
+  });
+
+  it("accepts the approved pair in hosted mode", () => {
+    const decision = resolveTestTargets({
+      mode: "hosted",
+      runtime: APP,
+      tooling: TOOL,
+      approvedRef: APPROVED,
+      developmentRef: DEVELOPMENT,
+    });
+    expect(decision.refusal).toBeNull();
+    expect(decision.runtime).toBe(APP);
+  });
+});
+
+describe("resolveHostedTestTargets — refusals before connecting", () => {
+  const base = {
+    runtime: APP,
+    tooling: TOOL,
+    approvedRef: APPROVED,
+    developmentRef: DEVELOPMENT,
+  };
+  const refused = (overrides: Record<string, unknown>) => {
+    const decision = resolveHostedTestTargets({ ...base, ...overrides });
+    expect(decision.runtime).toBe(OFFLINE_RUNTIME_URL);
+    expect(decision.tooling).toBe(OFFLINE_TOOLING_URL);
+    return decision.refusal ?? "";
+  };
+
+  it("refuses the development project outright", () => {
+    expect(
+      refused({
+        approvedRef: DEVELOPMENT,
+        runtime: hostedUrl("limenzy_app", DEVELOPMENT),
+        tooling: hostedUrl("postgres", DEVELOPMENT),
+      }),
+    ).toMatch(/DEVELOPMENT/);
+  });
+
+  it("refuses a project other than the approved one", () => {
+    expect(refused({ runtime: hostedUrl("limenzy_app", ELSEWHERE) })).toMatch(
+      /other than the approved one/,
+    );
+  });
+
+  it("refuses a mismatched pair", () => {
+    expect(refused({ tooling: hostedUrl("postgres", ELSEWHERE) })).toMatch(
+      /other than the approved one/,
+    );
+  });
+
+  it("refuses missing configuration without falling back", () => {
+    expect(refused({ runtime: "" })).toMatch(/TEST_DATABASE_URL/);
+    expect(refused({ tooling: "" })).toMatch(
+      /TEST_DRIZZLE_TOOLING_DATABASE_URL/,
+    );
+  });
+
+  it("refuses when no approved ref is supplied", () => {
+    expect(refused({ approvedRef: null })).toMatch(/approved project ref/);
+  });
+
+  it("refuses contradictory project evidence", () => {
+    const mixed = `postgresql://limenzy_app.${ELSEWHERE}:x@db.${APPROVED}.supabase.co:5432/postgres`;
+    expect(refused({ runtime: mixed })).toMatch(/disagree|project reference/);
+  });
+
+  it("REFUSES a runtime connection that is not limenzy_app", () => {
+    /*
+     * The failure this exists to stop: two `postgres` connections look like a
+     * working pair and pass every row-level-security assertion by bypassing
+     * it. A green run for the wrong reason is worse than a red one.
+     */
+    expect(refused({ runtime: hostedUrl("postgres", APPROVED) })).toMatch(
+      /require "limenzy_app"/,
+    );
+  });
+
+  it("refuses a tooling connection that is not postgres", () => {
+    expect(refused({ tooling: hostedUrl("limenzy_app", APPROVED) })).toMatch(
+      /require "postgres"/,
+    );
+  });
+
+  it("refuses a pair pointing at two different databases", () => {
+    const elsewhere = APP.replace("/postgres", "/other_db");
+    expect(refused({ runtime: elsewhere })).toMatch(/two different databases/);
+  });
+
+  it("never leaks a password in any refusal", () => {
+    for (const overrides of [
+      { runtime: hostedUrl("limenzy_app", ELSEWHERE) },
+      { runtime: hostedUrl("postgres", APPROVED) },
+      { tooling: hostedUrl("limenzy_app", APPROVED) },
+    ]) {
+      expect(refused(overrides)).not.toContain("Fict1t10us");
+    }
   });
 });

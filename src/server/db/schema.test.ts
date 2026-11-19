@@ -1,5 +1,7 @@
 // @vitest-environment node
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { afterAll, describe, expect, it } from "vitest";
 
 /**
@@ -27,6 +29,7 @@ const CONNECTION = process.env.DRIZZLE_TOOLING_DATABASE_URL ?? "";
 const probe = async (): Promise<postgres.Sql | undefined> => {
   if (!CONNECTION) return undefined;
   const candidate = postgres(CONNECTION, {
+    ...testTls(),
     max: 1,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -653,6 +656,17 @@ describe.skipIf(!reachable)("1C-B schema", () => {
         "leads.notes",
         "leads.phone",
         "leads.phone_normalised",
+        /*
+         * §163.9, Milestone 5A: a Lead kept "with no Record Owner" is the
+         * Unassigned state, and §163.18 decision 2 leaves an imported Lead
+         * with no valid mapped owner in it. NULL here is the explicit absence
+         * of an owner, never "unknown" — and it is not Assignment Required,
+         * which is the narrower §163.9 state and has no column yet.
+         *
+         * Nothing creates one in 5A: `leads_add_insert` still pins the owner
+         * to the creator.
+         */
+        "leads.record_owner_user_profile_id",
         // §32 lists Lead Source among the optional fields.
         "leads.source_id",
         /*

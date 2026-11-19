@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -40,6 +43,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 3,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -142,7 +146,7 @@ beforeAll(async () => {
     deactivateMember: members.deactivateMember,
     ...leads,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -180,7 +184,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ctx = (
   user: { authUserId: string; userProfileId: string },
@@ -664,66 +668,70 @@ describe.skipIf(!reachable)(
      * needs that same lock, so they serialise. Whichever commits second sees
      * the other's work — and the pair can never both succeed.
      */
-    it("cannot both file a lead into a stage and close that stage", async () => {
-      const [stage] = (await admin()`
+    it(
+      "cannot both file a lead into a stage and close that stage",
+      async () => {
+        const [stage] = (await admin()`
       insert into public.workspace_lead_stages
         (workspace_id, name, sort_order, kind)
       values (${fixture.workspaceA}, ${`Racing ${RUN}`}, 11, 'active')
       returning id`) as unknown as { id: string }[];
 
-      const settings = async (tx: postgres.TransactionSql) => {
-        await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
-        await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
-        await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
-      };
+        const settings = async (tx: postgres.TransactionSql) => {
+          await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
+          await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
+          await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
+        };
 
-      let releaseInsert: (() => void) | undefined;
-      const insertHeld = new Promise<void>((resolve) => {
-        releaseInsert = resolve;
-      });
+        let releaseInsert: (() => void) | undefined;
+        const insertHeld = new Promise<void>((resolve) => {
+          releaseInsert = resolve;
+        });
 
-      const inserting = runtime().begin(async (tx) => {
-        await settings(tx);
-        // The contract: lock the stage row before referencing it.
-        await tx`select id from public.workspace_lead_stages
+        const inserting = runtime().begin(async (tx) => {
+          await settings(tx);
+          // The contract: lock the stage row before referencing it.
+          await tx`select id from public.workspace_lead_stages
                 where id = ${stage!.id} for update`;
-        await tx`
+          await tx`
         insert into public.leads
           (workspace_id, name, phone, phone_normalised, stage_id,
            record_owner_user_profile_id, created_by_user_profile_id)
         values (${fixture.workspaceA}, ${`Racer ${RUN}`}, '+919012345678',
                 '+919012345678', ${stage!.id},
                 ${fixture.owner.userProfileId}, ${fixture.owner.userProfileId})`;
-        // Hold the lock until the other transaction is definitely waiting.
-        await insertHeld;
-      });
+          // Hold the lock until the other transaction is definitely waiting.
+          await insertHeld;
+        });
 
-      // Give the insert time to take the lock, then start the deactivation.
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      const deactivating = runtime()
-        .begin(async (tx) => {
-          await settings(tx);
-          await tx`update public.workspace_lead_stages set is_active = false
+        // Give the insert time to take the lock, then start the deactivation.
+        await new Promise((resolve) => setTimeout(resolve, scaled(200)));
+        const deactivating = runtime()
+          .begin(async (tx) => {
+            await settings(tx);
+            await tx`update public.workspace_lead_stages set is_active = false
                   where id = ${stage!.id}`;
-        })
-        .then(
-          () => "committed" as const,
-          (error: { code?: string; constraint_name?: string }) =>
-            `${error.code ?? "error"}/${error.constraint_name ?? "-"}`,
-        );
+          })
+          .then(
+            () => "committed" as const,
+            (error: { code?: string; constraint_name?: string }) =>
+              `${error.code ?? "error"}/${error.constraint_name ?? "-"}`,
+          );
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      releaseInsert?.();
-      await inserting;
-      const outcome = await deactivating;
+        await new Promise((resolve) => setTimeout(resolve, scaled(200)));
+        releaseInsert?.();
+        await inserting;
+        const outcome = await deactivating;
 
-      // The deactivation waited for the lock, then found the lead and refused.
-      expect(outcome).toBe("23514/stage_has_leads");
-      const [row] = (await admin()`
+        // The deactivation waited for the lock, then found the lead and refused.
+        expect(outcome).toBe("23514/stage_has_leads");
+        const [row] = (await admin()`
       select is_active from public.workspace_lead_stages
        where id = ${stage!.id}`) as unknown as { is_active: boolean }[];
-      expect(row!.is_active).toBe(true);
-    }, 20_000);
+        expect(row!.is_active).toBe(true);
+      },
+      scaled(20_000),
+    );
 
     /**
      * §130.1's fourth checkpoint: "mandatory even when an earlier check passed,
@@ -779,93 +787,100 @@ describe.skipIf(!reachable)(
      * Driven here with real transactions rather than mocks, because the
      * interleaving is the whole claim.
      */
-    it("leaves no deactivated member owning a lead", async () => {
-      // A member of A whose deactivation will not trip the last-Owner rule.
-      const target = fixture.manager;
-      await admin()`
+    it(
+      "leaves no deactivated member owning a lead",
+      async () => {
+        // A member of A whose deactivation will not trip the last-Owner rule.
+        const target = fixture.manager;
+        await admin()`
         update public.workspace_memberships set status = 'active'
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${target.userProfileId}`;
-      await admin()`
+        await admin()`
         delete from public.lead_activities a
          using public.leads l
          where a.workspace_id = l.workspace_id and a.lead_id = l.id
            and l.workspace_id = ${fixture.workspaceA}
            and l.record_owner_user_profile_id = ${target.userProfileId}`;
-      await admin()`
+        await admin()`
         delete from public.leads
          where workspace_id = ${fixture.workspaceA}
            and record_owner_user_profile_id = ${target.userProfileId}`;
 
-      const stage = stages.get(fixture.workspaceA)!.first;
-      const settings = async (
-        tx: postgres.TransactionSql,
-        user: { authUserId: string; userProfileId: string },
-      ) => {
-        await tx`select set_config('app.auth_user_id', ${user.authUserId}, true)`;
-        await tx`select set_config('app.user_profile_id', ${user.userProfileId}, true)`;
-        await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
-      };
+        const stage = stages.get(fixture.workspaceA)!.first;
+        const settings = async (
+          tx: postgres.TransactionSql,
+          user: { authUserId: string; userProfileId: string },
+        ) => {
+          await tx`select set_config('app.auth_user_id', ${user.authUserId}, true)`;
+          await tx`select set_config('app.user_profile_id', ${user.userProfileId}, true)`;
+          await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
+        };
 
-      let releaseCreate: (() => void) | undefined;
-      const createHeld = new Promise<void>((resolve) => {
-        releaseCreate = resolve;
-      });
+        let releaseCreate: (() => void) | undefined;
+        const createHeld = new Promise<void>((resolve) => {
+          releaseCreate = resolve;
+        });
 
-      // The Lead write: stage lock, then the member's own row, then insert.
-      const creating = runtime()
-        .begin(async (tx) => {
-          await settings(tx, target);
-          await tx`select stage_id from app.lock_lead_stage(${stage}::uuid)`;
-          const [row] = await tx<{ status: string | null }[]>`
+        // The Lead write: stage lock, then the member's own row, then insert.
+        const creating = runtime()
+          .begin(async (tx) => {
+            await settings(tx, target);
+            await tx`select stage_id from app.lock_lead_stage(${stage}::uuid)`;
+            const [row] = await tx<{ status: string | null }[]>`
             select app.lock_actor_membership() as status`;
-          if (row?.status !== "active") throw new Error("not active");
-          await tx`
+            if (row?.status !== "active") throw new Error("not active");
+            await tx`
             insert into public.leads
               (workspace_id, name, phone, phone_normalised, stage_id,
                record_owner_user_profile_id, created_by_user_profile_id)
             values (${fixture.workspaceA}, ${`Race ${RUN}`}, '+919700000001',
                     '+919700000001', ${stage}::uuid,
                     ${target.userProfileId}, ${target.userProfileId})`;
-          await createHeld;
-        })
-        .then(
-          () => "created" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
-        );
+            await createHeld;
+          })
+          .then(
+            () => "created" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
 
-      // Let the create take both locks, then start the deactivation.
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const deactivating = (async () => {
-        const result = await g.deactivateMember(ownerA(), target.userProfileId);
-        return result.ok ? "deactivated" : `refused:${result.reason}`;
-      })();
+        // Let the create take both locks, then start the deactivation.
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        const deactivating = (async () => {
+          const result = await g.deactivateMember(
+            ownerA(),
+            target.userProfileId,
+          );
+          return result.ok ? "deactivated" : `refused:${result.reason}`;
+        })();
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      releaseCreate?.();
-      const createOutcome = await creating;
-      const deactivateOutcome = await deactivating;
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        releaseCreate?.();
+        const createOutcome = await creating;
+        const deactivateOutcome = await deactivating;
 
-      // The create committed first; the deactivation waited, counted the new
-      // Lead, and rolled back.
-      expect(createOutcome).toBe("created");
-      expect(deactivateOutcome).toBe("refused:blocked");
+        // The create committed first; the deactivation waited, counted the new
+        // Lead, and rolled back.
+        expect(createOutcome).toBe("created");
+        expect(deactivateOutcome).toBe("refused:blocked");
 
-      const [member] = (await admin()`
+        const [member] = (await admin()`
         select status::text as status from public.workspace_memberships
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${target.userProfileId}`) as unknown as {
-        status: string;
-      }[];
-      const [owned] = (await admin()`
+          status: string;
+        }[];
+        const [owned] = (await admin()`
         select count(*)::int as n from public.leads
          where workspace_id = ${fixture.workspaceA}
            and record_owner_user_profile_id = ${target.userProfileId}`) as unknown as {
-        n: number;
-      }[];
-      // The invariant, stated directly: nobody is inactive and owning work.
-      expect(`${member!.status}/${owned!.n > 0}`).toBe("active/true");
-    }, 20_000);
+          n: number;
+        }[];
+        // The invariant, stated directly: nobody is inactive and owning work.
+        expect(`${member!.status}/${owned!.n > 0}`).toBe("active/true");
+      },
+      scaled(20_000),
+    );
 
     it("refuses a lead for a member deactivated a moment earlier", async () => {
       // The other order: the deactivation commits first, and the Lead write

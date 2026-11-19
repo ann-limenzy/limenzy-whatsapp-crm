@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -48,6 +51,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 4,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -119,7 +123,7 @@ beforeAll(async () => {
     workspacePermissionSettings: permissions.workspacePermissionSettings,
     runtimeSql: client.runtimeSql,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -135,7 +139,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ownerA = () =>
   g.createTenantContext({
@@ -208,7 +212,7 @@ async function race(
       both = true;
       break;
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, scaled(50)));
   }
 
   release();

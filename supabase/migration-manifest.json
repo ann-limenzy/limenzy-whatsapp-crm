@@ -1,0 +1,91 @@
+{
+  "comment": "SHA-256 of every migration, in application order. scripts/hosted-migrate.mjs refuses to apply a file whose content does not match the entry here, so the hash a change was reviewed under lives in git rather than in a chat log.",
+  "generated": "2026-11-19",
+  "migrations": [
+    {
+      "version": "20260919045005",
+      "file": "20260919045005_workspace_foundation.sql",
+      "sha256": "948e8ea63201d2fb7d0db3bcad1889f6d05a902d52878e18ed279087e8c404c2"
+    },
+    {
+      "version": "20260919073002",
+      "file": "20260919073002_tenant_roles.sql",
+      "sha256": "0faf9134f3dccc7f306b46f40fad44aebe2503fd321c71ba3e66bbe213c518ca"
+    },
+    {
+      "version": "20260921025321",
+      "file": "20260921025321_tenant_rls.sql",
+      "sha256": "723094063ac2434bcdf87b9b1a86045921b1d4003350c1edc9193dd5df2d9bc6"
+    },
+    {
+      "version": "20260921064437",
+      "file": "20260921064437_workspace_bootstrap.sql",
+      "sha256": "14faef284aa5d5491e23232e3da69fe738729fe9295977948b84591b18d5da5e"
+    },
+    {
+      "version": "20261014071500",
+      "file": "20261014071500_workspace_modules.sql",
+      "sha256": "1b317b3f9c877d390add82e3142ecbe542f66996c681c1c9e546720a077b4afb"
+    },
+    {
+      "version": "20261014140000",
+      "file": "20261014140000_workspace_permissions.sql",
+      "sha256": "1f2518e3a777b5abb37d9e95ec96f685a620f1dc0ca57bc1124dbd76ee7482f7"
+    },
+    {
+      "version": "20261015090000",
+      "file": "20261015090000_workspace_business_contact.sql",
+      "sha256": "0febdf7a5a744c85741d6532e4d917f6eb1104b71b11a833124666395e88e775"
+    },
+    {
+      "version": "20261016090000",
+      "file": "20261016090000_workspace_users.sql",
+      "sha256": "f586bc5a50bea4163e1fab2cfaab6591f1c57d10b608a56cd166e29242853f11"
+    },
+    {
+      "version": "20261018090000",
+      "file": "20261018090000_workspace_members_auth_id.sql",
+      "sha256": "4879126e262cf16c310eeb08a2a68eaff54b06b4a9fc91829135eab968b9b999"
+    },
+    {
+      "version": "20261019090000",
+      "file": "20261019090000_workspace_invitations.sql",
+      "sha256": "3c03448e989ec79a5a2280bf89c28350c25fb12bff523cf9d5287e7bfc00bcce"
+    },
+    {
+      "version": "20261020090000",
+      "file": "20261020090000_lead_pipeline.sql",
+      "sha256": "efcdd3f0ddf80c2c9b9651762de323e7060b66c8424e8ec6581c3ff1b7708c02"
+    },
+    {
+      "version": "20261021090000",
+      "file": "20261021090000_leads.sql",
+      "sha256": "0da6998265d3a8c28033142565a65caab7eb4dd2dd4d17e8700a3ab55b171d00"
+    },
+    {
+      "version": "20261022090000",
+      "file": "20261022090000_lead_lifecycle.sql",
+      "sha256": "e696df21930a5d8a61de95844102d84f0c1bb36de56ee463bffc08ba644d2208"
+    },
+    {
+      "version": "20261023090000",
+      "file": "20261023090000_lead_activity_owner_changed.sql",
+      "sha256": "865124efad056bba4d313845ddfdc98b9fe97c18fc75874e5e7f27a73163c424"
+    },
+    {
+      "version": "20261023091000",
+      "file": "20261023091000_lead_reassignment.sql",
+      "sha256": "cc1c59f5df1dfa8187b432dd8f4b275348450071f9cdd526830e4e981329fd5d"
+    },
+    {
+      "version": "20261026090000",
+      "file": "20261026090000_sales_teams.sql",
+      "sha256": "90fa9d301eaf823c26fcee8b4411bfd4c5a47d8e490881070ef307fc154e5af5"
+    },
+    {
+      "version": "20261027090000",
+      "file": "20261027090000_unassigned_leads.sql",
+      "sha256": "5f9e704286d44f705db61ff74c0aeeb243fd6f4fe8303169f97dbea10a279b0c"
+    }
+  ]
+}

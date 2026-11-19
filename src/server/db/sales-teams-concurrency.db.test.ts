@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -39,6 +42,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 6,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -96,7 +100,7 @@ beforeAll(async () => {
     members,
     runtimeSql: client.runtimeSql,
   };
-}, 60_000);
+}, scaled(60_000));
 
 /** One transaction, for the reason the sibling suite records. */
 async function clearTeams() {
@@ -125,7 +129,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ctx = (
   user: { authUserId: string; userProfileId: string },
@@ -443,95 +447,103 @@ describe.skipIf(!reachable)("the lock order, measured", () => {
    * `unavailable`. That outcome is therefore the failure being watched for,
    * and it is asserted against directly rather than inferred.
    */
-  it("never deadlocks against user deactivation, in either order", async () => {
-    for (let round = 0; round < 8; round += 1) {
-      await clearTeams();
-      const team = await makeTeam(
-        `Order ${RUN} ${round}`,
-        fixture.owner.userProfileId,
-      );
-      await place(team, fixture.shared.userProfileId);
+  it(
+    "never deadlocks against user deactivation, in either order",
+    async () => {
+      for (let round = 0; round < 8; round += 1) {
+        await clearTeams();
+        const team = await makeTeam(
+          `Order ${RUN} ${round}`,
+          fixture.owner.userProfileId,
+        );
+        await place(team, fixture.shared.userProfileId);
 
-      const forwards = round % 2 === 0;
-      const teamSide = () =>
-        g.teams.addOrTransferTeamMember(ownerA(), {
-          salesTeamId: team,
-          userProfileId: fixture.manager.userProfileId,
-        });
-      const memberSide = () =>
-        g.members.deactivateMember(ownerA(), fixture.shared.userProfileId);
+        const forwards = round % 2 === 0;
+        const teamSide = () =>
+          g.teams.addOrTransferTeamMember(ownerA(), {
+            salesTeamId: team,
+            userProfileId: fixture.manager.userProfileId,
+          });
+        const memberSide = () =>
+          g.members.deactivateMember(ownerA(), fixture.shared.userProfileId);
 
-      const [first, second] = await Promise.all(
-        forwards ? [teamSide(), memberSide()] : [memberSide(), teamSide()],
-      );
+        const [first, second] = await Promise.all(
+          forwards ? [teamSide(), memberSide()] : [memberSide(), teamSide()],
+        );
 
-      for (const result of [first, second]) {
-        if (!result.ok) {
-          expect(
-            result.reason,
-            `round ${round} (${forwards ? "team first" : "member first"}) aborted`,
-          ).not.toBe("unavailable");
+        for (const result of [first, second]) {
+          if (!result.ok) {
+            expect(
+              result.reason,
+              `round ${round} (${forwards ? "team first" : "member first"}) aborted`,
+            ).not.toBe("unavailable");
+          }
         }
-      }
 
-      await admin()`
+        await admin()`
         update public.workspace_memberships set status = 'active'
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${fixture.shared.userProfileId}`;
-    }
-  }, 60_000);
+      }
+    },
+    scaled(60_000),
+  );
 
-  it("queues behind a held owner_admin set rather than passing it", async () => {
-    await clearTeams();
-    const team = await makeTeam(`Queue ${RUN}`, fixture.owner.userProfileId);
+  it(
+    "queues behind a held owner_admin set rather than passing it",
+    async () => {
+      await clearTeams();
+      const team = await makeTeam(`Queue ${RUN}`, fixture.owner.userProfileId);
 
-    /*
-     * Deterministic, rather than hoped for. A third transaction holds exactly
-     * the set the prelude takes first. A routine that took its target row
-     * before that set would sail past this and the wait count would stay at
-     * zero — which is what makes the assertion meaningful rather than
-     * decorative.
-     */
-    let release = () => {};
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
+      /*
+       * Deterministic, rather than hoped for. A third transaction holds exactly
+       * the set the prelude takes first. A routine that took its target row
+       * before that set would sail past this and the wait count would stay at
+       * zero — which is what makes the assertion meaningful rather than
+       * decorative.
+       */
+      let release = () => {};
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
 
-    const holder = admin()
-      .begin(async (tx) => {
-        await tx`
+      const holder = admin()
+        .begin(async (tx) => {
+          await tx`
           select 1 from public.workspace_memberships
            where workspace_id = ${fixture.workspaceA}
              and role = 'owner_admin'::public.workspace_role
              and status = 'active'::public.workspace_membership_status
            order by user_profile_id
              for update`;
-        await released;
-      })
-      .catch(() => {});
+          await released;
+        })
+        .catch(() => {});
 
-    const pending = g.teams.addOrTransferTeamMember(ownerA(), {
-      salesTeamId: team,
-      userProfileId: fixture.manager.userProfileId,
-    });
+      const pending = g.teams.addOrTransferTeamMember(ownerA(), {
+        salesTeamId: team,
+        userProfileId: fixture.manager.userProfileId,
+      });
 
-    let waited = false;
-    for (let i = 0; i < 60; i += 1) {
-      /* `pg_stat_activity.query` reports the TOP-LEVEL statement, not the
+      let waited = false;
+      for (let i = 0; i < 60; i += 1) {
+        /* `pg_stat_activity.query` reports the TOP-LEVEL statement, not the
          one inside the routine that is actually blocked — so the routine's
          own name is what identifies the waiter. */
-      if ((await waitingOnLock("add_or_transfer_team_member")) > 0) {
-        waited = true;
-        break;
+        if ((await waitingOnLock("add_or_transfer_team_member")) > 0) {
+          waited = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, scaled(50)));
       }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
 
-    release();
-    await holder;
-    const result = await pending;
+      release();
+      await holder;
+      const result = await pending;
 
-    expect(waited).toBe(true);
-    expect(result).toEqual({ ok: true });
-  }, 30_000);
+      expect(waited).toBe(true);
+      expect(result).toEqual({ ok: true });
+    },
+    scaled(30_000),
+  );
 });

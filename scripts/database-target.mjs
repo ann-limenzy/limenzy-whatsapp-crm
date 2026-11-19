@@ -143,7 +143,157 @@ export const OFFLINE_TOOLING_URL =
  *
  * Nothing here parses or returns a password.
  */
-export function resolveTestTargets({ runtime = "", tooling = "" } = {}) {
+/** The 20-character project ref, read from wherever it is actually stated. */
+export function projectRefOf(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const user = decodeURIComponent(parsed.username || "");
+  /* A pooler hostname is shared by every project in its region and proves
+     nothing; the ref is in the username. A direct connection states it in the
+     hostname instead. */
+  const fromUser = user.includes(".")
+    ? user.slice(user.indexOf(".") + 1)
+    : null;
+  const fromHost =
+    (parsed.hostname
+      .toLowerCase()
+      .match(/^db\.([a-z0-9]{20})\.supabase\.co$/) ?? [])[1] ?? null;
+  /* Contradictory evidence is not evidence. */
+  if (fromUser && fromHost && fromUser !== fromHost) return null;
+  return fromUser ?? fromHost;
+}
+
+/** The role a connection string will authenticate as, tenant suffix removed. */
+export function roleOf(url) {
+  try {
+    const user = decodeURIComponent(new URL(url).username || "");
+    return user.includes(".") ? user.slice(0, user.indexOf(".")) : user || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether a HOSTED pair may be used, and refuse everything else.
+ *
+ * Hosted is never a default and never a fallback. It is reached only by an
+ * explicit mode, with the approved project named, and it uses the dedicated
+ * TEST variables — the application's own `DATABASE_URL` is not consulted,
+ * because a suite that silently followed it would create and delete rows in
+ * whatever environment the developer happened to be running.
+ *
+ * The role check is the part worth keeping: the two connections are only a
+ * two-connection design if they really are two roles. A pair that authenticates
+ * as `postgres` twice would pass every policy assertion in the suites by
+ * bypassing row-level security, and would look exactly like a green run.
+ */
+/**
+ * @param {{
+ *   runtime?: string,
+ *   tooling?: string,
+ *   approvedRef?: string | null,
+ *   developmentRef?: string | null,
+ *   runtimeRole?: string,
+ *   toolingRole?: string,
+ * }} [options]
+ */
+export function resolveHostedTestTargets({
+  runtime = "",
+  tooling = "",
+  approvedRef = null,
+  developmentRef = null,
+  runtimeRole = "limenzy_app",
+  toolingRole = "postgres",
+} = {}) {
+  const refuse = (refusal) => ({
+    runtime: OFFLINE_RUNTIME_URL,
+    tooling: OFFLINE_TOOLING_URL,
+    refusal,
+  });
+
+  if (!approvedRef) {
+    return refuse("hosted database tests require the approved project ref.");
+  }
+  if (developmentRef && approvedRef === developmentRef) {
+    return refuse(
+      "the approved test project is the DEVELOPMENT project. Refusing: " +
+        "database suites create and delete rows.",
+    );
+  }
+  if (runtime === "" || tooling === "") {
+    return refuse(
+      "hosted database tests need both TEST_DATABASE_URL and " +
+        "TEST_DRIZZLE_TOOLING_DATABASE_URL. Neither falls back to the " +
+        "application's own configuration.",
+    );
+  }
+
+  for (const [name, url, expectedRole] of [
+    ["TEST_DATABASE_URL", runtime, runtimeRole],
+    ["TEST_DRIZZLE_TOOLING_DATABASE_URL", tooling, toolingRole],
+  ]) {
+    const target = describeTarget(url);
+    if (target === null) {
+      return refuse(`${name} is not a readable connection string.`);
+    }
+    const ref = projectRefOf(url);
+    if (ref === null) {
+      return refuse(
+        `${name} does not state a project reference, or states two that ` +
+          "disagree. A pooler URI needs the `role.<ref>` username form.",
+      );
+    }
+    if (ref !== approvedRef) {
+      return refuse(`${name} names a project other than the approved one.`);
+    }
+    if (developmentRef && ref === developmentRef) {
+      return refuse(`${name} names the DEVELOPMENT project.`);
+    }
+    const role = roleOf(url);
+    if (role !== expectedRole) {
+      return refuse(
+        `${name} authenticates as "${role ?? "(none)"}", but hosted database ` +
+          `tests require "${expectedRole}". The two connections must be two ` +
+          "different roles, or row-level security proves nothing.",
+      );
+    }
+  }
+
+  const problem = describeTargetMismatch(runtime, tooling);
+  if (problem !== null) return refuse(problem);
+
+  return { runtime, tooling, refusal: null };
+}
+
+/**
+ * @param {{
+ *   runtime?: string,
+ *   tooling?: string,
+ *   mode?: string,
+ *   approvedRef?: string | null,
+ *   developmentRef?: string | null,
+ * }} [options]
+ */
+export function resolveTestTargets({
+  runtime = "",
+  tooling = "",
+  mode = "local",
+  approvedRef = null,
+  developmentRef = null,
+} = {}) {
+  if (mode === "hosted") {
+    return resolveHostedTestTargets({
+      runtime,
+      tooling,
+      approvedRef,
+      developmentRef,
+    });
+  }
+
   const pass = { runtime, tooling, refusal: null };
 
   // Neither configured: a fresh clone or CI. The suites skip themselves and

@@ -36,16 +36,17 @@ npm install
 
 ## Daily commands
 
-| Command                 | What it does                                                              |
-| ----------------------- | ------------------------------------------------------------------------- |
-| `npm run db:start`      | Starts the local Supabase stack                                           |
-| `npm run db:status`     | Shows service status and local URLs and keys                              |
-| `npm run db:stop`       | Stops the stack, preserving local data                                    |
-| `npm run db:reset`      | **Destroys local data**, replays migrations, re-runs the seed             |
-| `npm run db:migrate`    | Applies pending migrations to the local database                          |
-| `npm run db:role:local` | Enables the `limenzy_app` runtime login locally and writes `DATABASE_URL` |
-| `npm run test:db`       | Runs the live schema tests; fails if the database is unavailable          |
-| `npm run test:db:local` | The same, against a matched LOCAL pair, without touching `.env.local`     |
+| Command                  | What it does                                                              |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `npm run db:start`       | Starts the local Supabase stack                                           |
+| `npm run db:status`      | Shows service status and local URLs and keys                              |
+| `npm run db:stop`        | Stops the stack, preserving local data                                    |
+| `npm run db:reset`       | **Destroys local data**, replays migrations, re-runs the seed             |
+| `npm run db:migrate`     | Applies pending migrations to the local database                          |
+| `npm run db:role:local`  | Enables the `limenzy_app` runtime login locally and writes `DATABASE_URL` |
+| `npm run test:db`        | Runs the live schema tests; fails if the database is unavailable          |
+| `npm run test:db:local`  | The same, against a matched LOCAL pair, without touching `.env.local`     |
+| `npm run test:db:hosted` | The same, against the dedicated hosted TEST project (never development)   |
 
 Local endpoints:
 
@@ -751,6 +752,82 @@ URL from `.env.local`, refuses anything but loopback, gives the local
 `limenzy_app` role a freshly generated local-only password, and keeps the
 resulting runtime URL in that process's environment only. `.env.local` is
 never modified and no password is printed or stored.
+
+### Three databases, three roles
+
+Keep these apart; nothing in this repository treats them as interchangeable.
+
+|                         | Role                                                                                     |
+| ----------------------- | ---------------------------------------------------------------------------------------- |
+| **Hosted development**  | What the **application** runs against. Real development data. Never a test target        |
+| **Hosted test project** | Where **automated database tests** run. Disposable; holds nothing worth keeping          |
+| **Production**          | A **future, separate environment**. Does not exist yet, and no script here may select it |
+
+### Running them against the hosted test project
+
+```bash
+npm run test:db:hosted                             # every registered suite
+npm run test:db:hosted -- npx vitest run <file>    # a subset
+```
+
+The one command for hosted database tests. It targets the **dedicated test
+project** and nothing else.
+
+**Loopback remains the default.** `npm run test:db` and a plain `npx vitest`
+are unchanged: they still refuse any non-loopback target, and the database
+suites still skip rather than reach a real project. Hosted is reached only
+through the command above, which sets the opt-in mode.
+
+Before the first run, configure the test project in `.env.local` (ignored,
+mode 0600). The application's own variables are never read in hosted mode, so
+nothing can drift onto development:
+
+| Variable                            | What it is                                  |
+| ----------------------------------- | ------------------------------------------- |
+| `TEST_SUPABASE_PROJECT_REF`         | The approved test project's reference       |
+| `TEST_DRIZZLE_TOOLING_DATABASE_URL` | Its tooling connection, as `postgres`       |
+| `TEST_DATABASE_URL`                 | Its restricted connection, as `limenzy_app` |
+
+`TEST_DATABASE_URL` is written once by:
+
+```bash
+node scripts/db-role-local.mjs --test --expect-ref=<project-ref>
+```
+
+That is a **separate, deliberate step**. The test runner does not set or
+rotate a password; a runner that rotated a credential on every invocation
+would make every test run a write to the project's role configuration.
+
+**What the runner refuses, decided before anything connects** — all of it
+unit-tested offline in `src/test/database-target.test.ts`:
+
+- the development project, resolved from configuration so it cannot be
+  forgotten;
+- any project other than the approved one;
+- a mismatched pair, where the two connections name different projects;
+- missing configuration, with no fallback to `DATABASE_URL`;
+- contradictory project evidence, where a URL's username and hostname
+  disagree;
+- a pair that is not **two different roles** — `limenzy_app` for the runtime
+  half, `postgres` for the tooling half. Two `postgres` connections would pass
+  every row-level-security assertion by bypassing RLS, and would look exactly
+  like a green run.
+
+**Transport.** Both connections verify the certificate chain _and_ the
+hostname. The Supabase root reaches the process through `NODE_EXTRA_CA_CERTS`
+and the suites ask for `ssl: true` (`src/test/db-tls.ts`); no suite handles a
+certificate, so no suite can weaken one.
+
+**Two differences from a local run, and only two.** Neither changes an
+assertion or a concurrency guarantee:
+
+- **Timeouts are raised** (`testTimeout` 30s, `hookTimeout` 120s). A hosted
+  round trip is hundreds of times slower than a loopback one, and a test
+  making a few dozen of them exceeds the 5s default while doing nothing
+  wrong.
+- **Suites run one file at a time.** One shared database means parallel
+  suites contend for the same rows and catalogue; a suite that passes alone
+  then fails in a batch.
 
 ---
 

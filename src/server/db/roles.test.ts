@@ -1,5 +1,7 @@
 // @vitest-environment node
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { afterAll, describe, expect, it } from "vitest";
 
 /**
@@ -20,6 +22,7 @@ const RUNTIME = process.env.DATABASE_URL ?? "";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 1,
     idle_timeout: 2,
     connect_timeout: 3,

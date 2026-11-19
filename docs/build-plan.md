@@ -22,6 +22,63 @@ _docs: finalize production-ready CRM specification_.
 
 ---
 
+## Where the database work runs
+
+Four environments, with one rule each. They are never interchangeable, and
+nothing reaches one by default or by falling back from another.
+
+| | Role | Reached by |
+| --- | --- | --- |
+| **Local stack** | Optional fallback for offline work. Docker + `supabase start` | `npm run test:db:local` |
+| **Hosted development** | What **the application** runs against. Carries real development data | the app's own `DATABASE_URL`; **never** a test run |
+| **Hosted test project** | Where **automated database tests** run. Disposable by design, holds no data worth keeping | `npm run test:db:hosted` |
+| **Production** | A **future, separate environment**. Does not exist yet | nothing in this repository; it is not a target any script may select |
+
+The distinction between the middle two is the point of this arrangement. The
+database suites create fixtures, delete them, and attempt writes that are
+*supposed* to be refused — so they need a database where that is harmless,
+and development is not one. Production, when it exists, inherits the same
+rule in a stricter form: it is never a test target and never a migration
+target reached by the same convenience path as development.
+
+### Recorded follow-up — setup sleeps in the concurrency tests
+
+A race test starts transaction A, waits for it to reach a known point, then
+starts B. Eighteen of those waits are fixed sleeps, now **scaled** by
+environment (`src/test/db-timing.ts`) because a hosted round trip is hundreds
+of times slower than a loopback one and the original 250ms was no longer
+enough to establish the precondition.
+
+Scaling is a calibrated guess; a **barrier** is not. Where A signals once it
+holds its locks and B starts on that signal, the guess disappears and the test
+is deterministic in both environments. `order A` in
+`lead-reassignment.db.test.ts` was converted that way after it failed by
+observing the opposite ordering — it is the worked example.
+
+Converting the remaining eighteen is **follow-up work**, deliberately not done
+alongside the runner integration. Nothing is known to be wrong with them: they
+pass, and the guarantees they assert are unchanged.
+
+**The database suites never touch development.** They create fixtures, delete
+them, and attempt writes that are supposed to be refused. The guard that used
+to express this as "loopback only" now also admits the dedicated test project,
+behind an explicit opt-in that names the approved project and requires the two
+connections to be two different roles — `limenzy_app` and `postgres`. A pair
+that was secretly one superuser would pass every row-level-security assertion
+by bypassing it. Every refusal is decided from the connection strings before
+anything connects, and is unit-tested offline.
+
+Docker is no longer needed for everyday work: the application already runs
+against hosted development, and the suites now have a hosted home of their
+own. The local stack stays supported and is still the default.
+
+Migrations reach any hosted project through one reusable wrapper,
+`scripts/hosted-migrate.mjs`, which checks target identity, migration history
+and file integrity against a committed hash manifest, then calls
+`supabase db push`. Slice-specific assertions belong in the migration's own
+`DO $$ … $$` block — which runs wherever the migration runs — not in a new
+preflight tool per milestone.
+
 ## Development before company Supabase access
 
 Work starts now, locally. Waiting for company Supabase and provider credentials
