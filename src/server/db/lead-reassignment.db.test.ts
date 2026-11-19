@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -37,6 +40,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 4,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -124,7 +128,7 @@ beforeAll(async () => {
     leadDetail: leads.leadDetail,
     leadForEdit: leads.leadForEdit,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -153,7 +157,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ctx = (
   user: { authUserId: string; userProfileId: string },
@@ -219,7 +223,7 @@ const setStatus = (userProfileId: string, status: "active" | "inactive") =>
 beforeAll(async () => {
   if (!reachable) return;
   await configure({ scope: null, granted: [] });
-}, 30_000);
+}, scaled(30_000));
 
 describe.skipIf(!reachable)("§162: who may reassign", () => {
   it("lets an Owner/Admin hand a Lead to any active member", async () => {
@@ -600,105 +604,137 @@ describe.skipIf(!reachable)(
       await configure({ scope: null, granted: [] });
     };
 
-    it("order A: the transfer commits first, so the deactivation is blocked", async () => {
-      await resetRecipient();
-      const lead = await seedLead(fixture.owner.userProfileId);
+    it(
+      "order A: the transfer commits first, so the deactivation is blocked",
+      async () => {
+        await resetRecipient();
+        const lead = await seedLead(fixture.owner.userProfileId);
 
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
 
-      // The transfer, holding its locks open after the write.
-      const transferring = runtime()
-        .begin(async (tx) => {
-          await settings(tx, fixture.owner);
-          const [row] = await tx<{ outcome: string }[]>`
+        /*
+         * A BARRIER, NOT A SLEEP.
+         *
+         * This test is about which transaction commits first, so the
+         * deactivation must not start until the transfer actually holds its
+         * locks. A fixed wait guesses at how long that takes: locally the
+         * transfer gets there in microseconds, but against a hosted project
+         * opening the transaction, setting the context and calling the routine
+         * are several round trips, and the guess was wrong often enough that
+         * this test observed the OPPOSITE ordering and failed on the other
+         * order's correct outcome.
+         *
+         * Signalling the moment the write has returned removes the guess
+         * entirely, in both environments.
+         */
+        let lockedIn: (() => void) | undefined;
+        const holdsLocks = new Promise<void>((resolve) => {
+          lockedIn = resolve;
+        });
+
+        // The transfer, holding its locks open after the write.
+        const transferring = runtime()
+          .begin(async (tx) => {
+            await settings(tx, fixture.owner);
+            const [row] = await tx<{ outcome: string }[]>`
             select outcome from app.reassign_lead_owner(
               ${lead.id}::uuid, ${fixture.manager.userProfileId}::uuid,
               ${lead.revision}::integer)`;
-          if (row?.outcome !== "ok")
-            throw new Error(`transfer: ${row?.outcome}`);
-          await held;
-        })
-        .then(
-          () => "transferred" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
-        );
+            if (row?.outcome !== "ok")
+              throw new Error(`transfer: ${row?.outcome}`);
+            lockedIn?.();
+            await held;
+          })
+          .then(
+            () => "transferred" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const deactivating = (async () => {
-        const result = await g.deactivateMember(
-          ownerA(),
-          fixture.manager.userProfileId,
-        );
-        return result.ok ? "deactivated" : `refused:${result.reason}`;
-      })();
+        /* Proceed only once the transfer has written and still holds its locks.
+         `transferring` is raced in so a failed transfer cannot hang here. */
+        await Promise.race([holdsLocks, transferring]);
+        const deactivating = (async () => {
+          const result = await g.deactivateMember(
+            ownerA(),
+            fixture.manager.userProfileId,
+          );
+          return result.ok ? "deactivated" : `refused:${result.reason}`;
+        })();
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      release?.();
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        release?.();
 
-      expect(await transferring).toBe("transferred");
-      // It waited, counted the Lead it had just been handed, and rolled back.
-      expect(await deactivating).toBe("refused:blocked");
+        expect(await transferring).toBe("transferred");
+        // It waited, counted the Lead it had just been handed, and rolled back.
+        expect(await deactivating).toBe("refused:blocked");
 
-      const [member] = (await admin()`
+        const [member] = (await admin()`
         select status::text as status from public.workspace_memberships
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${fixture.manager.userProfileId}`) as unknown as {
-        status: string;
-      }[];
-      // The invariant, stated directly.
-      expect(`${member!.status}/${await ownerOf(lead.id)}`).toBe(
-        `active/${fixture.manager.userProfileId}`,
-      );
-      await resetRecipient();
-    }, 25_000);
+          status: string;
+        }[];
+        // The invariant, stated directly.
+        expect(`${member!.status}/${await ownerOf(lead.id)}`).toBe(
+          `active/${fixture.manager.userProfileId}`,
+        );
+        await resetRecipient();
+      },
+      scaled(25_000),
+    );
 
-    it("order B: the deactivation commits first, so the transfer is refused", async () => {
-      await resetRecipient();
-      const lead = await seedLead(fixture.owner.userProfileId);
+    it(
+      "order B: the deactivation commits first, so the transfer is refused",
+      async () => {
+        await resetRecipient();
+        const lead = await seedLead(fixture.owner.userProfileId);
 
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
 
-      // The deactivation, holding the recipient's row open.
-      const deactivating = runtime()
-        .begin(async (tx) => {
-          await settings(tx, fixture.owner);
-          const [row] = await tx<{ outcome: string }[]>`
+        // The deactivation, holding the recipient's row open.
+        const deactivating = runtime()
+          .begin(async (tx) => {
+            await settings(tx, fixture.owner);
+            const [row] = await tx<{ outcome: string }[]>`
             select app.set_member_status(
               ${fixture.manager.userProfileId}::uuid, 'inactive') as outcome`;
-          if (row?.outcome !== "ok") throw new Error(`status: ${row?.outcome}`);
-          await held;
-        })
-        .then(
-          () => "deactivated" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+            if (row?.outcome !== "ok")
+              throw new Error(`status: ${row?.outcome}`);
+            await held;
+          })
+          .then(
+            () => "deactivated" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
+
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        const transferring = g.reassignLead(
+          ownerA(),
+          lead.id,
+          lead.revision,
+          fixture.manager.userProfileId,
         );
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const transferring = g.reassignLead(
-        ownerA(),
-        lead.id,
-        lead.revision,
-        fixture.manager.userProfileId,
-      );
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        release?.();
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      release?.();
-
-      expect(await deactivating).toBe("deactivated");
-      // It queued on the recipient's row, then read the committed status.
-      expect(await transferring).toEqual({
-        ok: false,
-        reason: "recipient_inactive",
-      });
-      expect(await ownerOf(lead.id)).toBe(fixture.owner.userProfileId);
-      await resetRecipient();
-    }, 25_000);
+        expect(await deactivating).toBe("deactivated");
+        // It queued on the recipient's row, then read the committed status.
+        expect(await transferring).toEqual({
+          ok: false,
+          reason: "recipient_inactive",
+        });
+        expect(await ownerOf(lead.id)).toBe(fixture.owner.userProfileId);
+        await resetRecipient();
+      },
+      scaled(25_000),
+    );
 
     it("takes the Owner/Admin set before any other membership row", async () => {
       /*
@@ -795,7 +831,13 @@ describe.skipIf(!reachable)("3D's security surface, audited", () => {
      * change produced, so the question is whether `limenzy_app` could write
      * one that claims a transfer. It cannot: the owner columns are not in
      * its INSERT grant, and a check constraint refuses an `owner_changed`
-     * row without both of them.
+     * row that names no recipient.
+     *
+     * Milestone 5A renamed that constraint from `..._names_both_owners` to
+     * `..._names_an_owner` and relaxed it, because the first assignment of an
+     * Unassigned Lead legitimately has no previous owner. It did NOT relax
+     * the half this test relies on: `to_owner_user_profile_id` is still
+     * required, so an entry naming nobody is still refused.
      */
     const [grant] = (await admin()`
       select has_column_privilege('limenzy_app', 'public.lead_activities',
@@ -819,7 +861,7 @@ describe.skipIf(!reachable)("3D's security surface, audited", () => {
           values (${fixture.workspaceA}, ${lead.id}::uuid, 'owner_changed',
                   ${fixture.owner.userProfileId})`;
       }),
-    ).rejects.toThrow(/lead_activities_transfer_names_both_owners/);
+    ).rejects.toThrow(/lead_activities_transfer_names_an_owner/);
   });
 
   it("does not let a note satisfy a transfer's history requirement", async () => {
@@ -854,71 +896,76 @@ describe.skipIf(!reachable)("3D's security surface, audited", () => {
 describe.skipIf(!reachable)(
   "§162: authority held before a wait is not authority after it",
   () => {
-    it("refuses an actor demoted while the transfer waited for a lock", async () => {
-      /*
-       * 2B's lesson, applied to a transfer. The routine checks §162 once
-       * before it takes the membership locks and again after, because those
-       * locks may have queued behind the very transaction that demoted the
-       * caller — and the first check read an earlier snapshot.
-       *
-       * Here the demotion holds the Manager's row open; the transfer blocks
-       * on it; the demotion commits; the transfer must then refuse rather
-       * than act on the authority it verified a moment earlier.
-       */
-      await setStatus(fixture.manager.userProfileId, "active");
-      await admin()`
+    it(
+      "refuses an actor demoted while the transfer waited for a lock",
+      async () => {
+        /*
+         * 2B's lesson, applied to a transfer. The routine checks §162 once
+         * before it takes the membership locks and again after, because those
+         * locks may have queued behind the very transaction that demoted the
+         * caller — and the first check read an earlier snapshot.
+         *
+         * Here the demotion holds the Manager's row open; the transfer blocks
+         * on it; the demotion commits; the transfer must then refuse rather
+         * than act on the authority it verified a moment earlier.
+         */
+        await setStatus(fixture.manager.userProfileId, "active");
+        await admin()`
         update public.workspace_memberships set role = 'manager'
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${fixture.manager.userProfileId}`;
-      await configure({ granted: ["change_record_owner"] });
-      const lead = await seedLead(fixture.manager.userProfileId);
+        await configure({ granted: ["change_record_owner"] });
+        const lead = await seedLead(fixture.manager.userProfileId);
 
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
 
-      const demoting = runtime()
-        .begin(async (tx) => {
-          await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
-          await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
-          await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
-          const [row] = await tx<{ outcome: string }[]>`
+        const demoting = runtime()
+          .begin(async (tx) => {
+            await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
+            await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
+            await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
+            const [row] = await tx<{ outcome: string }[]>`
             select app.set_member_role(
               ${fixture.manager.userProfileId}::uuid, 'staff_sales') as outcome`;
-          if (row?.outcome !== "ok") throw new Error(`demote: ${row?.outcome}`);
-          await held;
-        })
-        .then(
-          () => "demoted" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+            if (row?.outcome !== "ok")
+              throw new Error(`demote: ${row?.outcome}`);
+            await held;
+          })
+          .then(
+            () => "demoted" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
+
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        const transferring = g.reassignLead(
+          managerA(),
+          lead.id,
+          lead.revision,
+          fixture.owner.userProfileId,
         );
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const transferring = g.reassignLead(
-        managerA(),
-        lead.id,
-        lead.revision,
-        fixture.owner.userProfileId,
-      );
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        release?.();
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      release?.();
+        expect(await demoting).toBe("demoted");
+        // Staff/Sales is DENY for Change Record Owner, so the re-check refuses.
+        expect(await transferring).toEqual({
+          ok: false,
+          reason: "not_permitted",
+        });
+        expect(await ownerOf(lead.id)).toBe(fixture.manager.userProfileId);
 
-      expect(await demoting).toBe("demoted");
-      // Staff/Sales is DENY for Change Record Owner, so the re-check refuses.
-      expect(await transferring).toEqual({
-        ok: false,
-        reason: "not_permitted",
-      });
-      expect(await ownerOf(lead.id)).toBe(fixture.manager.userProfileId);
-
-      await admin()`
+        await admin()`
         update public.workspace_memberships set role = 'manager'
          where workspace_id = ${fixture.workspaceA}
            and user_profile_id = ${fixture.manager.userProfileId}`;
-      await configure({ granted: [] });
-    }, 25_000);
+        await configure({ granted: [] });
+      },
+      scaled(25_000),
+    );
   },
 );
 
@@ -994,142 +1041,198 @@ describe.skipIf(!reachable)(
       expect(await stateOf(lead.id)).toBe(before);
     });
 
-    it("revocation first: the transfer waits for it, then refuses", async () => {
-      /*
-       * THE REVOCATION WINS THE ROW. It writes `permissions_granted` and
-       * holds the row uncommitted; the transfer then cannot even read its
-       * own authority until that transaction ends.
-       *
-       * The assertion that matters is the PENDING one in the middle: the
-       * transfer has not returned while the revocation holds the row. That
-       * is the serialisation. What it returns afterwards — not_permitted,
-       * with owner, revision and history unmoved — is the consequence.
-       */
-      await asManager();
-      const lead = await seedLead(fixture.manager.userProfileId);
-      const before = await stateOf(lead.id);
+    it(
+      "revocation first: the transfer waits for it, then refuses",
+      async () => {
+        /*
+         * THE REVOCATION WINS THE ROW. It writes `permissions_granted` and
+         * holds the row uncommitted; the transfer then cannot even read its
+         * own authority until that transaction ends.
+         *
+         * The assertion that matters is the PENDING one in the middle: the
+         * transfer has not returned while the revocation holds the row. That
+         * is the serialisation. What it returns afterwards — not_permitted,
+         * with owner, revision and history unmoved — is the consequence.
+         */
+        await asManager();
+        const lead = await seedLead(fixture.manager.userProfileId);
+        const before = await stateOf(lead.id);
 
-      let commit: (() => void) | undefined;
-      const ready = new Promise<void>((resolve) => {
-        commit = resolve;
-      });
-      const revoking = admin().begin(async (tx) => {
-        await tx`
+        let commit: (() => void) | undefined;
+        const ready = new Promise<void>((resolve) => {
+          commit = resolve;
+        });
+        const revoking = admin().begin(async (tx) => {
+          await tx`
           update public.workspaces set permissions_granted = ${[] as string[]}
            where id = ${fixture.workspaceA}`;
-        await ready;
-      });
-
-      await settle();
-      let settled = false;
-      const transferring = g
-        .reassignLead(
-          managerA(),
-          lead.id,
-          lead.revision,
-          fixture.owner.userProfileId,
-        )
-        .finally(() => {
-          settled = true;
+          await ready;
         });
 
-      /*
-       * Committed in `finally` for the same reason as the test below: a
-       * failing assertion must not leave the revocation holding the
-       * workspace row, or every later test in this file queues behind it
-       * and the run reports timeouts instead of the real failure. Measured:
-       * without it, the next test times out at 30s rather than failing in
-       * one second on its own assertion.
-       */
-      try {
-        await settle(600);
-        expect(settled).toBe(false); // queued on the workspace row
+        await settle();
+        let settled = false;
+        const transferring = g
+          .reassignLead(
+            managerA(),
+            lead.id,
+            lead.revision,
+            fixture.owner.userProfileId,
+          )
+          .finally(() => {
+            settled = true;
+          });
+
+        /*
+         * Committed in `finally` for the same reason as the test below: a
+         * failing assertion must not leave the revocation holding the
+         * workspace row, or every later test in this file queues behind it
+         * and the run reports timeouts instead of the real failure. Measured:
+         * without it, the next test times out at 30s rather than failing in
+         * one second on its own assertion.
+         */
+        try {
+          await settle(600);
+          expect(settled).toBe(false); // queued on the workspace row
+          expect(await stateOf(lead.id)).toBe(before);
+        } finally {
+          commit?.();
+          await revoking.catch(() => undefined);
+        }
+
+        expect(await transferring).toEqual({
+          ok: false,
+          reason: "not_permitted",
+        });
+        // Owner, revision and history are exactly as they were.
         expect(await stateOf(lead.id)).toBe(before);
-      } finally {
-        commit?.();
-        await revoking.catch(() => undefined);
-      }
+      },
+      scaled(25_000),
+    );
 
-      expect(await transferring).toEqual({
-        ok: false,
-        reason: "not_permitted",
-      });
-      // Owner, revision and history are exactly as they were.
-      expect(await stateOf(lead.id)).toBe(before);
-    }, 25_000);
+    it(
+      "transfer first: the revocation waits until the transfer completes",
+      async () => {
+        /*
+         * THE TRANSFER WINS THE ROW, and is then pinned mid-body by holding a
+         * membership row it needs — so it is demonstrably still in flight,
+         * holding the workspace lock, while the revocation is attempted.
+         *
+         * The revocation goes through the REAL write path, `setPermissionGranted`,
+         * so this is evidence about the code that actually revokes permission
+         * in Settings and not about a statement written for the test.
+         */
+        await asManager();
+        const lead = await seedLead(fixture.manager.userProfileId);
 
-    it("transfer first: the revocation waits until the transfer completes", async () => {
-      /*
-       * THE TRANSFER WINS THE ROW, and is then pinned mid-body by holding a
-       * membership row it needs — so it is demonstrably still in flight,
-       * holding the workspace lock, while the revocation is attempted.
-       *
-       * The revocation goes through the REAL write path, `setPermissionGranted`,
-       * so this is evidence about the code that actually revokes permission
-       * in Settings and not about a statement written for the test.
-       */
-      await asManager();
-      const lead = await seedLead(fixture.manager.userProfileId);
-
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const blocking = admin().begin(async (tx) => {
-        await tx`
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const blocking = admin().begin(async (tx) => {
+          await tx`
           select user_profile_id from public.workspace_memberships
            where workspace_id = ${fixture.workspaceA}
              and user_profile_id = ${fixture.owner.userProfileId}
            for update`;
-        await held;
-      });
+          await held;
+        });
 
-      await settle();
-      let transferDone = false;
-      const transferring = g
-        .reassignLead(
+        await settle();
+        let transferDone = false;
+        const transferring = g
+          .reassignLead(
+            managerA(),
+            lead.id,
+            lead.revision,
+            fixture.owner.userProfileId,
+          )
+          .finally(() => {
+            transferDone = true;
+          });
+
+        // The transfer now holds the workspace row and waits on membership.
+        await settle();
+        expect(transferDone).toBe(false);
+
+        let revokeDone = false;
+        const revoking = g
+          .setPermissionGranted(ownerA(), "change_record_owner", false)
+          .finally(() => {
+            revokeDone = true;
+          });
+
+        /*
+         * Released in `finally` so a FAILING assertion still unwinds the two
+         * held transactions. Without it this test reports a timeout instead of
+         * the assertion that actually failed, which is a worse answer: it was
+         * measured both ways.
+         */
+        try {
+          await settle(600);
+          // THE POINT: the revocation cannot slip past a transfer in flight.
+          expect(revokeDone).toBe(false);
+          expect(transferDone).toBe(false);
+        } finally {
+          release?.();
+          await blocking.catch(() => undefined);
+          await Promise.allSettled([transferring, revoking]);
+        }
+
+        expect(await transferring).toMatchObject({ ok: true });
+        expect(await revoking).toMatchObject({ ok: true });
+
+        // The transfer that held the row completed in full, and intact.
+        const [row] = (await admin()`
+        select l.record_owner_user_profile_id as owner, l.revision,
+               a.from_owner_user_profile_id as from_owner,
+               a.to_owner_user_profile_id as to_owner
+          from public.leads l
+          join public.lead_activities a
+            on a.lead_id = l.id and a.kind = 'owner_changed'
+         where l.id = ${lead.id}`) as unknown as {
+          owner: string;
+          revision: number;
+          from_owner: string;
+          to_owner: string;
+        }[];
+        expect(row).toMatchObject({
+          owner: fixture.owner.userProfileId,
+          revision: lead.revision + 1,
+          from_owner: fixture.manager.userProfileId,
+          to_owner: fixture.owner.userProfileId,
+        });
+
+        // And the revocation that waited is now in force.
+        const next = await seedLead(fixture.manager.userProfileId);
+        expect(
+          await g.reassignLead(
+            managerA(),
+            next.id,
+            next.revision,
+            fixture.owner.userProfileId,
+          ),
+        ).toEqual({ ok: false, reason: "not_permitted" });
+      },
+      scaled(30_000),
+    );
+
+    it(
+      "order B: the transfer commits first, and the revocation follows it",
+      async () => {
+        await asManager();
+        const lead = await seedLead(fixture.manager.userProfileId);
+
+        const result = await g.reassignLead(
           managerA(),
           lead.id,
           lead.revision,
           fixture.owner.userProfileId,
-        )
-        .finally(() => {
-          transferDone = true;
-        });
+        );
+        expect(result.ok).toBe(true);
 
-      // The transfer now holds the workspace row and waits on membership.
-      await settle();
-      expect(transferDone).toBe(false);
-
-      let revokeDone = false;
-      const revoking = g
-        .setPermissionGranted(ownerA(), "change_record_owner", false)
-        .finally(() => {
-          revokeDone = true;
-        });
-
-      /*
-       * Released in `finally` so a FAILING assertion still unwinds the two
-       * held transactions. Without it this test reports a timeout instead of
-       * the assertion that actually failed, which is a worse answer: it was
-       * measured both ways.
-       */
-      try {
-        await settle(600);
-        // THE POINT: the revocation cannot slip past a transfer in flight.
-        expect(revokeDone).toBe(false);
-        expect(transferDone).toBe(false);
-      } finally {
-        release?.();
-        await blocking.catch(() => undefined);
-        await Promise.allSettled([transferring, revoking]);
-      }
-
-      expect(await transferring).toMatchObject({ ok: true });
-      expect(await revoking).toMatchObject({ ok: true });
-
-      // The transfer that held the row completed in full, and intact.
-      const [row] = (await admin()`
+        // The revocation lands afterwards and does not undo what was done.
+        await configure({ granted: [] });
+        const [row] = (await admin()`
         select l.record_owner_user_profile_id as owner, l.revision,
                a.from_owner_user_profile_id as from_owner,
                a.to_owner_user_profile_id as to_owner
@@ -1137,76 +1240,32 @@ describe.skipIf(!reachable)(
           join public.lead_activities a
             on a.lead_id = l.id and a.kind = 'owner_changed'
          where l.id = ${lead.id}`) as unknown as {
-        owner: string;
-        revision: number;
-        from_owner: string;
-        to_owner: string;
-      }[];
-      expect(row).toMatchObject({
-        owner: fixture.owner.userProfileId,
-        revision: lead.revision + 1,
-        from_owner: fixture.manager.userProfileId,
-        to_owner: fixture.owner.userProfileId,
-      });
+          owner: string;
+          revision: number;
+          from_owner: string;
+          to_owner: string;
+        }[];
+        expect(row).toMatchObject({
+          owner: fixture.owner.userProfileId,
+          revision: lead.revision + 1,
+          from_owner: fixture.manager.userProfileId,
+          to_owner: fixture.owner.userProfileId,
+        });
 
-      // And the revocation that waited is now in force.
-      const next = await seedLead(fixture.manager.userProfileId);
-      expect(
-        await g.reassignLead(
-          managerA(),
-          next.id,
-          next.revision,
-          fixture.owner.userProfileId,
-        ),
-      ).toEqual({ ok: false, reason: "not_permitted" });
-    }, 30_000);
-
-    it("order B: the transfer commits first, and the revocation follows it", async () => {
-      await asManager();
-      const lead = await seedLead(fixture.manager.userProfileId);
-
-      const result = await g.reassignLead(
-        managerA(),
-        lead.id,
-        lead.revision,
-        fixture.owner.userProfileId,
-      );
-      expect(result.ok).toBe(true);
-
-      // The revocation lands afterwards and does not undo what was done.
-      await configure({ granted: [] });
-      const [row] = (await admin()`
-        select l.record_owner_user_profile_id as owner, l.revision,
-               a.from_owner_user_profile_id as from_owner,
-               a.to_owner_user_profile_id as to_owner
-          from public.leads l
-          join public.lead_activities a
-            on a.lead_id = l.id and a.kind = 'owner_changed'
-         where l.id = ${lead.id}`) as unknown as {
-        owner: string;
-        revision: number;
-        from_owner: string;
-        to_owner: string;
-      }[];
-      expect(row).toMatchObject({
-        owner: fixture.owner.userProfileId,
-        revision: lead.revision + 1,
-        from_owner: fixture.manager.userProfileId,
-        to_owner: fixture.owner.userProfileId,
-      });
-
-      // And a second attempt now refuses, because the permission is gone.
-      const again = await seedLead(fixture.manager.userProfileId);
-      expect(
-        await g.reassignLead(
-          managerA(),
-          again.id,
-          again.revision,
-          fixture.owner.userProfileId,
-        ),
-      ).toEqual({ ok: false, reason: "not_permitted" });
-      await configure({ granted: [] });
-    }, 25_000);
+        // And a second attempt now refuses, because the permission is gone.
+        const again = await seedLead(fixture.manager.userProfileId);
+        expect(
+          await g.reassignLead(
+            managerA(),
+            again.id,
+            again.revision,
+            fixture.owner.userProfileId,
+          ),
+        ).toEqual({ ok: false, reason: "not_permitted" });
+        await configure({ granted: [] });
+      },
+      scaled(25_000),
+    );
 
     it("carries the permission into the write itself (structural)", async () => {
       /*

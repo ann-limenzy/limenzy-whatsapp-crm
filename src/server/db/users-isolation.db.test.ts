@@ -1,4 +1,7 @@
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -30,7 +33,12 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 
 const probe = async (url: string) => {
   if (!url) return undefined;
-  const sql = postgres(url, { max: 2, connect_timeout: 5, onnotice: () => {} });
+  const sql = postgres(url, {
+    ...testTls(),
+    max: 2,
+    connect_timeout: 5,
+    onnotice: () => {},
+  });
   try {
     await sql`select 1`;
     return sql;
@@ -91,7 +99,7 @@ beforeAll(async () => {
     setMemberStatus: members.setMemberStatus,
     runtimeSql: client.runtimeSql,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -106,7 +114,7 @@ afterAll(async () => {
     /* already closed */
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ctx = (
   user: { authUserId: string; userProfileId: string },
@@ -722,7 +730,7 @@ describe.skipIf(!reachable)(
           n: number;
         }[];
         if ((row?.n ?? 0) > 0) return true;
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, scaled(50)));
       }
       return false;
     };

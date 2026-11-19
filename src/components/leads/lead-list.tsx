@@ -239,10 +239,18 @@ export function LeadList({
                 </span>
 
                 <span className="min-w-0 truncate text-sm text-muted-foreground">
-                  {lead.isOwnedByActor
-                    ? "You"
-                    : (ownerNames[lead.recordOwnerUserProfileId] ??
-                      "Another team member")}
+                  {/*
+                    Three cases, not two. "Unassigned" is a real state of the
+                    record (§163.9) and reads differently from "someone whose
+                    name you may not see" — collapsing them would tell a
+                    Manager a Lead is nobody's when it is simply not theirs.
+                  */}
+                  {lead.recordOwnerUserProfileId === null
+                    ? "Unassigned"
+                    : lead.isOwnedByActor
+                      ? "You"
+                      : (ownerNames[lead.recordOwnerUserProfileId] ??
+                        "Another team member")}
                 </span>
               </Link>
             </li>

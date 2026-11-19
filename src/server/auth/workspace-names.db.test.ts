@@ -1,5 +1,7 @@
 // @vitest-environment node
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -45,6 +47,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 2,
     idle_timeout: 2,
     connect_timeout: 3,

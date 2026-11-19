@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -27,7 +29,12 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 
 const probe = async (url: string) => {
   if (!url) return undefined;
-  const sql = postgres(url, { max: 3, connect_timeout: 5, onnotice: () => {} });
+  const sql = postgres(url, {
+    ...testTls(),
+    max: 3,
+    connect_timeout: 5,
+    onnotice: () => {},
+  });
   try {
     await sql`select 1`;
     return sql;
@@ -111,6 +118,29 @@ afterAll(async () => {
     if (problems.length > 0) {
       console.error("[invitations isolation] cleanup problems:", problems);
     }
+    /*
+     * Profiles the routine under test created for itself, scoped to this
+     * run's name so no other run's rows can be caught.
+     *
+     * AFTER `cleanupTenantFixture`, not before: the invitee holds a
+     * membership the acceptance created, and `workspace_memberships`
+     * restricts on its profile. Deleted first, this statement fails the
+     * foreign key — which an earlier version swallowed, leaving the rows
+     * behind and reporting nothing. Hence the read-back below.
+     */
+    await admin()`
+      delete from public.user_profiles
+       where full_name = ${INVITEE_NAME}`.catch((error: unknown) =>
+      console.error("[invitations isolation] invitee profile delete:", error),
+    );
+    const [left] = (await admin()`
+      select count(*)::int as n from public.user_profiles
+       where full_name = ${INVITEE_NAME}`) as unknown as { n: number }[];
+    if (left && left.n > 0) {
+      console.error(
+        `[invitations isolation] ${left.n} invitee profile(s) survived cleanup`,
+      );
+    }
   }
   try {
     if (g?.runtimeSql) await g.runtimeSql().end({ timeout: 5 });
@@ -160,7 +190,7 @@ const accept = async (
   authUserId: string,
   email: string,
   hash: string,
-  fullName: string | null = "Invited Person",
+  fullName: string | null = INVITEE_NAME,
 ) => {
   const rows = await g.runtimeSql().begin(async (tx) => {
     await tx`select set_config('app.auth_user_id', ${authUserId}, true)`;
@@ -212,6 +242,17 @@ const RESTORE_OWNER = `update public.workspace_memberships
          status = 'active'::public.workspace_membership_status
    where workspace_id = $1 and user_profile_id = $2`;
 
+/*
+ * Run-scoped on purpose. `accept_workspace_invitation` creates the invitee's
+ * profile itself, so the id never passes through this suite and the tracked
+ * cleanup below cannot see it. A fixed name left those rows indistinguishable
+ * from any other run's — harmless on a throwaway local database, permanent
+ * residue on a shared hosted test project, where eight of them were found.
+ * Naming them after the run makes this run's rows, and only this run's,
+ * identifiable in `afterAll`.
+ */
+const INVITEE_NAME = `Invited Person ${RUN}`;
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The recovery path: redeem by invitation id, with no token at all. */
@@ -224,7 +265,7 @@ const acceptById = async (
     await tx`select set_config('app.auth_user_id', ${authUserId}, true)`;
     return tx<{ outcome: string }[]>`
       select app.accept_workspace_invitation(
-        null, ${invitationId}::uuid, ${email}, 'Invited Person') as outcome`;
+        null, ${invitationId}::uuid, ${email}, ${INVITEE_NAME}) as outcome`;
   });
   return rows[0]?.outcome;
 };

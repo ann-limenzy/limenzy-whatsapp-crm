@@ -79,9 +79,14 @@ export default async function LeadPage({
    */
   const recipients = canEdit ? await assignableMembers(context) : [];
 
-  const ownerName = lead.isOwnedByActor
-    ? "You"
-    : (owners.get(lead.recordOwnerUserProfileId) ?? "Another team member");
+  /* §163.9: a Lead with no Record Owner is Unassigned, which is a state to
+     name rather than a missing name to apologise for. */
+  const ownerName =
+    lead.recordOwnerUserProfileId === null
+      ? "Unassigned"
+      : lead.isOwnedByActor
+        ? "You"
+        : (owners.get(lead.recordOwnerUserProfileId) ?? "Another team member");
 
   /*
    * Only open, ordinary columns. §45 and §48 say Won and Lost are reached by

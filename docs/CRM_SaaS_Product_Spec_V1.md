@@ -166,8 +166,11 @@ A **Manager** receives no Sales Team authority from the Manager role
 itself. A Manager who is the active Team Lead of a team exercises the
 confirmed Team Lead capabilities for that team, and does so because of
 the responsibility, not the role. What authority the Manager role itself
-confers — including cross-team and administrative powers — is unresolved
-client decision 5 (Section 163.18). **Owner/Admin** retains workspace-wide
+confers is settled by approved client decision 5 (Section 163.18): Sales
+Team administration and cross-team assignment are Owner/Admin only, and the
+Manager role confers neither. A Manager keeps the configurable record scope
+in Section 162.1 and the configurable within-team manual assignment
+permission in Section 162. **Owner/Admin** retains workspace-wide
 administrative authority in every team (Sections 162 and 163.12).
 
 **3. Overall Application Navigation**
@@ -961,9 +964,10 @@ allow it.
 
 A Team Lead's dashboard may additionally show their own team's
 Lead-assignment eligibility and any Assignment Required alert for that
-team (Section 163.6). What other team-level information a Team Lead may
-see is unresolved client decision 3 (Section 163.18) and is denied until
-approved (Section 162). Being Team Lead does not reveal other teams,
+team (Section 163.6). Approved client decision 3 (Section 163.18) limits a
+Team Lead to that confirmed set: no team workload, no performance reporting
+and no assignment audit history come from the responsibility. Being Team
+Lead does not reveal other teams,
 another member's records or organization-wide data (Section 162.1).
 
 **23. Dashboard Empty States**
@@ -1667,9 +1671,10 @@ provided.
 >
 > • Record Owner defaults according to the workspace's Lead assignment
 > rules. Automatic assignment is team-scoped round robin and must
-> resolve exactly one active matching rule (Sections 163.7 and 163.8).
-> Which Lead field or fields select that rule is unresolved client
-> decision 1 (Section 163.18).
+> resolve exactly one active matching rule (Sections 163.7 and 163.8). A
+> V1 rule matches on the Lead's **Lead Source**, resolved by rule priority,
+> with an optional workspace catch-all (approved client decision 1, Section
+> 163.18).
 >
 > • If no rule can be resolved, the Lead is saved in **Assignment
 > Required** with the canonical failure reason, and a user holding the
@@ -2601,9 +2606,9 @@ Manual assignment follows Section 163.10 and the permission rows in
 Section 162: an Owner/Admin may assign to any active workspace user; a
 Manager may assign only where that permission is enabled and only within
 their permitted records and teams; Staff/Sales users cannot reassign
-Leads by default. Whether a Team Lead may reassign within their own team
-is unresolved client decision 4 (Section 163.18) and is denied until
-approved.
+Leads by default. Approved client decision 4 (Section 163.18) grants a Team
+Lead no reassignment power of their own: a Team Lead reassigns only where
+their workspace role already permits it.
 
 Every reassignment should appear in Activity History.
 
@@ -6817,10 +6822,31 @@ spreadsheet values.
 > • An imported Lead that cannot be assigned is still imported, in
 > **Assignment Required** (Section 163.9).
 
-Whether imported Leads without a valid mapped Record Owner enter
-team-scoped round robin is unresolved client decision 2 (Section
-163.18). Until it is approved, such Leads must not be assigned
-automatically.
+**Imported Leads without a valid mapped Record Owner**
+
+Approved client decision 2 (Section 163.18). Such a Lead is imported and
+left **Unassigned** for manual handling. It never enters team-scoped round
+robin and is never distributed automatically.
+
+The two cases are reported **separately**, so a mapping mistake is never
+presented as a deliberate blank:
+
+> • **Record Owner Not Provided** — the mapped owner column is empty for
+> that row.
+>
+> • **Record Owner Not Recognised** — the row supplies an owner value that
+> does not match an active workspace user. The warning names the value that
+> was supplied, so the administrator can correct the file or the mapping.
+
+Both leave the Lead imported, Unassigned and visible in the Lead List. An
+explicitly mapped, valid, active owner is validated normally and remains the
+Record Owner.
+
+Because no automatic assignment was attempted for these Leads, they are
+**not** in Assignment Required and record none of the six canonical failure
+reasons in Section 163.9. Assignment Required stays what Section 163.9 says
+it is — the subset of Unassigned Leads for which assignment was tried and
+failed.
 
 **125. Lead Stage Mapping**
 
@@ -7270,12 +7296,21 @@ the imported Leads were assigned:
 
 **38 Assignment Required**
 
-Assigned, Assignment Required, skipped and failed counts must be
-accurate. A Lead that could not be assigned is still counted as
-imported, and each such Lead records its canonical failure reason
-(Section 163.9). Imported Leads waiting in Assignment Required are
-resolved through the same explicit actions as any other waiting Lead;
-completing an import assigns none of them automatically.
+Leads left Unassigned because their mapped Record Owner was missing or
+invalid are reported on their own, separately from Assignment Required and
+from each other (Section 124):
+
+**9 Unassigned — Record Owner Not Provided**
+
+**3 Unassigned — Record Owner Not Recognised**
+
+Assigned, Assignment Required, Unassigned, skipped and failed counts must be
+accurate, and the Unassigned counts must never be folded into Assignment
+Required. A Lead that could not be assigned is still counted as imported,
+and each such Lead records its canonical failure reason (Section 163.9).
+Imported Leads waiting in Assignment Required are resolved through the same
+explicit actions as any other waiting Lead; completing an import assigns
+none of them automatically.
 
 Actions:
 
@@ -8115,10 +8150,10 @@ Settings should include:
 
 Settings are primarily a web/desktop administrative experience.
 
-**Settings → Sales Teams** is an administrative surface for Owner/Admin
-and any user separately authorized for Sales Team administration. A Team
-Lead manages their own team's Lead-assignment eligibility from **My
-Team** (Section 163.6) and does not need access to Settings to do so.
+**Settings → Sales Teams** is an **Owner/Admin** administrative surface
+(approved client decision 5, Section 163.18). A Team Lead manages their own
+team's Lead-assignment eligibility from **My Team** (Section 163.6) and does
+not need access to Settings to do so.
 
 **158. Business Settings**
 
@@ -8501,7 +8536,7 @@ View other Sales Teams
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8509,7 +8544,7 @@ Create, edit or deactivate Sales Teams
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8517,7 +8552,7 @@ Add, remove or transfer team members
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8525,7 +8560,7 @@ Designate or replace a Team Lead
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8533,7 +8568,7 @@ Access Settings → Sales Teams
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8541,7 +8576,7 @@ View Lead-assignment eligibility
 
 Yes
 
-Team Lead of that team; otherwise Decision required (163.18 #5)
+Team Lead of that team only
 
 Team Lead of that team only
 
@@ -8549,7 +8584,7 @@ View own team's minimum roster (My Team)
 
 Yes
 
-Team Lead of that team; otherwise Decision required (163.18 #5)
+Team Lead of that team only
 
 Team Lead of that team only
 
@@ -8589,7 +8624,7 @@ Configure Lead assignment rules
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8597,7 +8632,7 @@ View own team's current eligible pool and empty-pool warning (My Team)
 
 Yes
 
-Team Lead of that team; otherwise Decision required (163.18 #5)
+Team Lead of that team only
 
 Team Lead of that team only
 
@@ -8606,15 +8641,15 @@ batch progress
 
 Yes
 
-Decision required (163.18 #5)
+No
 
-No; Team Lead: Decision required (163.18 #3)
+No, including a Team Lead (163.18 #3)
 
 View own team's Assignment Required warning and its operational detail
 
 Yes
 
-Team Lead of that team; otherwise Decision required (163.18 #5)
+Team Lead of that team only
 
 Team Lead of that team only
 
@@ -8622,7 +8657,7 @@ View assignment failures for any team
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8632,13 +8667,13 @@ Yes
 
 Configurable
 
-No; Team Lead: Decision required (163.18 #4)
+No, including a Team Lead (163.18 #4)
 
 Manually assign Leads across teams
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8646,23 +8681,23 @@ View assignment audit history
 
 Yes
 
-Decision required (163.18 #5)
+No
 
-No; Team Lead: Decision required (163.18 #3)
+No, including a Team Lead (163.18 #3)
 
 View own team's workload
 
 Yes
 
-Decision required (163.18 #5)
+No
 
-No; Team Lead: Decision required (163.18 #3)
+No, including a Team Lead (163.18 #3)
 
 View other teams' workload
 
 Yes
 
-Decision required (163.18 #5)
+No
 
 No
 
@@ -8856,7 +8891,7 @@ Yes
 
 Configurable, within record and team scope
 
-No; Team Lead: Decision required (163.18 #4)
+No, including a Team Lead (163.18 #4)
 
 Retry automatic assignment for a waiting Lead
 
@@ -8864,7 +8899,7 @@ Yes
 
 Configurable, within record and team scope
 
-No; Team Lead: Decision required (163.18 #4)
+No, including a Team Lead (163.18 #4)
 
 Bulk reprocess Leads in Assignment Required
 
@@ -8872,7 +8907,7 @@ Yes
 
 Configurable, within record and team scope
 
-No; Team Lead: Decision required (163.18 #4)
+No, including a Team Lead (163.18 #4)
 
 Clear an Undeliverable Email address
 
@@ -8908,14 +8943,25 @@ In the Sales Team rows above:
 > responsibility for the team concerned. It is not granted to the role
 > in general.
 >
-> • **Decision required** means the permission is not yet approved. It
-> must never be assumed, and it is denied until approved — see **Least
-> privilege** below (Section 163.18).
+> • **No, including a Team Lead** means the capability is withheld from
+> the role in that column and is **not** added by the Team Lead
+> responsibility. The bracketed number records which approved decision in
+> Section 163.18 settled it. It is a confirmed V1 restriction, not an open
+> question.
+>
+> • A restriction of this kind **never removes a power a user already holds
+> by another route**. It says only that the Team Lead responsibility does
+> not grant it. Read every cell in its own column: an Owner/Admin who leads
+> a team keeps the Owner/Admin row, and a Manager who leads a team keeps the
+> Manager row, including any **Configurable** permission the workspace has
+> enabled. The responsibility adds the confirmed Section 163.6 capabilities
+> and subtracts nothing.
 >
 > • The Manager role by itself grants no Sales Team authority at all.
 > Read a Sales Team row as:
 >
-> > **Manager role alone:** Decision required under Section 163.18.
+> > **Manager role alone:** no Sales Team authority (approved decision 5,
+> > Section 163.18).
 > >
 > > **Active Team Lead of that team:** permitted, but only for the
 > > confirmed Team Lead capabilities in Section 163.6.
@@ -8944,35 +8990,45 @@ In the Sales Team rows above:
 
 **Least privilege**
 
-A capability marked **Decision required**, or otherwise awaiting client
-confirmation, is **denied in production** until the decision is approved
-and the permission is explicitly configured for the workspace. An
-unapproved capability must never be enabled by default, inferred from a
-role, granted by Sales Team membership or Team Lead responsibility, or
-assumed because a user can reach the screen that offers it.
+A capability awaiting client confirmation is **denied in production** until
+the decision is approved and the permission is explicitly configured for the
+workspace. An unapproved capability must never be enabled by default,
+inferred from a role, granted by Sales Team membership or Team Lead
+responsibility, or assumed because a user can reach the screen that offers
+it.
 
-Every **Decision required** value corresponds to decision 3, 4 or 5 in
-Section 163.18. Decisions 1 and 2 are workflow questions and never
-appear as a permission cell.
+The five decisions in Section 163.18 are **approved**, so no cell in this
+matrix reads **Decision required**. The three that reached this matrix all
+resolved as **restrictions**, which is why the cells that referred to them
+now read **No**, **No, including a Team Lead** or **Team Lead of that team
+only** rather than a configurable value:
 
-> • **Decision 5** — Manager column only: authority the Manager role
-> itself would confer, including Sales Team administration, rule
-> configuration, cross-team assignment and cross-team visibility. Where
-> the cell reads *Team Lead of that team; otherwise Decision required*,
-> the capability is already confirmed for a Manager who is that team's
-> Team Lead; only the role-based case is open.
+> • **Decision 5** — Manager column. Sales Team administration,
+> assignment-rule configuration, cross-team manual assignment and cross-team
+> visibility are Owner/Admin only, and the Manager role confers none of them.
+> A Manager
+> who is the active Team Lead of a team keeps every confirmed Team Lead
+> capability for that team, which is why those cells read **Team Lead of that
+> team only**. The configurable Manager record scope in Section 162.1 and the
+> configurable within-team manual assignment permission above are unchanged.
 >
-> • **Decision 4** — Staff/Sales column: whether a Team Lead may manually
-> assign, resolve, retry or bulk reprocess Leads for their own team.
+> • **Decision 4** — Staff/Sales column. A Team Lead receives no power to
+> manually assign, resolve, retry or bulk reprocess Leads from the
+> responsibility. Owner/Admin reassignment, and Manager reassignment where
+> the workspace has enabled it, are unchanged.
 >
-> • **Decision 3** — Staff/Sales column: whether a Team Lead may see more
-> than the confirmed My Team set, such as detailed rotation state, team
-> workload or the full assignment audit history.
+> • **Decision 3** — Staff/Sales column. A Team Lead sees the confirmed My
+> Team set only. Detailed rotation state, team workload, performance
+> reporting and the assignment audit history are not granted by the
+> responsibility.
 
-A confirmed My Team capability (Section 163.6) is never recorded as
-Decision required. Where a row grants *Team Lead of that team only*, the
-capability applies to whoever currently holds the responsibility,
-whatever their workspace role.
+Each of those three is an approved **V1 restriction**, not a permanent one
+and not a workspace setting. Widening any of them is a future change to this
+matrix and to Section 163.18 — reviewed and built — never a switch a
+workspace may turn on.
+
+Where a row grants **Team Lead of that team only**, the capability applies to
+whoever currently holds the responsibility, whatever their workspace role.
 
 Sales Teams, used to scope Lead assignment, are the only team structure
 in V1 (Section 163). Team membership does not grant record access;
@@ -8995,9 +9051,9 @@ The workspace configures the Manager record scope as either:
 - **All Records**, or
 - **Own, Assigned and Explicitly Shared Records**
 
-This record-access setting is separate from unresolved client decision 5
-in Section 163.18, which concerns Sales Team administration rather than
-record visibility.
+This record-access setting is separate from approved client decision 5 in
+Section 163.18, which concerns Sales Team administration rather than record
+visibility. Decision 5 leaves the Manager record scope unchanged.
 
 **Staff/Sales**
 
@@ -9014,8 +9070,9 @@ May access:
   Leads, Customers, Follow-ups, Renewal actions, documents or WhatsApp
   conversations.
 - Being a Team Lead grants only the minimum My Team roster in Section
-  163.6. Wider visibility requires client decision 3 (Section 163.18)
-  and is denied until approved.
+  163.6. Approved client decision 3 (Section 163.18) confirms that no wider
+  record visibility, workload information or assignment history comes from
+  the responsibility.
 - WhatsApp conversation assignment grants **no** access to the related
   Lead or Customer. A user who is assigned a conversation but cannot
   access the record sees the conversation only, without the record's
@@ -9155,6 +9212,8 @@ Lead 4 → Arun
 
 Configuration of each Lead assignment rule:
 
+> • Lead Source condition — the V1 routing condition (Section 163.7)
+>
 > • Target Sales Team
 >
 > • Batch Size
@@ -9400,9 +9459,9 @@ assignment, Renewal assignment and WhatsApp conversation assignment.
 - An **ordinary team member** cannot change their own eligibility or
   anyone else's.
 - A **Manager** does not receive the Owner/Admin override. A Manager may
-  change eligibility only while acting as the Team Lead of that team,
-  unless the Manager permission decision in Section 163.18 is later
-  approved and configured (Section 162).
+  change eligibility only while acting as the Team Lead of that team.
+  Approved client decision 5 (Section 163.18) confirms that the Manager role
+  itself confers no eligibility authority (Section 162).
 - Access to Settings → Sales Teams does not, by itself, grant any
   eligibility-changing authority. Authority comes only from the
   Owner/Admin role or the Team Lead responsibility for that team.
@@ -9415,11 +9474,11 @@ assignment, Renewal assignment and WhatsApp conversation assignment.
 - **Owner/Admin override** — confirmed. An Owner/Admin changes
   eligibility in any team in the workspace. A reason is required and the
   change is audited.
-- **Manager administrative override by role** — not granted. A Manager
-  receives no eligibility authority from the Manager role. A Manager who
-  is that team's Team Lead uses the Team Lead control above. Whether the
-  Manager role itself confers an administrative override is unresolved
-  client decision 5 (Section 163.18) and is denied until approved.
+- **Manager administrative override by role** — not granted, and now
+  settled. A Manager receives no eligibility authority from the Manager
+  role. A Manager who is that team's Team Lead uses the Team Lead control
+  above. Approved client decision 5 (Section 163.18) confirms that the
+  Manager role itself confers no administrative override.
 
 **Owner/Admin override**
 
@@ -9562,10 +9621,12 @@ It does not, by itself, give access to:
 - Lead assignment rule configuration
 - authority over any other team
 
-What a Team Lead may see beyond the confirmed set is unresolved client
-decision 3 (Section 163.18). Whether a Team Lead may manually reassign
-or resolve a Lead is unresolved client decision 4. Both are denied until
-approved and configured (Section 162).
+Approved client decisions 3 and 4 (Section 163.18) settle both questions as
+restrictions. The confirmed set above is the whole of what the Team Lead
+responsibility grants: nothing in the list immediately above is added by it,
+and it carries no power to manually assign, resolve, retry or bulk reprocess
+a Lead. A Team Lead whose workspace role already permits one of those keeps
+it from the role, never from the responsibility (Section 162).
 
 My Team follows the desktop and mobile principle in Section 179. If a
 Team Lead also has access to Settings → Sales Teams, that access does not
@@ -9597,7 +9658,8 @@ receive automatic Leads.
 
 - Workspace
 - Rule name
-- Lead trigger or routing condition
+- Routing condition — the Lead Source or Lead Sources the rule matches
+  (Section 164)
 - Target Sales Team — exactly one
 - Assignment method — Round Robin
 - Batch Size — an integer from 1 to 100; default 1
@@ -9635,8 +9697,8 @@ Unassigned in Assignment Required with a canonical failure reason
 **Priority and overlapping conditions**
 
 Overlapping rule conditions are **permitted**. Several rules may
-legitimately match the same Lead — for example a broad Product/Service
-rule and a narrower rule for one source within it. Priority exists
+legitimately match the same Lead — for example a rule covering several Lead
+Sources and a narrower rule for one of those sources. Priority exists
 precisely so that such an overlap resolves deterministically.
 
 - Every rule must have an integer priority. A **lower number means
@@ -9696,20 +9758,26 @@ This ordered sequence is the authoritative definition of how one rule is
 selected. No other section repeats it; Sections 163.8 and 163.9 refer to
 it.
 
-1. Confirm that the routing fields the workspace's rules require are
-   present on the Lead. If they are not, stop with **Missing Routing
-   Data**.
+1. Determine whether the Lead carries the routing data the workspace's
+   active specific rules require. In V1 that is the **Lead Source**.
+   Record the answer and continue; this step never stops the sequence.
+   The catch-all rule carries no condition, so a Lead that lacks the
+   routing data may still be routed by it.
 2. Evaluate the specific assignment-rule conditions relevant to the
-   Lead. The catch-all rule is not evaluated at this step.
+   Lead. The catch-all rule is not evaluated at this step. A Lead that
+   lacks the required routing data matches no specific rule here.
 3. Keep only the **active** specific rules whose conditions match.
 4. If one or more active specific rules match:
    - sort them by priority, lowest number first
    - select the single rule holding the unique highest priority
    - if the highest priority is tied, or the result is otherwise
      ambiguous, stop with **Multiple Matching Rules**
-5. If no active specific rule matches, select the active catch-all rule
-   if the workspace has one.
-6. If no rule can be selected:
+5. If no active specific rule matches — whether because none applied or
+   because the Lead lacks the routing data they require — select the
+   active catch-all rule if the workspace has one.
+6. If no rule can be selected, the reason depends on why, in this order:
+   - stop with **Missing Routing Data** where the Lead lacks the routing
+     data the workspace's active specific rules require
    - stop with **Matching Rule Inactive** where applicable rule
      definitions exist but every one of them is inactive
    - otherwise stop with **No Matching Rule**
@@ -9723,6 +9791,18 @@ it.
 
 **Edge cases**
 
+- **A Lead with no Lead Source reaches an active catch-all.** Missing
+  routing data removes the Lead from step 2 only. It does not stop the
+  sequence, because the catch-all has no condition for the Lead to fail.
+  This is the common case, since Lead Source is optional on a Lead
+  (Section 32), and it is exactly what a catch-all exists for.
+- **A Lead with no Lead Source and no active catch-all** stops with
+  **Missing Routing Data**, which names the Lead's own gap rather than
+  the workspace's configuration. Correcting the Lead's Lead Source and
+  retrying is then the direct resolution (Section 163.9).
+- Where the workspace has **no active specific rule at all**, no routing
+  data is required. A Lead with no Lead Source is routed by an active
+  catch-all, and stops with **No Matching Rule** where there is none.
 - An inactive specific rule does not defeat an active catch-all. Step 3
   keeps only active rules, so an inactive specific rule simply drops out
   and step 5 may still use the catch-all.
@@ -9749,8 +9829,41 @@ Deactivating a Lead assignment rule must:
 - never activate another rule automatically
 - never create a workspace-wide or cross-team fallback
 
-Which Lead field, or combination of fields, selects the routing rule is
-unresolved client decision 1 (Section 163.18).
+**Routing condition — approved V1 scope**
+
+Approved client decision 1 (Section 163.18) settles which Lead field selects
+the rule.
+
+- A specific rule matches on the Lead's **Lead Source** (Section 164). A
+  rule names one or more Lead Sources and matches when the Lead's Lead
+  Source is one of them.
+- Priority resolves an overlap exactly as defined above. Nothing about
+  priority, overlap validation, the resolution order or the canonical
+  failure reasons changes.
+- The optional workspace catch-all is unchanged: at most one active, lowest
+  priority, targeting exactly one Sales Team, considered only when no active
+  specific rule matches.
+
+Lead Source is an optional field on a Lead (Section 32), so a Lead carrying
+none is ordinary rather than exceptional. Such a Lead **is routed by an
+active catch-all rule**: missing routing data keeps it out of specific-rule
+matching, but the catch-all has no condition for it to fail. A workspace
+that wants every Lead routed therefore configures a catch-all. Without one,
+a sourceless Lead stops at **Missing Routing Data** where active specific
+rules exist, or **No Matching Rule** where none do.
+
+**Deferred routing conditions**
+
+**Product/Service** and **geography** conditions are deferred. They are not
+V1 scope and must not be offered in rule configuration, even as a disabled
+control. Adding either later widens the condition set only: the resolution
+order, priority rules, overlap validation, catch-all behaviour and canonical
+failure reasons above are already written to accept a wider condition set
+without change.
+
+Manual team selection on the Lead is not a routing condition and is not
+offered. A Lead that should go to one particular person is assigned manually
+(Section 163.10).
 
 ## 163.8 Rotation Pool and Assignment Algorithm
 
@@ -9881,7 +9994,9 @@ The resolution order in Section 163.7 decides which reason applies.
 Every failure records exactly one of:
 
 - **Missing Routing Data** — the Lead lacks the routing fields the
-  workspace's rules require
+  workspace's active specific rules require — in V1, the Lead Source —
+  **and** the workspace has no active catch-all rule to take it anyway
+  (Section 163.7)
 - **No Matching Rule** — no rule definition matched the Lead and no
   active catch-all rule exists
 - **Multiple Matching Rules** — more than one active rule matched and no
@@ -9896,6 +10011,13 @@ Every failure records exactly one of:
 **Unassigned** continues to mean any Lead without a Record Owner.
 Assignment Required is the subset of Unassigned Leads for which an
 automatic assignment was attempted and could not be completed.
+
+An Unassigned Lead for which **no automatic assignment was attempted** is
+therefore not in Assignment Required, carries none of the canonical failure
+reasons below, and raises no assignment-failure notification. An imported
+Lead whose mapped Record Owner was missing or invalid is exactly that case
+(Sections 124 and 163.18) — it is handled manually, and nothing in this
+subsection applies to it.
 
 **Eligibility returning does not assign waiting Leads**
 
@@ -9921,12 +10043,17 @@ the operational detail needed to act on it:
 This is confirmed for the Team Lead of that team whatever their
 workspace role, and it grants no access to the Lead's record content,
 to team workload, to performance reporting or to the full assignment
-audit history (Sections 162.1 and 163.6). Broader visibility remains
-unresolved client decision 3 (Section 163.18).
+audit history (Sections 162.1 and 163.6). Approved client decision 3
+(Section 163.18) confirms that no broader visibility comes from the
+responsibility.
 
-**Not confirmed.** Whether a Team Lead may manually assign, retry or
-bulk reprocess the affected Lead is unresolved client decision 4
-(Section 163.18) and is denied until approved. An Owner/Admin may always
+**Settled as a restriction.** Approved client decision 4 (Section 163.18)
+settles that the Team Lead responsibility **grants** no power to manually
+assign, retry or bulk reprocess the affected Lead. It takes nothing away: a
+Team Lead who may already do one of these through their workspace role still
+may, and does so as that role. Seeing the warning stays separate from
+resolving it, and the Team Lead's side of that separation is now final rather
+than pending. An Owner/Admin may always
 resolve a waiting Lead. A Manager may resolve one only where that
 permission is separately enabled and only within their record and team
 scope. An ordinary Staff/Sales user may not resolve a waiting Lead
@@ -9996,8 +10123,9 @@ Manual Lead assignment is separate from round robin.
   enabled, and only within the Manager's permitted records and teams
   (Sections 162 and 162.1).
 - **Staff/Sales** users cannot manually reassign Leads by default.
-- **Cross-team** manual assignment is Owner/Admin only, unless a later
-  client decision explicitly grants a narrower capability.
+- **Cross-team** manual assignment is Owner/Admin only. Approved client
+  decision 5 (Section 163.18) grants no narrower capability to any other
+  role.
 
 **Who may receive a manual assignment**
 
@@ -10021,10 +10149,11 @@ Manual Lead assignment is separate from round robin.
   Owner, new Record Owner, Sales Team where applicable, and timestamp
   (Section 163.13).
 
-Whether a Team Lead may manually reassign Leads within their own team is
-unresolved client decision 4 (Section 163.18). Until it is approved and
-configured, a Team Lead has no manual reassignment capability beyond
-what their workspace role already grants (Section 162).
+Approved client decision 4 (Section 163.18): the Team Lead responsibility
+grants no manual reassignment capability at all. A Team Lead reassigns only
+what their workspace role already permits (Section 162). Owner/Admin
+reassignment, and Manager reassignment where the workspace has enabled it,
+are unchanged by that decision.
 
 ## 163.11 Assignments Outside Round Robin
 
@@ -10051,10 +10180,10 @@ Navigation:
 
 Settings → Sales Teams
 
-This is the administrative control surface. It is for Owner/Admin, and
-for a Manager only where the workspace has enabled Sales Team
-administration under unresolved client decision 5 (Sections 162 and
-163.18). It is not the Team Lead's control surface; Team Leads use My
+This is the administrative control surface. It is **Owner/Admin only**
+(approved client decision 5, Sections 162 and 163.18); the Manager role
+grants no access to it. It is not the Team Lead's control surface; Team
+Leads use My
 Team (Section 163.6), and a Manager who is a Team Lead uses My Team for
 that team like anyone else holding the responsibility.
 
@@ -10115,11 +10244,11 @@ Show for each team:
 - Lead assignment rules targeting the team
 - Assignment warning, where present
 
-Eligibility changes made on this screen are Owner/Admin overrides
-(Section 163.5), and each one is audited. Access to this screen does not
-by itself grant any eligibility-changing authority. If a Team Lead or
-Manager is separately authorized to use it, that access does not extend
-their eligibility authority beyond a team they lead.
+Eligibility changes made on this screen are Owner/Admin overrides (Section
+163.5), and each one is audited. Access to this screen does not by itself
+grant any eligibility-changing authority. An Owner/Admin who also leads a
+team acts here as Owner/Admin — the change is an audited override requiring
+a reason, not a My Team eligibility change.
 
 Sales Teams cannot be deleted in a way that breaks history. Adding a
 user to a team never creates a workspace user; the user must already
@@ -10145,8 +10274,12 @@ The system records:
   reactivated (Sections 163.1 and 163.12)
 - every grant and revocation of an explicit record share (Section
   162.1)
-- Lead assignment rule creation, change and deactivation, including
-  Batch Size changes
+- Lead assignment rule creation, change and deactivation, including Batch
+  Size changes and changes to the rule's Lead Source condition (Section
+  163.7)
+- an imported Lead left Unassigned because its mapped Record Owner was
+  missing or invalid, recording which of the two cases applied (Section
+  124)
 
 **Each Lead assignment history entry includes**
 
@@ -10177,8 +10310,8 @@ required information, not a database design.
 - **SalesTeam** — a workspace's named team (Section 163.1)
 - **SalesTeamMembership** — one user's current or historical membership
   of one team (Section 163.2)
-- **LeadAssignmentRule** — routes automatic Leads to one team (Section
-  163.7)
+- **LeadAssignmentRule** — routes automatic Leads to one team, matched on
+  Lead Source in V1 (Section 163.7)
 - **TeamRoundRobinState** — the stored rotation position for one
   workspace, team and rule (Section 163.8)
 - **LeadAssignmentHistory** — the assignment record kept for each Lead
@@ -10305,43 +10438,167 @@ Before this capability is accepted, the following must be demonstrated:
   related Lead or Customer.
 - A revoked explicit share blocks future access while preserving the
   activity and audit entries created while it was valid.
-- A capability whose client decision is still open is denied (Sections
-  162 and 163.18).
 
-## 163.18 Decisions Required
+**The approved decisions in Section 163.18**
 
-The following five client decisions are not yet approved. They are the
-only unresolved questions in this section.
+Each of the five is a requirement to demonstrate, and the three
+restrictions must be enforced on the server rather than hidden in the
+interface:
 
-Until a decision is approved and configured for the workspace, the
-capability it describes is **denied in production** (Section 162). The
-product must not assume an answer, and no interface may present an
-unapproved capability as available.
+- A rule's routing condition is the Lead Source only. No Product/Service
+  condition and no geography condition is offered anywhere in rule
+  configuration (decision 1).
+- A Lead carrying a Lead Source is routed by it, overlaps resolve by
+  priority, and an active catch-all still receives a Lead that matches no
+  active specific rule (decision 1).
+- A Lead carrying **no** Lead Source is routed by an active catch-all rather
+  than stopped, and records **Missing Routing Data** only where no active
+  catch-all exists; with no active rule of any kind it records **No Matching
+  Rule** (decision 1, Section 163.7).
+- An imported Lead whose mapped Record Owner is missing is imported
+  Unassigned and reported as **Record Owner Not Provided**; one whose
+  mapped owner does not match an active user is imported Unassigned and
+  reported as **Record Owner Not Recognised**; neither enters round robin,
+  and neither is counted as Assignment Required (decision 2).
+- A valid mapped owner on an imported row is validated normally and
+  remains the Record Owner (decision 2).
+- A Team Lead cannot see detailed rotation state, team or per-member
+  workload, performance reporting or the assignment audit history, including
+  by crafted request (decision 3).
+- A Team Lead cannot manually assign, manually resolve, retry or bulk
+  reprocess a Lead by virtue of the responsibility, including by crafted
+  request (decision 4).
+- A Team Lead who also holds a workspace role permitting one of those
+  actions can still perform it, and the server attributes it to the role
+  (decisions 3 and 4).
+- A Manager who is not an Owner/Admin cannot reach Settings → Sales Teams,
+  cannot create, edit or deactivate a team, cannot change membership, cannot
+  designate a Team Lead, cannot configure an assignment rule and cannot
+  manually assign across teams (decision 5).
+- A Manager who is the active Team Lead of a team keeps every confirmed My
+  Team capability for that team and none for any other (decision 5).
+- The configurable Manager record scope (Section 162.1) and the configurable
+  Manager within-team manual assignment permission still work exactly as
+  before (decision 5).
 
-1. **Target team selection.** How is the target Sales Team selected for
-   a new Lead — by Product/Service, Lead Source, geography, manual team
-   selection or ordered routing rules? Section 163.7 already defines how
-   exactly one rule must be resolved, prioritised and detected as
-   overlapping once the matching field or fields are agreed.
-2. **Imported Leads without a valid Record Owner.** Do imported Leads
-   whose mapped owner is missing or invalid enter team-scoped round
-   robin, or do they remain Unassigned for manual handling (Sections 124
-   and 134)?
-3. **Team Lead visibility.** What team-level records, workload
-   information and assignment history may a Team Lead see beyond the
-   minimum My Team roster defined in Section 163.6?
-4. **Team Lead reassignment.** May a Team Lead manually reassign Leads
-   within their own team (Section 163.10)?
-5. **Manager Sales Team permissions.** What Sales Team management and
-   cross-team permissions do Managers receive — team configuration,
-   membership changes, Team Lead designation, rule configuration,
-   rotation preview, assignment audit history, workload visibility and
-   cross-team manual assignment (Section 162)? Manager record visibility
-   is a separate workspace setting defined in Section 162.1, and Manager
-   eligibility authority is already settled by Section 163.5.
+## 163.18 Approved Client Decisions
 
-Each **Decision required** value in the Permission Matrix (Section 162)
-corresponds to one of these five decisions and is denied until approved.
+The five client decisions in this section are **approved**. Each is recorded
+below with the approved V1 behaviour and, where one applies, what was
+explicitly deferred. No unresolved question remains in this section.
+
+An approved decision binds in the same way as any other requirement here.
+Three of the five — decisions 3, 4 and 5 — resolved as **restrictions**: they
+withhold a capability rather than grant one. A restriction is a settled
+answer, not a pending one. The capability is denied because that is the V1
+decision, not because the decision is still being taken, and none of them is
+a workspace setting.
+
+**1. Target team selection — approved**
+
+Automatic Lead routing matches on the Lead's **Lead Source** (Section 164).
+
+- A specific Lead assignment rule names one or more Lead Sources and matches
+  when the Lead's Lead Source is one of them.
+- Overlaps resolve through the existing rule priorities. Overlap validation
+  and the canonical failure reasons in Sections 163.7 and 163.9 are
+  unchanged.
+- A workspace may configure one optional catch-all rule, targeting exactly
+  one Sales Team, exactly as Section 163.7 already defines it.
+- **A Lead with no Lead Source reaches an active catch-all.** Lead Source is
+  optional on a Lead (Section 32), so this is ordinary rather than
+  exceptional. Missing routing data keeps the Lead out of specific-rule
+  matching; it does not stop the sequence, because the catch-all has no
+  condition for the Lead to fail. **Missing Routing Data** is recorded only
+  where the Lead lacks the routing data active specific rules require **and**
+  no active catch-all exists. The resolution order in Section 163.7 is the
+  authority and was made explicit for this case.
+
+**Deferred:** **Product/Service** conditions and **geography** conditions.
+Neither is offered in V1. Manual team selection on the Lead is not a routing
+condition and is not offered either; a Lead that should go to one particular
+person is assigned manually (Section 163.10).
+
+**2. Imported Leads without a valid Record Owner — approved**
+
+An imported Lead whose mapped Record Owner is missing or invalid is imported
+and left **Unassigned** for manual handling. It does not enter team-scoped
+round robin and is never distributed automatically.
+
+- The two cases carry distinct warnings — **Record Owner Not Provided** and
+  **Record Owner Not Recognised** — and are reported separately, so a
+  mapping mistake is never presented as a deliberate blank (Sections 124 and
+  135).
+- A valid mapped owner is validated normally and remains the Record Owner.
+- Because no assignment was attempted, these Leads are not in Assignment
+  Required and record none of the canonical failure reasons in Section
+  163.9.
+
+This records the behaviour now. It is **implemented when the import module
+is built** (Sections 124 and 134), not before.
+
+**3. Team Lead visibility — approved as a restriction**
+
+The Team Lead responsibility grants exactly the confirmed set in Section
+163.6 — the minimum roster, the current eligible pool and its empty-pool
+warning, the own-team Assignment Required warning with its operational
+detail, and the eligibility controls — and nothing beyond it.
+
+It grants no additional team-record visibility, no team or per-member
+workload, no performance reporting and no access to the assignment audit
+history.
+
+Existing workspace-role permissions and record access are unchanged
+(Sections 162 and 162.1). Where a Team Lead can see more than the confirmed
+set, it is because of their workspace role, never because of the
+responsibility.
+
+**4. Team Lead reassignment — approved as a restriction**
+
+The Team Lead responsibility grants no manual reassignment power. A Team
+Lead may not manually assign a Lead, manually resolve a waiting Lead, retry
+automatic assignment or bulk reprocess Leads because they are the Team Lead.
+
+Owner/Admin reassignment and already-authorised Manager reassignment are
+unchanged (Sections 162 and 163.10). A Team Lead who holds one of those role
+permissions keeps it and exercises it as that role.
+
+**5. Manager Sales Team permissions — approved as a restriction**
+
+Sales Team administration is **Owner/Admin only**: team configuration,
+membership changes, Team Lead designation and assignment-rule configuration.
+Cross-team manual assignment and cross-team visibility remain Owner/Admin
+only as well. The Manager role confers no Sales Team authority of its own.
+
+Unchanged by this decision:
+
+- the configurable Manager record scope in Section 162.1
+- the configurable Manager within-team manual assignment permission in
+  Section 162
+- Manager eligibility authority, already settled by Section 163.5
+
+A Manager who is designated the active Team Lead of a team receives the
+confirmed capabilities in Section 163.6 for that team, including its
+eligibility controls. Those come from the responsibility, not the role, and
+never extend to another team.
+
+**Effect on the Permission Matrix**
+
+No cell in Section 162 reads **Decision required** any longer. Decisions 3,
+4 and 5 resolved as restrictions, so the cells that referred to them now
+read **No**, **No, including a Team Lead** or **Team Lead of that team
+only**.
+Decisions 1 and 2 are workflow decisions and never appeared as a permission
+cell.
+
+**Widening a restriction later**
+
+Decisions 3, 4 and 5 withhold capabilities a future version may choose to
+grant, and decision 1 defers two routing conditions. Each of those is a
+future change to this specification and to Section 162 — reviewed,
+documented and built. None is a switch a workspace may turn on, and none may
+be enabled by default, inferred from a role, or granted by Sales Team
+membership or Team Lead responsibility.
 
 **164. Lead Sources**
 
@@ -11241,7 +11498,10 @@ Provider connections identify their own workspace (Sections 81.1 and
 — must never determine workspace identity.
 
 A capability whose client decision is still open is denied until it is
-approved and explicitly configured (Sections 162 and 163.18).
+approved and explicitly configured (Sections 162 and 163.18). Where an
+approved decision **withholds** a capability — decisions 3, 4 and 5 in
+Section 163.18 do — the server enforces the restriction. Hiding the control
+is never sufficient.
 
 **Significant Actions**
 
@@ -11613,9 +11873,10 @@ assumed to exist.
 ## 180.1 Deployment Decisions Requiring CTO Approval
 
 The following are **deployment and operational decisions**, marked
-`CTO approval required`. They are deliberately separate from the five
-client product decisions in Section 163.18, and must never be counted as
-open client decisions or presented to a workspace as configuration.
+`CTO approval required`. They are deliberately separate from the five client
+product decisions in Section 163.18 — which are now approved — and must
+never be counted as open client decisions or presented to a workspace as
+configuration.
 
 > • WhatsApp provider
 >

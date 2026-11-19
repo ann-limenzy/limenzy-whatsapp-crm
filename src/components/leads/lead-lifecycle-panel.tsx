@@ -589,7 +589,9 @@ export function LeadLifecyclePanel({
    * rows are different rows, and holding one is not holding the other.
    */
   assignableMembers: readonly MemberOption[];
-  currentOwnerUserProfileId: string;
+  /** §163.9: null when the Lead is Unassigned and this would be its first
+      assignment rather than a handover. */
+  currentOwnerUserProfileId: string | null;
 }) {
   const [stageState, stageAction] = useActionState(
     changeLeadStageAction,
@@ -614,8 +616,15 @@ export function LeadLifecyclePanel({
    * The picker holds a choice the same way the stage one does, and for the
    * same reason: React resets a form once its action has run.
    */
+  /*
+   * "" rather than null for an Unassigned Lead, so the picker starts on no
+   * selection and shows its placeholder. The comparison below then keeps the
+   * button disabled until a person is actually chosen, exactly as it does
+   * when the Lead already has an owner.
+   */
+  const unassigned = currentOwnerUserProfileId === null;
   const [newOwner, setNewOwner] = useStagePicker(
-    currentOwnerUserProfileId,
+    currentOwnerUserProfileId ?? "",
     ownerState.attempt,
   );
   const mayReassign = assignableMembers.length > 0;
@@ -711,12 +720,15 @@ export function LeadLifecyclePanel({
                   name="newOwnerUserProfileId"
                   value={newOwner}
                 />
+                {/* An Unassigned Lead is not being handed over by anyone,
+                    so the verb changes with the record rather than naming a
+                    transfer that is not happening (§163.9, §163.10). */}
                 <SubmitButton
-                  busy="Handing over…"
+                  busy={unassigned ? "Assigning…" : "Handing over…"}
                   size="default"
-                  disabled={newOwner === currentOwnerUserProfileId}
+                  disabled={newOwner === (currentOwnerUserProfileId ?? "")}
                 >
-                  Hand over
+                  {unassigned ? "Assign" : "Hand over"}
                 </SubmitButton>
               </form>
             </div>

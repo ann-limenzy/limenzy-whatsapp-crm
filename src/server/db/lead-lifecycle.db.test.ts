@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
+
+import { testTls } from "@/test/db-tls";
+import { scaled } from "@/test/db-timing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { assertMatchedDatabaseTargets } from "../../../scripts/database-target.mjs";
@@ -42,6 +45,7 @@ const REQUIRED = process.env.REQUIRE_DATABASE_TESTS === "1";
 const probe = async (url: string): Promise<postgres.Sql | undefined> => {
   if (!url) return undefined;
   const candidate = postgres(url, {
+    ...testTls(),
     max: 3,
     idle_timeout: 2,
     connect_timeout: 3,
@@ -154,7 +158,7 @@ beforeAll(async () => {
     reopenLead: leads.reopenLead,
     addLeadNote: leads.addLeadNote,
   };
-}, 30_000);
+}, scaled(30_000));
 
 afterAll(async () => {
   if (reachable && recorded) {
@@ -189,7 +193,7 @@ afterAll(async () => {
   }
   await tooling?.end({ timeout: 5 }).catch(() => {});
   await runtimeProbe?.end({ timeout: 5 }).catch(() => {});
-}, 30_000);
+}, scaled(30_000));
 
 const ctx = (
   user: { authUserId: string; userProfileId: string },
@@ -865,61 +869,68 @@ describe.skipIf(!reachable)(
      * is refused) or after it (and is refused itself). It can never land a
      * Lead in a closed column.
      */
-    it("never lands a Lead in a column that was being switched off", async () => {
-      const target = stages.get(fixture.workspaceA)!.second;
-      await admin()`
+    it(
+      "never lands a Lead in a column that was being switched off",
+      async () => {
+        const target = stages.get(fixture.workspaceA)!.second;
+        await admin()`
       update public.workspace_lead_stages set is_active = true
        where id = ${target}`;
-      await clearStage(target);
+        await clearStage(target);
 
-      const id = await newLead();
-      const opened = await revisionOf(id);
+        const id = await newLead();
+        const opened = await revisionOf(id);
 
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
 
-      // The deactivation: stage lock, write, then hold the transaction open.
-      const deactivating = runtime()
-        .begin(async (tx) => {
-          await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
-          await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
-          await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
-          await tx`select stage_id from app.lock_lead_stage(${target}::uuid)`;
-          await tx`
+        // The deactivation: stage lock, write, then hold the transaction open.
+        const deactivating = runtime()
+          .begin(async (tx) => {
+            await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
+            await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
+            await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
+            await tx`select stage_id from app.lock_lead_stage(${target}::uuid)`;
+            await tx`
           update public.workspace_lead_stages set is_active = false
            where id = ${target}`;
-          await held;
-        })
-        .then(
-          () => "deactivated" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
-        );
+            await held;
+          })
+          .then(
+            () => "deactivated" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const moving = g.changeLeadStage(ownerA(), id, opened, target);
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      release?.();
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        const moving = g.changeLeadStage(ownerA(), id, opened, target);
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        release?.();
 
-      expect(await deactivating).toBe("deactivated");
-      // It waited on the stage lock, then read the committed `is_active`.
-      expect(await moving).toEqual({ ok: false, reason: "stage_unavailable" });
+        expect(await deactivating).toBe("deactivated");
+        // It waited on the stage lock, then read the committed `is_active`.
+        expect(await moving).toEqual({
+          ok: false,
+          reason: "stage_unavailable",
+        });
 
-      const [closed] = (await admin()`
+        const [closed] = (await admin()`
       select count(*)::int as n from public.leads l
         join public.workspace_lead_stages s
           on s.workspace_id = l.workspace_id and s.id = l.stage_id
        where l.workspace_id = ${fixture.workspaceA} and s.is_active = false`) as unknown as {
-        n: number;
-      }[];
-      // The invariant, stated directly: no Lead sits in a closed column.
-      expect(closed!.n).toBe(0);
+          n: number;
+        }[];
+        // The invariant, stated directly: no Lead sits in a closed column.
+        expect(closed!.n).toBe(0);
 
-      await admin()`
+        await admin()`
       update public.workspace_lead_stages set is_active = true
        where id = ${target}`;
-    }, 20_000);
+      },
+      scaled(20_000),
+    );
 
     /**
      * The other pair: a stage move and the deactivation of the person making
@@ -927,70 +938,74 @@ describe.skipIf(!reachable)(
      * deactivation takes only the member's row. Same order, so no cycle — and
      * the mover's authority is rechecked after the wait.
      */
-    it("leaves no stage move credited to a member deactivated meanwhile", async () => {
-      const target = fixture.manager;
-      await admin()`
+    it(
+      "leaves no stage move credited to a member deactivated meanwhile",
+      async () => {
+        const target = fixture.manager;
+        await admin()`
       update public.workspace_memberships set status = 'active'
        where workspace_id = ${fixture.workspaceA}
          and user_profile_id = ${target.userProfileId}`;
-      await admin()`
+        await admin()`
       update public.workspaces set manager_record_scope = 'all_records'
        where id = ${fixture.workspaceA}`;
-      await admin()`
+        await admin()`
       delete from public.lead_activities
        where workspace_id = ${fixture.workspaceA}
          and actor_user_profile_id = ${target.userProfileId}`;
-      await admin()`
+        await admin()`
       delete from public.leads
        where workspace_id = ${fixture.workspaceA}
          and record_owner_user_profile_id = ${target.userProfileId}`;
 
-      const id = await newLead();
-      const opened = await revisionOf(id);
+        const id = await newLead();
+        const opened = await revisionOf(id);
 
-      let release: (() => void) | undefined;
-      const held = new Promise<void>((resolve) => {
-        release = resolve;
-      });
+        let release: (() => void) | undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
 
-      // The deactivation holds the member row open.
-      const deactivating = runtime()
-        .begin(async (tx) => {
-          await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
-          await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
-          await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
-          await tx`
+        // The deactivation holds the member row open.
+        const deactivating = runtime()
+          .begin(async (tx) => {
+            await tx`select set_config('app.auth_user_id', ${fixture.owner.authUserId}, true)`;
+            await tx`select set_config('app.user_profile_id', ${fixture.owner.userProfileId}, true)`;
+            await tx`select set_config('app.workspace_id', ${fixture.workspaceA}, true)`;
+            await tx`
           select app.set_member_status(${target.userProfileId}::uuid, 'inactive')`;
-          await held;
-        })
-        .then(
-          () => "deactivated" as const,
-          (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+            await held;
+          })
+          .then(
+            () => "deactivated" as const,
+            (error: { message?: string }) => `refused:${error.message ?? "?"}`,
+          );
+
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        const moving = g.changeLeadStage(
+          ctx(target, fixture.workspaceA),
+          id,
+          opened,
+          stages.get(fixture.workspaceA)!.second,
         );
+        await new Promise((resolve) => setTimeout(resolve, scaled(250)));
+        release?.();
 
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      const moving = g.changeLeadStage(
-        ctx(target, fixture.workspaceA),
-        id,
-        opened,
-        stages.get(fixture.workspaceA)!.second,
-      );
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      release?.();
+        expect(await deactivating).toBe("deactivated");
+        // Rechecked after the wait, against the committed status.
+        expect(await moving).toEqual({ ok: false, reason: "not_permitted" });
+        expect(await kinds(id)).toEqual(["record_created"]);
 
-      expect(await deactivating).toBe("deactivated");
-      // Rechecked after the wait, against the committed status.
-      expect(await moving).toEqual({ ok: false, reason: "not_permitted" });
-      expect(await kinds(id)).toEqual(["record_created"]);
-
-      await admin()`
+        await admin()`
       update public.workspace_memberships set status = 'active'
        where workspace_id = ${fixture.workspaceA}
          and user_profile_id = ${target.userProfileId}`;
-      await admin()`
+        await admin()`
       update public.workspaces set manager_record_scope = null
        where id = ${fixture.workspaceA}`;
-    }, 20_000);
+      },
+      scaled(20_000),
+    );
   },
 );
 

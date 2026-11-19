@@ -46,6 +46,131 @@ export const ROLE_NAME = "limenzy_app";
 const ENV_KEY = "DATABASE_URL";
 const TOOLING_KEY = "DRIZZLE_TOOLING_DATABASE_URL";
 
+/*
+ * The hosted TEST project's own pair. Separate keys, never the application's:
+ * this script's whole job is to set a role password, and pointing it at the
+ * wrong project rotates the credential a running environment depends on.
+ */
+const TEST_ENV_KEY = "TEST_DATABASE_URL";
+const TEST_TOOLING_KEY = "TEST_DRIZZLE_TOOLING_DATABASE_URL";
+
+/** The 20-character project ref Supabase gives every project. */
+export function projectRefFrom(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  const user = decodeURIComponent(url.username || "");
+  /* Pooler: `postgres.<ref>`. The hostname is shared regionally and is not
+     evidence of anything. Direct: `db.<ref>.supabase.co`. */
+  const fromUser = user.includes(".")
+    ? user.slice(user.indexOf(".") + 1)
+    : null;
+  const fromHost =
+    (url.hostname.toLowerCase().match(/^db\.([a-z0-9]{20})\.supabase\.co$/) ??
+      [])[1] ?? null;
+  if (fromUser && fromHost && fromUser !== fromHost) return null;
+  return fromUser ?? fromHost;
+}
+
+/** Is this target the loopback interface? */
+export function isLoopbackUrl(rawUrl) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    return host === "127.0.0.1" || host === "localhost" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decide which target this run may touch, from the strings alone.
+ *
+ * Pure, so the guards can be proven offline with no database and no
+ * environment. The rules, in the order they matter:
+ *
+ *   - **Local is the default and stays local.** Without an explicit test
+ *     mode the target must be loopback. Before this existed, a developer
+ *     who pointed `DRIZZLE_TOOLING_DATABASE_URL` at hosted development and
+ *     ran `npm run db:role:local` would have rotated the password the
+ *     running application uses, with no warning.
+ *   - **Hosted requires naming the project.** Test mode is opt-in AND must
+ *     state which project ref it expects; a mismatch is refused rather than
+ *     reconciled.
+ *   - **The development project is never a target**, in either mode, even
+ *     if someone names it explicitly.
+ */
+/**
+ * @param {{
+ *   mode?: string,
+ *   toolingUrl?: string,
+ *   expectRef?: string | null,
+ *   developmentRef?: string | null,
+ * }} [options]
+ * @returns {{ ok: true, mode: string, envKey: string, ref: string | null }
+ *          | { ok: false, reason: string }}
+ */
+export function resolveRoleSetupTarget({
+  mode = "local",
+  toolingUrl = "",
+  expectRef = null,
+  developmentRef = null,
+} = {}) {
+  /** @type {(reason: string) => { ok: false, reason: string }} */
+  const refuse = (reason) => ({ ok: false, reason });
+
+  if (!toolingUrl) return refuse("no tooling connection string was supplied.");
+  let parsed;
+  try {
+    parsed = new URL(toolingUrl);
+  } catch {
+    return refuse("the tooling connection string is not readable.");
+  }
+  const ref = projectRefFrom(toolingUrl);
+
+  if (developmentRef && ref && ref === developmentRef) {
+    return refuse(
+      "that connection names the DEVELOPMENT project. This script sets a " +
+        "role password; it must never touch development.",
+    );
+  }
+
+  if (mode === "local") {
+    if (!isLoopbackUrl(toolingUrl)) {
+      return refuse(
+        `the default mode is local-only and ${parsed.hostname} is not ` +
+          "loopback. Pass --test with --expect-ref to target the hosted " +
+          "test project deliberately.",
+      );
+    }
+    return { ok: true, mode, envKey: ENV_KEY, ref: null };
+  }
+
+  if (mode !== "test") return refuse(`unknown mode "${mode}".`);
+
+  if (!expectRef) {
+    return refuse("--test requires --expect-ref=<project-ref>.");
+  }
+  if (developmentRef && expectRef === developmentRef) {
+    return refuse("--expect-ref names the development project. Refusing.");
+  }
+  if (!ref) {
+    return refuse(
+      "no project reference in the connection string; a pooler URI needs " +
+        "the `postgres.<ref>` username form.",
+    );
+  }
+  if (ref !== expectRef) {
+    return refuse(
+      `the connection string names a different project than --expect-ref ` +
+        `(${ref.slice(0, 4)}… vs ${expectRef.slice(0, 4)}…).`,
+    );
+  }
+  return { ok: true, mode, envKey: TEST_ENV_KEY, ref };
+}
+
 /**
  * 32 characters from [A-Za-z0-9] (~190 bits).
  *
@@ -114,10 +239,35 @@ export function upsertEnvValue(contents, key, value) {
  * Derive the runtime connection string from the tooling one: same host, port
  * and database, different role and password. Returns a URL object so the
  * caller decides whether it is ever stringified.
+ *
+ * ## Why the username is not simply the role name
+ *
+ * Supabase's connection pooler routes by TENANT, and it takes the tenant from
+ * the username: `<role>.<project-ref>`. A bare `limenzy_app` is unroutable and
+ * the pooler rejects it before any authentication happens, with
+ *
+ *     no tenant identifier provided (external_id or sni_hostname required)
+ *
+ * which reads like a credential problem and is not one. So when the tooling
+ * URL carries a tenant suffix, the runtime URL carries the same one.
+ *
+ * A direct connection, and every loopback connection, has no suffix to carry
+ * — `tenantRefFrom` returns null and the username stays the bare role, which
+ * is what the local stack has always used.
  */
+export function tenantRefFrom(rawUrl) {
+  try {
+    const user = decodeURIComponent(new URL(rawUrl).username || "");
+    return user.includes(".") ? user.slice(user.indexOf(".") + 1) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function buildRuntimeUrl(toolingUrl, role, password) {
   const url = new URL(toolingUrl);
-  url.username = encodeURIComponent(role);
+  const tenant = tenantRefFrom(toolingUrl);
+  url.username = encodeURIComponent(tenant ? `${role}.${tenant}` : role);
   url.password = encodeURIComponent(password);
   return url;
 }
@@ -197,23 +347,92 @@ async function main() {
     if (error.code !== "ENOENT") throw error;
   }
 
+  /* `--test --expect-ref=<ref>`; anything else keeps the local default. */
+  const args = new Map(
+    process.argv
+      .slice(2)
+      .map((a) => a.replace(/^--/, "").split("="))
+      .map(([k, v = "true"]) => [k, v]),
+  );
+  const mode = args.get("test") === "true" ? "test" : "local";
+  const expectRef = args.get("expect-ref") ?? null;
+  const label = mode === "test" ? "db:role:test" : "db:role:local";
+
+  const toolingKey = mode === "test" ? TEST_TOOLING_KEY : TOOLING_KEY;
   const toolingUrl =
-    process.env[TOOLING_KEY] || readEnvValue(existing, TOOLING_KEY);
+    process.env[toolingKey] || readEnvValue(existing, toolingKey);
 
   if (!toolingUrl) {
     console.error(
-      `\n✗ db:role:local — ${TOOLING_KEY} is not available.\n` +
-        `  Start the local stack with "npm run db:start" first ` +
-        `(see docs/development.md).\n`,
+      `\n✗ ${label} — ${toolingKey} is not available.\n` +
+        (mode === "test"
+          ? `  Add the test project's tooling URI to .env.local first.\n`
+          : `  Start the local stack with "npm run db:start" first ` +
+            `(see docs/development.md).\n`),
     );
     process.exit(1);
+  }
+
+  /* The development project, resolved from configuration so nobody has to
+     remember to deny it. */
+  const developmentRef = (() => {
+    try {
+      const host = new URL(readEnvValue(existing, "NEXT_PUBLIC_SUPABASE_URL"))
+        .hostname;
+      return (host.match(/^([a-z0-9]{20})\./) ?? [])[1] ?? null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const decision = resolveRoleSetupTarget({
+    mode,
+    toolingUrl,
+    expectRef,
+    developmentRef,
+  });
+  if (!decision.ok) {
+    console.error(`\n✗ ${label} — ${decision.reason}\n`);
+    process.exit(1);
+  }
+  const envKey = decision.envKey;
+
+  /*
+   * Hosted targets verify the server's certificate AND its hostname. A
+   * password set over an unverified connection is a password set to whoever
+   * answered.
+   */
+  let ssl;
+  if (mode === "test") {
+    const ca = (
+      process.env.TEST_DATABASE_CA_CERT ||
+      readEnvValue(existing, "TEST_DATABASE_CA_CERT") ||
+      readEnvValue(existing, "DATABASE_CA_CERT") ||
+      ""
+    )
+      .replace(/^["']|["']$/g, "")
+      .replace(/\\n/g, "\n");
+    if (!ca.includes("BEGIN CERTIFICATE")) {
+      console.error(
+        `\n✗ ${label} — no CA certificate available; refusing to set a ` +
+          `password over an unverified connection.\n`,
+      );
+      process.exit(1);
+    }
+    ssl = {
+      ca,
+      rejectUnauthorized: true,
+      servername: new URL(toolingUrl).hostname,
+    };
   }
 
   const { default: postgres } = await import("postgres");
   const sql = postgres(toolingUrl, {
     max: 1,
-    connect_timeout: 5,
+    connect_timeout: mode === "test" ? 15 : 5,
+    prepare: false,
     onnotice: () => {},
+    ...(ssl ? { ssl } : {}),
   });
 
   const password = generatePassword();
@@ -222,9 +441,11 @@ async function main() {
   } catch {
     // The driver's error can echo the connection string, so it is not shown.
     console.error(
-      `\n✗ db:role:local — could not enable the ${ROLE_NAME} login.\n` +
-        `  Is the local stack running and migrated? ` +
-        `Try "npm run db:start" then "npm run db:reset".\n`,
+      `\n✗ ${label} — could not enable the ${ROLE_NAME} login.\n` +
+        (mode === "test"
+          ? `  Is ${describeTarget(toolingUrl)} reachable and migrated?\n`
+          : `  Is the local stack running and migrated? ` +
+            `Try "npm run db:start" then "npm run db:reset".\n`),
     );
     process.exit(1);
   } finally {
@@ -233,13 +454,13 @@ async function main() {
 
   try {
     const runtimeUrl = buildRuntimeUrl(toolingUrl, ROLE_NAME, password);
-    const next = upsertEnvValue(existing, ENV_KEY, runtimeUrl.toString());
+    const next = upsertEnvValue(existing, envKey, runtimeUrl.toString());
     await writeFileAtomic(envPath, next);
   } catch {
     console.error(
-      `\n✗ db:role:local — the ${ROLE_NAME} password was changed, but ` +
+      `\n✗ ${label} — the ${ROLE_NAME} password was changed, but ` +
         `.env.local could not be updated.\n` +
-        `  The original file is unchanged. Re-run "npm run db:role:local" ` +
+        `  The original file is unchanged. Re-run this command ` +
         `to generate a fresh password and rewrite it.\n`,
     );
     process.exit(1);
@@ -247,9 +468,13 @@ async function main() {
 
   // Nothing identifying: no password, no username, no full URL.
   console.log(
-    `\n✓ db:role:local — ${ROLE_NAME} login enabled; ` +
-      `${ENV_KEY} written to .env.local (mode 0600) for ` +
-      `${describeTarget(toolingUrl)}\n`,
+    `\n✓ ${label} — ${ROLE_NAME} login enabled; ` +
+      `${envKey} written to .env.local (mode 0600) for ` +
+      `${describeTarget(toolingUrl)}` +
+      (decision.ref
+        ? ` (project ${decision.ref.slice(0, 4)}…${decision.ref.slice(-4)})`
+        : "") +
+      `\n`,
   );
 }
 

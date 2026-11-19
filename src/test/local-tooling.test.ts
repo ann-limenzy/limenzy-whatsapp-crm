@@ -105,6 +105,15 @@ const MILESTONE_3D_MIGRATIONS = [
 ];
 /** Milestone 4 — Sales Teams and membership (§163.1–§163.4, §163.12). */
 const MILESTONE_4_MIGRATIONS = ["20261026090000_sales_teams.sql"];
+/**
+ * Milestone 5A — Unassigned Leads become representable (§163.9, §163.13).
+ *
+ * One file: the nullable Record Owner, the relaxed owner-pair constraint and
+ * the NULL-correct transfer routine all belong to the same change, and
+ * splitting them would leave a window in which the column admits NULL while
+ * the routine still fails open on it.
+ */
+const MILESTONE_5A_MIGRATIONS = ["20261027090000_unassigned_leads.sql"];
 const APPLIED_MIGRATIONS = [
   ...MILESTONE_1C_MIGRATIONS,
   ...MILESTONE_1D_MIGRATIONS,
@@ -114,6 +123,7 @@ const APPLIED_MIGRATIONS = [
   ...MILESTONE_3C_MIGRATIONS,
   ...MILESTONE_3D_MIGRATIONS,
   ...MILESTONE_4_MIGRATIONS,
+  ...MILESTONE_5A_MIGRATIONS,
 ];
 
 describe("database package scripts", () => {
