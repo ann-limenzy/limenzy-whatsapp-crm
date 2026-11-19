@@ -113,8 +113,22 @@ export const leads = pgTable(
     stageId: uuid("stage_id").notNull(),
     sourceId: uuid("source_id"),
 
-    /** §26: Lead and Customer records use Record Owner, never "assigned to". */
-    recordOwnerUserProfileId: uuid("record_owner_user_profile_id").notNull(),
+    /**
+     * §26: Lead and Customer records use Record Owner, never "assigned to".
+     *
+     * **Nullable since Milestone 5A.** §163.9 keeps a Lead that could not be
+     * assigned "with no Record Owner", and §163.18 decision 2 leaves an
+     * imported Lead with no valid mapped owner Unassigned. NULL is the
+     * explicit absence of an owner, never "unknown" — and it is not the same
+     * thing as Assignment Required, which is the narrower §163.9 state and
+     * has no column yet.
+     *
+     * Nothing in 5A produces one: `leads_add_insert` still pins the owner to
+     * the creator. The column is nullable so the access rules, the transfer
+     * routine and the history can be made correct for NULL before any
+     * workflow depends on them.
+     */
+    recordOwnerUserProfileId: uuid("record_owner_user_profile_id"),
     createdByUserProfileId: uuid("created_by_user_profile_id").notNull(),
 
     /**

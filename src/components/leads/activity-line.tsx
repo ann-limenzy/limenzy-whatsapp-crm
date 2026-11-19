@@ -57,8 +57,22 @@ export function describeActivity(
         detail: entry.note ?? "",
       };
     case "owner_changed":
-      /* §163.13 asks for both ends, so both are shown rather than just the
-         new one — "who had it before" is the question people ask. */
+      /*
+       * §163.13 asks for both ends, so both are shown rather than just the
+       * new one — "who had it before" is the question people ask.
+       *
+       * A missing "from" is the first assignment of an Unassigned Lead, not
+       * a transfer, and it is NOT `nameOf(null)`: that renders "the system",
+       * which is right for an actor and wrong here. The headline changes too,
+       * because "changed the record owner" describes a handover that did not
+       * happen.
+       */
+      if (entry.fromOwnerUserProfileId === null) {
+        return {
+          headline: `${actorName} assigned the record owner`,
+          detail: `Unassigned → ${nameOf(entry.toOwnerUserProfileId)}`,
+        };
+      }
       return {
         headline: `${actorName} changed the record owner`,
         detail: `${nameOf(entry.fromOwnerUserProfileId)} → ${nameOf(

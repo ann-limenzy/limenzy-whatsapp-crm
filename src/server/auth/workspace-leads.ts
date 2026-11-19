@@ -60,7 +60,8 @@ export type LeadListItem = {
   readonly stageName: string;
   readonly stageIsActive: boolean;
   readonly sourceName: string | null;
-  readonly recordOwnerUserProfileId: string;
+  /** §163.9: null for an Unassigned Lead — nobody owns it. */
+  readonly recordOwnerUserProfileId: string | null;
   readonly isOwnedByActor: boolean;
   readonly createdAt: Date;
   readonly updatedAt: Date;
@@ -194,7 +195,7 @@ type ListRow = {
   stage_name: string;
   stage_is_active: boolean;
   source_name: string | null;
-  record_owner_user_profile_id: string;
+  record_owner_user_profile_id: string | null;
   /*
    * `Date | string`, deliberately. postgres.js parses `timestamptz` into a
    * Date when this project runs it from plain Node, and hands back the raw
@@ -215,7 +216,15 @@ const toItem = (row: ListRow, actorProfileId: string): LeadListItem => ({
   stageIsActive: row.stage_is_active,
   sourceName: row.source_name,
   recordOwnerUserProfileId: row.record_owner_user_profile_id,
-  isOwnedByActor: row.record_owner_user_profile_id === actorProfileId,
+  /*
+   * An Unassigned Lead is owned by nobody, so it is not owned by the actor.
+   * Written against null explicitly: `null === actorProfileId` is already
+   * false today, but a later change to a nullable `actorProfileId` would
+   * make an Unassigned Lead read as "yours" on every screen at once.
+   */
+  isOwnedByActor:
+    row.record_owner_user_profile_id !== null &&
+    row.record_owner_user_profile_id === actorProfileId,
   createdAt: new Date(row.created_at),
   updatedAt: new Date(row.updated_at),
 });
@@ -1538,7 +1547,12 @@ export type ReassignResult =
       readonly ok: true;
       /** Whether the actor can still see the Lead now that it has moved. */
       readonly retainsAccess: boolean;
-      readonly previousOwnerUserProfileId: string;
+      /**
+       * Null when the Lead was Unassigned — this was its first assignment,
+       * not a transfer. Empty string would have been a lie an `ownerNames`
+       * lookup would quietly turn into "Another team member".
+       */
+      readonly previousOwnerUserProfileId: string | null;
     }
   /** Already theirs. Nothing was written and nothing was recorded. */
   | { readonly ok: false; readonly reason: "unchanged" }
@@ -1594,7 +1608,7 @@ export async function reassignLead(
         return {
           ok: true as const,
           retainsAccess: visible !== undefined,
-          previousOwnerUserProfileId: row?.previous_owner ?? "",
+          previousOwnerUserProfileId: row?.previous_owner ?? null,
         };
       }
 

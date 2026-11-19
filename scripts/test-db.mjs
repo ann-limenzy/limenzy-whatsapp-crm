@@ -68,6 +68,10 @@ const SUITES = [
   // Milestone 4 — the same invariants under contention, plus the lock order
   // measured against user deactivation rather than argued about.
   "src/server/db/sales-teams-concurrency.db.test.ts",
+  // Milestone 5A — Unassigned Leads: the nullable Record Owner, §162.1 access
+  // failing closed on NULL in RLS and inside the transfer routine, the
+  // relaxed §163.13 constraint, and §160's count ignoring an unowned Lead.
+  "src/server/db/unassigned-leads.db.test.ts",
 ];
 const VARIABLE = "DRIZZLE_TOOLING_DATABASE_URL";
 const RUNTIME_VARIABLE = "DATABASE_URL";

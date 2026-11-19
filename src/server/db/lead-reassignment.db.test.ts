@@ -795,7 +795,13 @@ describe.skipIf(!reachable)("3D's security surface, audited", () => {
      * change produced, so the question is whether `limenzy_app` could write
      * one that claims a transfer. It cannot: the owner columns are not in
      * its INSERT grant, and a check constraint refuses an `owner_changed`
-     * row without both of them.
+     * row that names no recipient.
+     *
+     * Milestone 5A renamed that constraint from `..._names_both_owners` to
+     * `..._names_an_owner` and relaxed it, because the first assignment of an
+     * Unassigned Lead legitimately has no previous owner. It did NOT relax
+     * the half this test relies on: `to_owner_user_profile_id` is still
+     * required, so an entry naming nobody is still refused.
      */
     const [grant] = (await admin()`
       select has_column_privilege('limenzy_app', 'public.lead_activities',
@@ -819,7 +825,7 @@ describe.skipIf(!reachable)("3D's security surface, audited", () => {
           values (${fixture.workspaceA}, ${lead.id}::uuid, 'owner_changed',
                   ${fixture.owner.userProfileId})`;
       }),
-    ).rejects.toThrow(/lead_activities_transfer_names_both_owners/);
+    ).rejects.toThrow(/lead_activities_transfer_names_an_owner/);
   });
 
   it("does not let a note satisfy a transfer's history requirement", async () => {

@@ -2768,14 +2768,41 @@ Lead.
 
 ### Proposed slice sequence
 
-**5A — Unassigned Leads become representable.** Make the Record Owner
-nullable, re-derive the RLS predicates for a null owner, update the
-reassignment routine and activity history, extend the §160 responsibility
-check, and show **Unassigned** in the Lead list and detail. No rules, no
-rotation, no automatic assignment. Verification: a null-owner Lead is visible
-to Owner/Admin and to a Manager by their configured scope, and invisible to an
-unrelated Staff/Sales user; the existing owner-reassignment and deactivation
-suites still pass.
+**5A — Unassigned Leads become representable — implemented; applied to the
+local database.** Make the Record Owner nullable, re-derive the RLS predicates
+for a null owner, update the reassignment routine and activity history, extend
+the §160 responsibility check, and show **Unassigned** in the Lead list and
+detail. No rules, no rotation, no automatic assignment. Verification: a
+null-owner Lead is visible to Owner/Admin and to a Manager by their configured
+scope, and invisible to an unrelated Staff/Sales user; the existing
+owner-reassignment and deactivation suites still pass.
+
+Migration `20261027090000_unassigned_leads.sql`, SHA-256
+`5f9e704286d44f705db61ff74c0aeeb243fd6f4fe8303169f97dbea10a279b0c`.
+
+**Applied and verified on the local database on 19 November 2026.** The ledger
+held exactly one pending migration beforehand, with no applied version missing
+from the repository, and the file's hash matched the recorded checkpoint. After
+the apply: 17 migrations applied, the Record Owner column nullable, the
+relaxed §163.13 owner-pair constraint in place and its predecessor gone, and
+**zero** Unassigned Leads created — nothing was backfilled.
+
+- **20 tests** in the new `unassigned-leads.db.test.ts` suite passed.
+- **141 affected database regression tests** passed —
+  `lead-reassignment` and `leads-isolation` (67), then `lead-lifecycle` and
+  `sales-teams` (74).
+- `npm run typecheck` exited **0** after `next typegen` cleared a stale route
+  type; lint and formatting passed on every changed file.
+
+Two defects were found by running against a real database and fixed: the new
+suite seeded a pipeline with no Won or Lost stage, which §34's deferred
+constraint refuses at COMMIT; and a 3D test still named the owner-pair
+constraint 5A renamed. The constraint itself still refused the forged entry —
+only the expected name was stale, and the half that test relies on was not
+relaxed.
+
+**Hosted application remains pending.** No hosted preflight or apply has been
+run for this migration.
 
 **5B — Lead-assignment eligibility (§163.5).** An eligibility value on the
 active membership period, plus an eligibility-change audit table recording the
