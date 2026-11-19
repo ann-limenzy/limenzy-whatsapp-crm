@@ -2858,8 +2858,38 @@ constraint 5A renamed. The constraint itself still refused the forged entry —
 only the expected name was stale, and the half that test relies on was not
 relaxed.
 
-**Hosted application remains pending.** No hosted preflight or apply has been
-run for this migration.
+**Applied to hosted development on 19 November 2026.** Through the reusable
+wrapper `scripts/hosted-migrate.mjs`, which passed its eleven checks before
+applying: the target named the recorded development project in its username
+(the pooler hostname is shared regionally and identifies nothing), the ledger
+held exactly the 16 expected predecessors with no migration missing from the
+repository, `20261027090000` was the only pending file, its SHA-256 matched
+both the manifest and the committed Git version, TLS verified the certificate
+chain and the hostname, and `supabase db push --dry-run` independently
+reported the same single migration.
+
+A read-only baseline was captured **before** applying, and compared after:
+
+| | Before | After |
+| --- | --- | --- |
+| Migrations recorded | 16 | **17** |
+| Leads / with an owner / Unassigned | 5 / 5 / 0 | 5 / 5 / **0** |
+| Lead activity entries | 15 | 15 |
+| Record Owner `NOT NULL` | true | **false** |
+
+Both fingerprints — every Lead paired with its owner, and every activity
+paired with its kind and its two owner ends — are **byte-identical before and
+after**. No existing owner moved and no event was backfilled, which is what
+§163.15 requires and what the migration's own verification block asserts.
+
+The relaxed `lead_activities_transfer_names_an_owner` constraint is present
+and its predecessor is gone; `app.reassign_lead_owner` remains a
+SECURITY DEFINER routine owned by `limenzy_lead_support`.
+
+Development is denied by default in that wrapper and was reached only through
+an explicit `--allow-development`, which is refused if passed for any other
+target. The database-test guards are unaffected: development remains
+unconditionally forbidden as a test target.
 
 **5B — Lead-assignment eligibility (§163.5).** An eligibility value on the
 active membership period, plus an eligibility-change audit table recording the

@@ -35,8 +35,10 @@
  *
  *     --url-env=KEY       env/.env.local key holding the connection string
  *     --expect-ref=REF    the project ref the target MUST be
- *     --deny-ref=REF      a ref it must NOT be (repeatable). The development
- *                         project is denied automatically.
+ *     --deny-ref=REF      a ref it must NOT be (repeatable)
+ *     --allow-development acknowledge that the target IS the development
+ *                         project. Denied without this flag; refused if
+ *                         passed for anything else.
  *     --expect-count=N    how many migrations must be pending
  *     --require-empty     the target must have no ledger and no product
  *                         tables. For a bootstrap only; omit it for an
@@ -113,6 +115,21 @@ const expectCount = args.has("expect-count")
   ? Number(args.get("expect-count"))
   : null;
 const requireEmpty = args.get("require-empty") === "true";
+/*
+ * Development is denied by default. Migrating it is a real, intended
+ * operation, so it is reachable — but only by saying so explicitly AND
+ * naming the project, never by the ref happening to match. This flag widens
+ * nothing else: the ref must still be stated, the hash manifest and the
+ * committed file must still agree, TLS is still verified, and the runner's
+ * own dry-run must still match the plan.
+ *
+ * It has no effect on the database-test guards, which live in
+ * `scripts/database-target.mjs` and forbid development unconditionally. A
+ * migration is a deliberate, reviewed change to one project; a test suite
+ * creates and deletes rows. They are not the same risk and do not share a
+ * switch.
+ */
+const allowDevelopment = args.get("allow-development") === "true";
 const doApply = args.get("apply") === "true";
 
 if (!urlEnvKey || !expectRef) {
@@ -204,23 +221,43 @@ try {
 } catch {
   /* not configured; the explicit deny list still applies */
 }
-const denied = new Set([...repeated, ...(devRef ? [devRef] : [])]);
-if (denied.has(expectRef)) {
+const explicitlyDenied = new Set(repeated);
+if (explicitlyDenied.has(expectRef)) {
   abort(
     `the expected ref ${mask(expectRef)} is also on the deny list. Refusing.`,
   );
 }
-check(
-  "distinct from development",
-  devRef !== null && devRef !== expectRef,
-  devRef === null
-    ? "development ref not resolvable from config"
-    : `development is ${mask(devRef)}`,
-);
 if (devRef === null)
   abort(
-    "could not resolve the development project ref, so 'not development' cannot be proven.",
+    "could not resolve the development project ref, so neither 'is' nor " +
+      "'is not development' can be proven.",
   );
+
+const targetIsDevelopment = expectRef === devRef;
+if (targetIsDevelopment && !allowDevelopment) {
+  abort(
+    "this is the DEVELOPMENT project. Migrating it is permitted, but only " +
+      "when said so explicitly: re-run with --allow-development.",
+  );
+}
+if (allowDevelopment && !targetIsDevelopment) {
+  /* The flag is an acknowledgement about one target, not a general loosening.
+     Passing it for something else means the command does not say what it
+     does. */
+  abort(
+    "--allow-development was given but the target is not the development " +
+      "project. Remove the flag.",
+  );
+}
+check(
+  targetIsDevelopment
+    ? "development, explicitly selected"
+    : "distinct from development",
+  true,
+  targetIsDevelopment
+    ? `acknowledged via --allow-development; development is ${mask(devRef)}`
+    : `development is ${mask(devRef)}`,
+);
 
 // ========================================================== 2. TLS, before connecting
 out.log("\n2. transport security");
